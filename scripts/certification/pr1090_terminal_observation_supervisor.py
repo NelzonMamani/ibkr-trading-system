@@ -89,7 +89,7 @@ WINDOWS_INVENTORY_COMMAND = (
 )
 
 
-def runtime_inventory(*, platform=None, proc_root=None):
+def runtime_inventory(*, platform=None, proc_root=None, include_controllers=False, owned_pids=()):
     """Preserve matching PID/argv evidence; any incomplete enumeration fails closed."""
     platform = os.name if platform is None else platform
     evidence = {"completed": False, "runtimes": []}
@@ -99,7 +99,7 @@ def runtime_inventory(*, platform=None, proc_root=None):
             evidence.update(timeout_seconds=WINDOWS_INVENTORY_TIMEOUT_SECONDS,
                             query_method='CIM_SERVER_FILTERED_PYTHON')
             result = subprocess.run(
-                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_INVENTORY_COMMAND],
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_INVENTORY_COMMAND.replace("Name LIKE 'python%'", "(Name LIKE 'python%' OR Name='powershell.exe' OR Name='pwsh.exe')") if include_controllers else WINDOWS_INVENTORY_COMMAND],
                 capture_output=True, text=True, timeout=WINDOWS_INVENTORY_TIMEOUT_SECONDS, check=True)
             rows = json.loads(result.stdout)
             if isinstance(rows, dict):
@@ -132,8 +132,13 @@ def runtime_inventory(*, platform=None, proc_root=None):
         if os.getpid() not in {pid for pid, _ in processes}:
             raise ValueError("Supervisor missing from process inventory")
         for pid, args in processes:
-            if is_ross_runtime(args):
-                evidence["runtimes"].append({"pid": pid, "argv": [scrub_text(arg) for arg in args]})
+            if include_controllers and pid in owned_pids:
+                continue
+            controller = include_controllers and is_observation_controller(args)
+            if is_ross_runtime(args) or controller:
+                # New profile does not publish arbitrary command-line values.
+                evidence["runtimes"].append({"pid": pid, "entrypoint": "OBSERVATION_CONTROLLER" if controller else "OBSERVATION_RUNTIME"}
+                    if include_controllers else {"pid": pid, "argv": [scrub_text(arg) for arg in args]})
         evidence["completed"] = True
     except Exception as exc:
         evidence["error_type"] = type(exc).__name__
@@ -143,6 +148,51 @@ def runtime_inventory(*, platform=None, proc_root=None):
     return evidence
 
 
+def is_observation_controller(args):
+    if not args:
+        return False
+    executable = args[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+    names = {"natural_readonly_operator.py", "pr1090_terminal_observation_supervisor.py",
+             "run_natural_readonly_observation.ps1", "invoke-readonlyobservation.ps1",
+             "read_only_local_execution_required.ps1"}
+    if re.fullmatch(r"python(?:w)?(?:\d+(?:\.\d+)*)?(?:\.exe)?", executable):
+        for arg in args[1:]:
+            name = arg.replace("\\", "/").rsplit("/", 1)[-1].lower()
+            if name in names or name in {"scripts.certification.pr1090_terminal_observation_supervisor",
+                                        "scripts.certification.natural_readonly_operator"}:
+                return True
+        return False
+    if executable in {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}:
+        # Conservative detection only: opaque/interactive controller lifetime
+        # still needs the genuine operator's exclusive-attempt reservation.
+        return any(name in " ".join(args[1:]).lower() for name in names)
+    return False
+
+
+def benchmark_conflict_check(root):
+    from src.runtime.process_identity import read_process_identity
+    root = Path(root)
+    runner = json.loads((root/"runner.json").read_text(encoding="utf-8-sig"))
+    if runner.get("token") != os.environ.get("READONLY_ADMISSION_TOKEN"):
+        raise RuntimeError("Benchmark controller token mismatch")
+    controller = read_process_identity(runner["pid"])
+    if controller["creation_token"] != runner.get("creation_token"):
+        raise RuntimeError("Benchmark controller identity changed")
+    own = set()
+    current = read_process_identity(os.getpid())
+    for _ in range(16):
+        own.add(current["pid"])
+        if current["pid"] == controller["pid"]:
+            break
+        current = read_process_identity(current["parent_pid"])
+    else:
+        raise RuntimeError("Benchmark phase lineage unverified")
+    result = runtime_inventory(include_controllers=True, owned_pids=own)
+    if not result["completed"] or result["runtimes"]:
+        raise RuntimeError("Benchmark process inventory unavailable or occupied")
+    return result
+
+
 def no_ross_runtime_remains(evidence_path=None):
     evidence = runtime_inventory()
     if evidence_path is not None:
@@ -150,7 +200,50 @@ def no_ross_runtime_remains(evidence_path=None):
     return evidence["completed"] and not evidence["runtimes"]
 
 
-def final_broker_audit(*, observer_factory=None):
+def _capture_audit_original_accounts(directory, runtime_identity):
+    import hashlib
+    directory = Path(directory)
+    if not isinstance(runtime_identity, dict) or type(runtime_identity.get("pid")) is not int or not runtime_identity.get("creation_token"):
+        raise RuntimeError("Original capture runtime identity unverified")
+    proof = json.loads((directory/"shutdown_evidence.json").read_text())
+    if proof.get("runtime_profile") != "BENCHMARK_CAPTURE_V1" or proof.get("process_identity") != runtime_identity:
+        raise RuntimeError("Original capture profile/process differs")
+    commitment = proof.get("capture_account_scope")
+    if (not isinstance(commitment, dict) or set(commitment) != {"bytes","sha256"}
+            or type(commitment["bytes"]) is not int or not 0 < commitment["bytes"] <= 4096
+            or not isinstance(commitment["sha256"],str) or not re.fullmatch(r"[0-9a-f]{64}",commitment["sha256"])):
+        raise RuntimeError("Original capture account commitment unavailable")
+    private = directory.parent.parent/"private"/"capture"/"original-account-scope.json"
+    if private.is_symlink() or private.parent.is_symlink() or private.stat().st_size != commitment["bytes"]:
+        raise RuntimeError("Original capture account source differs")
+    raw = private.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != commitment["sha256"]:
+        raise RuntimeError("Original capture account source hash differs")
+    source = json.loads(raw)
+    if (set(source) != {"accounts","client_id","SDK_client_id","connection_epoch","scope"}
+            or source["scope"] != "ORIGINAL_NATIVE_MANAGED_ACCOUNTS"
+            or type(source["client_id"]) is not int or source["client_id"] != 71
+            or type(source["SDK_client_id"]) is not int or source["SDK_client_id"] != 71
+            or type(source["connection_epoch"]) is not int or source["connection_epoch"] < 0
+            or not isinstance(source["accounts"],list) or len(source["accounts"]) != 1
+            or not isinstance(source["accounts"][0],str) or re.fullmatch(r"DU[0-9]+",source["accounts"][0]) is None):
+        raise RuntimeError("Original capture PAPER account scope unavailable")
+    return tuple(source["accounts"])
+
+
+def _capture_audit_scope(client, expected_accounts, epoch):
+    with client._lock:
+        if (type(client.client_id) is not int or client.client_id != 71
+                or type(client.clientId) is not int or client.clientId != 71
+                or type(epoch) is not int or epoch < 0
+                or type(client._position_connection_epoch) is not int or client._position_connection_epoch != epoch
+                or client._stop_event.is_set() or not client.isConnected()
+                or not client._managed_accounts_event.is_set()
+                or tuple(client._managed_accounts) != expected_accounts):
+            raise RuntimeError("Audit original PAPER account/client scope unavailable or changed")
+
+
+def final_broker_audit(*, observer_factory=None, expected_profile=None, capture_evidence=None, expected_runtime_identity=None):
     """Fresh end-marker-confirmed query on a separate READ_ONLY audit client."""
     from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
     from src.config.runtime_config import resolve_ibkr_connection
@@ -158,6 +251,12 @@ def final_broker_audit(*, observer_factory=None):
     host, port, client_id, mode = resolve_ibkr_connection()
     if mode != "READ_ONLY":
         raise RuntimeError("Final audit requires READ_ONLY")
+    expected_accounts = None
+    if expected_profile is not None:
+        if (expected_profile != "BENCHMARK_CAPTURE_V1" or host != "127.0.0.1"
+                or type(port) is not int or port != 7497 or type(client_id) is not int or client_id != 71):
+            raise RuntimeError("Explicit capture audit scope differs")
+        expected_accounts = _capture_audit_original_accounts(capture_evidence, expected_runtime_identity)
     client = IbkrClient(host=host, port=port, client_id=client_id,
                         market_data_type="DELAYED", snapshot_timeout_seconds=10, readonly_enabled=True)
     client.readonly_enabled = True
@@ -169,6 +268,14 @@ def final_broker_audit(*, observer_factory=None):
             observer = observer_factory(client)
             observer.__enter__()
         client.connect()
+        epoch = client._position_connection_epoch if expected_profile is not None else None
+        if expected_profile is not None:
+            # A completed empty/foreign/multiple bootstrap is not refreshed to
+            # obtain a favorable result. Missing bootstrap permits ONE existing
+            # bounded managed-account read and no polling/query fallback.
+            if not client._managed_accounts_event.is_set():
+                client.get_primary_account(timeout_seconds=10)
+            _capture_audit_scope(client, expected_accounts, epoch)
         client._open_orders_event.clear()
         client._open_orders_snapshot = {}
         result["connected_before_query"] = client.is_connected()
@@ -177,12 +284,18 @@ def final_broker_audit(*, observer_factory=None):
         if not result["connected_before_query"] or not result["network_thread_alive_before_query"]:
             raise RuntimeError("Final audit transport unavailable before query")
         query_started = time.monotonic()
+        if expected_profile is not None:
+            _capture_audit_scope(client, expected_accounts, epoch)
         client.reqAllOpenOrders()
+        if expected_profile is not None:
+            _capture_audit_scope(client, expected_accounts, epoch)
         if observer_factory is None:
             result["end_received"] = bool(client._open_orders_event.wait(timeout=10))
         else:
             from src.core.acquisition import wait_event
             result["end_received"] = bool(wait_event(client._open_orders_event, 10))
+        if expected_profile is not None:
+            _capture_audit_scope(client, expected_accounts, epoch)
         result["elapsed_seconds"] = time.monotonic() - query_started
         result["connected_after_wait"] = client.is_connected()
         result["network_thread_alive_after_wait"] = bool(thread and thread.is_alive())
@@ -202,6 +315,13 @@ def final_broker_audit(*, observer_factory=None):
             if isinstance(exc, (AcquisitionCancelled, AcquisitionDeadlineExceeded)):
                 raise
     finally:
+        if expected_profile is not None:
+            with client._lock:
+                result["private_account_scope"] = {"original_capture_accounts":expected_accounts,
+                    "observed_accounts":tuple(client._managed_accounts),
+                    "managed_accounts_end_received":client._managed_accounts_event.is_set(),
+                    "native_client_id":client.client_id,"SDK_client_id":client.clientId,
+                    "connection_epoch":client._position_connection_epoch}
         if observer is not None:
             try:
                 finalizing = getattr(observer, "audit_finalization", None)
@@ -226,7 +346,24 @@ def final_broker_audit(*, observer_factory=None):
     return result
 
 
-def _capture_inner(pipe, path):
+def _capture_inner(pipe, path, *, bounded_private=None):
+    private_capture = (os.environ.get("READONLY_BENCHMARK_CAPTURE") == "BENCHMARK_CAPTURE_V1"
+                       if bounded_private is None else bounded_private)
+    if private_capture:
+        from scripts.certification.pr1040_real_readonly_runtime_observation_adapter import _BoundedPrivateText
+        with path.open("xb") as file:
+            stream = _BoundedPrivateText(file)
+            try:
+                for chunk in iter(lambda: pipe.read(65536), ""):
+                    stream.write(chunk)
+            finally:
+                stream.flush()
+                os.fsync(file.fileno())
+                pipe.close()
+            if stream.exceeded:
+                (path.parent/"retention-incomplete.json").write_text('{"retention_complete":false,"reason":"PRIVATE_LOG_LIMIT"}')
+                raise RuntimeError("Private capture log limit exceeded")
+        return
     with path.open("w", encoding="utf-8") as file:
         stream = SafeTextStream(file)
         try:
@@ -238,9 +375,9 @@ def _capture_inner(pipe, path):
             pipe.close()
 
 
-def _capture(pipe, path, errors):
+def _capture(pipe, path, errors, *, bounded_private=None):
     try:
-        _capture_inner(pipe, path)
+        _capture_inner(pipe, path, **({"bounded_private":bounded_private} if bounded_private is not None else {}))
     except BaseException as exc:
         errors.append(type(exc).__name__)
 
@@ -272,7 +409,7 @@ def require_clean_certification_worktree(expected_commit):
     return head
 
 
-def stop_and_finalize(process, readers, capture_errors, output, *, graceful_timeout=60,
+def stop_and_finalize(process, readers, capture_errors, output, *, expected_profile=None, private_output=None, graceful_timeout=60,
                       terminate_timeout=15, kill_timeout=15, reader_timeout=15):
     """Bound every escalation and cleanup wait, including after a failed kill."""
     state = {"pid": process.pid, "launcher_pid": getattr(getattr(process, "launcher", process), "pid", None),
@@ -378,11 +515,27 @@ def stop_and_finalize(process, readers, capture_errors, output, *, graceful_time
         healthy = False
 
     def quiet():
-        return no_ross_runtime_remains(output / "runtime_inventory.json")
+        if expected_profile is None:
+            return no_ross_runtime_remains(output / "runtime_inventory.json")
+        inventory = benchmark_conflict_check(output.parent.parent)
+        write_json(output/"runtime_inventory.json", inventory)
+        return True
 
     def audit():
-        with capture_console(output / "audit"):
-            return final_broker_audit()
+        if expected_profile is None:
+            with capture_console(output / "audit"):
+                return final_broker_audit()
+        from scripts.certification.pr1040_real_readonly_runtime_observation_adapter import benchmark_private_write, benchmark_json_bytes, benchmark_private_console
+        benchmark_conflict_check(output.parent.parent)
+        with benchmark_private_console(Path(private_output) / "audit"):
+            raw = final_broker_audit(expected_profile=expected_profile, capture_evidence=output,
+                expected_runtime_identity=state["runtime_identity"] if state["runtime_identity_verified"] else None)
+        benchmark_private_write(output.parent.parent/"private"/"capture", "final-audit-private.json", benchmark_json_bytes(raw))
+        # Exact status/count/mutation allowlist; no orders or broker error text.
+        return {key: raw.get(key) for key in ("query_completed", "disconnected", "query_type",
+            "timeout_seconds", "end_received", "connected_before_query", "network_thread_alive_before_query",
+            "connected_after_wait", "network_thread_alive_after_wait", "elapsed_seconds", "open_orders_count", "mutation_attempts")}
+
 
     observed_process = SimpleNamespace(
         pid=process.pid, poll=lambda: exit_code,
@@ -391,7 +544,9 @@ def stop_and_finalize(process, readers, capture_errors, output, *, graceful_time
         launcher_exit_code=state["launcher_exit_code"], lineage=state["lineage"],
         supervisor_error=None if healthy else "FORCED_OR_INCOMPLETE_SUPERVISOR_SHUTDOWN")
     try:
-        result = complete_after_process_exit(output, observed_process, quiet, audit)
+        result = (complete_after_process_exit(output, observed_process, quiet, audit,
+                    expected_profile=expected_profile) if expected_profile is not None else
+                  complete_after_process_exit(output, observed_process, quiet, audit))
     except BaseException as exc:
         error("terminal_finalization", exc)
         result = {"passed": False}
@@ -409,7 +564,10 @@ def main(argv=None):
     parser.add_argument("--seconds", type=float, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expected-commit", required=True)
+    parser.add_argument("--benchmark-capture", action="store_true")
     args = parser.parse_args(argv)
+    if args.benchmark_capture and args.seconds != 180:
+        parser.error("Benchmark capture uses exactly180 seconds")
     if not math.isfinite(args.seconds) or args.seconds <= 0:
         parser.error("seconds must be finite and positive")
     try:
@@ -433,13 +591,21 @@ def main(argv=None):
         require_clean_certification_worktree(args.expected_commit)
     except RuntimeError as exc:
         parser.error(str(exc))
+    profile = "BENCHMARK_CAPTURE_V1" if args.benchmark_capture else None
+    private_output = output.parent.parent/"private"/"supervisor" if profile else None
+    if profile:
+        if env.get("READONLY_BENCHMARK_CAPTURE") != profile:
+            parser.error("Maintained benchmark capture admission missing")
+        benchmark_conflict_check(output.parent.parent)
+        private_output.mkdir(parents=True, exist_ok=False)
     output.mkdir(parents=True, exist_ok=False)
-    command = [sys.executable, "-u", "-m", "src.main"]
+    command = ([sys.executable, "-u", "-m", "scripts.certification.pr1040_real_readonly_runtime_observation_adapter",
+                "--benchmark-capture"] if profile else [sys.executable, "-u", "-m", "src.main"])
     launcher = subprocess.Popen(command, cwd=ROOT, env=env,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     process = SupervisedProcess(launcher, command, nonce, handshake, acknowledgement_path=acknowledgement)
     capture_errors = []
-    readers = [threading.Thread(target=_capture, args=(pipe, output / name, capture_errors), daemon=True)
+    readers = [threading.Thread(target=_capture, args=(pipe, (private_output if profile else output) / name, capture_errors), daemon=True)
                for pipe, name in ((process.stdout, "stdout.log"), (process.stderr, "stderr.log"))]
     try:
         for reader in readers:
@@ -458,7 +624,9 @@ def main(argv=None):
     os.environ.update({key: value for key, value in env.items()
                        if key not in {HANDSHAKE_PATH, HANDSHAKE_NONCE, HANDSHAKE_ACK}})
     try:
-        return stop_and_finalize(process, readers, capture_errors, output)
+        return (stop_and_finalize(process, readers, capture_errors, output, expected_profile=profile,
+                                  private_output=private_output) if profile else
+                stop_and_finalize(process, readers, capture_errors, output))
     finally:
         process.close()
 

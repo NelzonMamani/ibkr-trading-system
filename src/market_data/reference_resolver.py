@@ -81,8 +81,15 @@ class CanonicalReferenceResult:
     adv20_outcome: Optional[str] = None
 
 
+class ReferenceCacheSizeLimitError(ValueError):
+    """Optional owner's prospective exact serialized cache exceeds its budget."""
+
+
 class PersistentReferenceCache:
-    def __init__(self, path: Path | str = Path("data/reference/reference_cache.json")) -> None:
+    def __init__(self, path: Path | str = Path("data/reference/reference_cache.json"), *, max_bytes: int | None = None) -> None:
+        if max_bytes is not None and (type(max_bytes) is not int or max_bytes <= 0):
+            raise ValueError("max_bytes must be a positive integer or None")
+        self.max_bytes = max_bytes
         self.path = Path(path)
         self._loaded = False
         self._store: dict[str, dict[str, Any]] = {}
@@ -122,19 +129,32 @@ class PersistentReferenceCache:
             self._load()
             if record is None and not self.path.exists():
                 return # Preserve legacy discard-without-file: no publication or new I/O permission.
+            prospective = self._store if self.max_bytes is None else deepcopy(self._store)
             for key in keys:
                 if record is None:
-                    self._store.pop(key, None)
+                    prospective.pop(key, None)
                 else:
-                    self._store[key] = deepcopy(record)
+                    prospective[key] = deepcopy(record)
+            encoded = None
+            if self.max_bytes is not None:
+                encoded = json.dumps(prospective, indent=2, sort_keys=True).encode("utf-8")
+                if len(encoded) > self.max_bytes:
+                    raise ReferenceCacheSizeLimitError(
+                        f"Reference cache bytes {len(encoded)} exceed maximum {self.max_bytes}")
             self.path.parent.mkdir(parents=True, exist_ok=True)
             temporary = None
             try:
-                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.path.parent,
+                mode = {"mode":"w", "encoding":"utf-8"} if encoded is None else {"mode":"wb"}
+                with tempfile.NamedTemporaryFile(**mode, dir=self.path.parent,
                         prefix=self.path.name+".", suffix=".tmp", delete=False) as handle:
                     temporary = Path(handle.name)
-                    json.dump(self._store, handle, indent=2, sort_keys=True)
+                    if encoded is None:
+                        json.dump(prospective, handle, indent=2, sort_keys=True)
+                    else:
+                        handle.write(encoded)
                 os.replace(temporary, self.path)
+                if self.max_bytes is not None:
+                    self._store = prospective
             finally:
                 if temporary is not None:
                     temporary.unlink(missing_ok=True)

@@ -20389,3 +20389,389 @@ legacy-tail activation or completed investigation repeat. Frozen observation
 parked work and operational quarantine are unchanged. No observer, provider/broker
 acquisition, broker mutation, operational enrollment or recovery clearing.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1234 acceptance — P03 source blocker and P02 local callback settlement
+
+Base 0c50c29a587f789c220cc8a1faa3f54fff13e4e6.
+Reviewed candidate 89c15d7c1fba836be7209293ddda65e2eb44ac3f.
+Candidate/reviewed tree ac52b56426b890643dd69e3812019d41ef62d696.
+PR https://github.com/NelzonMamani/ibkr-trading-system/pull/1234
+Independent exact-head review5912313204:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1234#pullrequestreview-5912313204
+The review first reproduced four first-ACK false-clear failures, then cleared
+the scoped correction. Independent7 core and11 correction checks passed; these
+counts overlap retained focused validation and are not additional full suites.
+The final SAME3 delta only appended evidence; source/test bytes remained exact.
+
+Required PR CI43749927830 attempt1 COMPLETE SUCCESS:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43749927830
+Scope132921423905 success, HARNESS_ONLY=False.
+Linux132921493876:8284passed/3skipped/4warnings/1198.02s.
+Windows full132921493919:8285passed/2skipped/6312warnings/2786.92s.
+Required Windows aggregate132935685371 SUCCESS; both Windows owners mandatory.
+Windows focused95/news37/float-cache9 also passed; counts overlap full coverage.
+Controlled132921493896 success:46 serial/6 cache/13 exit/48 stub-only harness
+controls, quote parser and evidence upload. No acquisition/observer was launched.
+Actual completed logs identify tested checkout99fe5588cacdd4b07eb4cf085639715a0a3c7771,
+whose ordered parents are base0c50c29a then reviewed head89c15d7c, treeac52b564.
+
+PR final focused archive14177413571 service metadata:727bytes SHA256
+a6d5f6dd2412d3bf6685f52bfd606b354158b77fa7a8326ad65331ffa2d279b8.
+Controlled archive14175822103 service metadata:745035bytes, SHA256
+5654f336d2ff193bceb2fe4bb4b3c42887072f1aa8514d7548c192da0fc27b4a.
+These are GitHub SERVICE metadata, not independent downloaded-byte verification.
+
+
+Immediately before integration, independent review re-read all five required
+job states/logs and whole-run SUCCESS, remote main/base/head unchanged, actual
+checkout and ordered parents/tree identity. Standing authorized expected-head
+merge produced accepted main a38b057d18c3254c9c8dfe0e1899b398ba362056.
+Its ordered parents are exactly base0c50c29a then reviewed head89c15d7c; its
+ac52b564 tree equals the candidate/reviewed/tested tree. No candidate receipt
+amendment, manual cancellation or unchanged-success suite rerun occurred.
+
+Automatic main push CI43754720567 is a separate run, not PR evidence renewal:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43754720567
+Attempt1 COMPLETE SUCCESS; all five mandatory jobs completed:
+- scope132936182472 SUCCESS, actual HARNESS_ONLY=False;
+- Linux132936229127:8284passed/3skipped/4warnings/1186.77s;
+- Windows full132936229369:8285passed/2skipped/6312warnings/2825.79s;
+- controlled132936229148 SUCCESS:46serial/6cache/13exit/48stub-only harness,
+  quote parser and evidence upload;
+- required Windows aggregate132950580621 SUCCESS, both Windows owners mandatory.
+Windows focused95/news37/float-cache9 also passed; counts overlap full coverage.
+Actual Linux/Windows/controlled checkouts all identify accepted a38b057d above.
+Whole-run SUCCESS, every job state, checkout/parents/tree and unchanged remote
+main were re-read after completion. No manual retry/cancellation occurred.
+Automatic push coverage is kept separate from prior PR/focused evidence; counts
+are overlapping, not additive financial or runtime exposure.
+Main focused archive14180050516 service metadata:726bytes SHA256
+7b064a4d30de36d688c65c45ff430912a62d524bc88fdf1d1512afbb1a7b7b5b.
+Main controlled archive14178161333 service metadata:745319bytes SHA256
+d970fcabe9a1911b6ac5bc2d6b967744cd743cc485ab975819b2883b16cdd396.
+Again these are service metadata, not independent downloaded-byte verification.
+
+P03 remains BLOCKED_SOURCE_NOT_ADOPTED: qualified SPY/QQQ evidence, justified
+strong-trend measurement/calibration and approved scheduled-event source/class/
+window/coverage inputs are still missing. No source acquisition or all-UNKNOWN
+carrier supplied false clearance. P02 supports ONLY the reviewed same-process
+terminal standalone roundtrip's observable local settlement, using retained Ross
+requests and real financial owners. Caches stay nonempty; no P02 SDK send/full
+Core boot/natural/broker proof is claimed. LOCAL_CHECK is not proposal/risk/
+reservation/final-write enrollment; ATR bounds/native entry/management stay closed.
+Original failures, old timeout uncertainty and cold quarantine remain preserved.
+
+ONE next bounded action: establish the missing P03 input authority before any
+adapter: approved separately qualified SPY/QQQ original completed-history/quote
+facts and justified measurement parameters, plus finite scheduled-event publisher,
+class/revision/interval coverage and window policy. Scheduled-event coverage must
+not attest absence of unforeseen risk. No UNKNOWN-only carrier closes this gap.
+Unsupported P02 scope/stages require separate reviewed contracts; this receipt
+supplies no additional enrollment or broker-history completeness certificate.
+
+This receipt appends only to the SAME3 from the actual accepted merge. All prior
+accepted bytes remain exact prefixes; only these three existing records change.
+No candidate amendment solely to append receipts, tracker or documentation-only
+PR loop. Frozen observation3f48bf3f/sourcec65/calendar, all five ownership vetoes,
+existing evidence/databases and parked work remain unchanged. No observer,
+provider/broker acquisition, operational capital or recovery action.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### 2026-11-15 — Separate READ_ONLY data-capture preparation is next
+
+See SAME governance section "Next prerequisite: separate source-bound READ_ONLY data-capture preparation". PR1234 review, complete PR/main CI jobs, tested parents/tree and accepteda38b057d/treeac52b564 independently verified; failure/proof limits preserved.
+
+Under standing authority prepare a default-off profile through existing qualified-history/quote/reference/context/evidence owners for later user-run IBKR PAPER/read-only capture: SPY/QQQ benchmarks first, any P02 cohort explicitly finite/approved. Repair bounded completed-minute/open-aligned request support at actual owner, defaults unchanged; retain raw wire/end clocks and prompt original assessment, never massage data to qualify. Existing pacing, exactclient, SDK/read-only, fresh-root and owned cleanup apply. Review exact runtime/window and publish a verified immutable capture-only caller after source review/CI. No acquisition now. Raw data private, safe metadata/hash receipts only. Single-day benchmarks are not calibration, numeric bounds, trend/macro clearance, costs or profitability.
+
+Frozen Ross observation3f48bf3f/sourcec65/calendar remains unchanged/separate, never concurrent. Independently propose official publisher/class/revision/interval/window macro coverage; no generic-label or empty-response false clearance. No new exporter/controller engine or repeated completed investigation. Actual P02 admission stages and other unresolved policies remain closed; all five vetoes and PAPER_READY=NO; PAPER_READINESS_GATE=FAIL remain.
+
+
+### 2026-11-15 — Reviewed bounded capture and P03 source-policy adoption
+
+Verified maina38b057d/treeac52 and carried receipt/scopef69ca17 once.
+Independent exact-contract review CLEAR on2aef475e6039428391fb76c258d2a6669f6525d6/
+tree0d56d01d4aa40d386c67eb1324b90db23e9c44c6 precedes this NEW project-policy
+adoption and all source implementation. Existing P02 governance now owns the
+separate default-off BENCHMARK_CAPTURE_V1 fixed SPY/QQQ cohort, actual completed-
+opening request/source/quote/reference contract, finite budgets, private raw
+retention, original assessment/fingerprints and expected-profile terminal safety.
+Existing P03 governance adopts the explicit uncalibrated three-completed-five-
+minute structural measurement and finite scheduled-event publisher/class/window/
+coverage/revision requirements; it does NOT adopt current publisher facts or
+actual source-producing permissions. Official-reference retrieval encountered
+proxy403; no page bytes, schedule dataset or market capture was acquired.
+A later approved finite source receipt and actual qualified benchmark inputs
+are still required; an empty response never grants macro clearance. No generic
+UNKNOWN-only carrier is completion. Source implementation/validation/review/CI
+remain subsequent work, not claimed by this adoption. Frozen observation
+3f48bf3f/sourcec65/calendar and all five vetoes stay unchanged. No observer,
+provider/broker acquisition, operational enrollment or recovery clearing.
+P02 stages/ATR bounds/native entry/management and unsupported P03 permissions
+remain closed. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### Bounded benchmark capture implementation and proof limits — 2026-11-15
+
+Starting accepted maina38b057d18c3254c9c8dfe0e1899b398ba362056/treeac52b564
+and recorded scopef69ca17c92d6762ab386c472706dceceaf7378c9 were verified;
+prior acceptance/scope additions were carried once in15efe7b0. Complete contract
+2aef475e6039428391fb76c258d2a6669f6525d6/tree0d56d01d received independent
+CLEAR before delegated NEW policy adoption065fb032 and any implementation.
+Existing P02/P03 governance retains exact definitions, budgets and rationale;
+these are new operational project choices, not historical Ross doctrine or
+calibrated trading results. Publisher reference retrieval's proxy403 failures
+remain failures with no acquired official page/schedule bytes.
+
+Source8bb21f42 adds the existing normalized historical owner's explicit bound
+completed-opening opt-in. Actual owner UTC/calendar supplies current completed
+minute end and duration from actual RTHopen; Native transmits1min/TRADES/RTH1/
+formatDate2/nonstreaming/empty options. Original Native client/SDK IDs71, epoch,
+qualified security, actual dispatch/completion/spec/raw metadata and final
+pre-wire calendar/minute are checked. NOOP has no fabricated wire witness.
+ALL returned raw rows remain, including forming/gapped/malformed/over-limit-N
+rows; rejected normalization counts prevent false qualification. Legacy default
+empty-end/RTH0/last-N/volume behavior remains unchanged. Source blob4896e8f8 and
+new collected test blob8663b77a were frozen and independently reviewed.
+
+Sourcec4182036 through the existing operator/process/supervisor/PR1040 adapter,
+market-data/snapshot/cache-probe and shutdown owners adds BENCHMARK_CAPTURE_V1,
+default OFF. Fixed SPY then QQQ only; no scanner/news/Core/strategy/risk/order/
+capital constructors or additional cohort. One capture connection and one
+sequential post-exit audit, exact71/no alternate-ID fallback, actual single PAPER
+account callback scope, strict client/epoch/generation checks and existing
+owned cancellation/cleanup. A primary25D daily reference request is one-shot;
+its retained-source adapter lets the actual canonical resolver consume original
+qualified evidence without new qualification/fallback/network requests. Opening
+history precedes one fresh LIVE quote; original assessment is captured promptly.
+Actual context/ATR/P02_ATR_OFFLINE_V1/report owners are reused unchanged. Missing,
+empty, delayed, stale, future, foreign, ambiguous, incomplete or malformed facts
+stay private evidence/refusals, never favorable-result retries or inferred facts.
+Quote clean-quality admission also rejects the legacy close-as-last projection.
+No costs, calibrated ATR bounds, universe representativeness or profit is inferred.
+
+Full raw history/quote/reference/source/context/report bytes and ALL child,
+operator, supervisor, audit and dependency diagnostics stay in fresh-root/private,
+structurally outside archived root/e. Safe metadata/counts/reasons/length/SHA256
+commitments only are shareable. Source-data48MiB plus finite bounded log streams
+and small fixed receipts fit the64MiB private limit; canonical input ceiling is
+existing16MiB. Over-limit retention stops qualification/further requests and
+marks retention incomplete; a truncated stream never becomes complete input.
+Actual capture-only request retirement, disconnect and console hooks replace no
+legacy hooks: expected profile is bound independently by operator/supervisor and
+verified OS identity. Unknown/self-declared weaker profiles fail. No nonexistent
+Core shutdown is recorded. Four new native Windows stub-only PowerShell controls
+cover private routing, cap/pipe draining and private second-log-open failure;
+they were not run locally because pwsh is absent, and require actual Windows CI.
+
+Focused validation: final historical50 passed/1.34s; existing affected history/
+completed-context/timeframe190 passed/4.26s. Independent isolated provider7 passed.
+Initial owner development6 failures (actual SDK/client identity and retained
+post-dispatch error evidence) and later3 pre-wire clock/calendar failures were
+reproduced and repaired. Earlier47 is superseded by50, not additive.
+Capture's initial frozen42 controls passed/2.64s; dependency neighbors6 passed/
+1.32s and canonical affected381 passed/8.86s. Counts overlap. Default collection
+atc418 contained8379 tests (92 new); all new tests are under collected tests/.
+These local results do not substitute for required final-head CI.
+
+Historical development failures remain: default-affected10FAIL/167PASS/7.19s
+exposed parser ordering and AST-extracted helper compatibility; repaired operator
+controls83PASS/5.61s. Composed first4FAIL/5PASS/.98s then1FAIL/8PASS/1.18s and
+1FAIL/8PASS/1.23s exposed missing new private-serializer SDK-object support and
+fixture SDK identity/clock/tick coherence; corrected9PASS/1.33s, then expanded
+20PASS/1.79s. Fixtures use
+coherent LIVE SDK tick types and original synthetic clocks, not production clock
+or tolerance changes. A separate381-probe1FAIL/380PASS/8.43s lacked the canonical
+inherited tests/offline guard; corrected-environment381PASS is recorded separately,
+not a production source repair. Required-import configuration output displaced an
+old marker from the existing16KiB receipt tail (1FAIL/38PASS/2.69s); requalification
+at the actual owner re-emits cache proof after imports, without increasing tail
+or timeout. Actual missing-last false acceptance was causally reproduced1FAIL/
+1.07s and fixed through the existing clean-quote owner, preserving raw evidence.
+
+Independent fullc418 review then found two substantive new-profile defects:
+post-exit audit queried for live/empty/multiple account scope (3 causal FAIL,
+1 matched-PAPER PASS/.35s), and dependency logs were direct/unbounded before a
+posthoc refusal (1 causal FAIL/.07s;1,048,644 bytes exceeded512KiB). The latter
+was a retention defect, not an admission bypass. Correction9a0d139c binds the
+actual original private capture scope/hash and verified child identity, validates
+the fresh audit's exact PAPER/client/epoch scope before and after query/wait,
+and caps/drains dependency logs in their EXISTING owner. Legacy audit/probe
+behavior remains unchanged. Unlaunched package scanner/news/catalyst/downstream
+stages now say NOT_RUN_CAPTURE_PROFILE. Observed changes invalidate certificates;
+no broker-atomic or unseen in-flight change guarantee is claimed.
+Correction's narrow run131PASS/2FAIL/4.73s included65 passing capture controls;
+the2 legacy stub failures were an unconditional new epoch read, repaired to be
+profile-only and verified with3 targeted passes/.84s. Independent adapted audit,
+probe, finalization/default controls8PASS/1.97s cleared9a0d's exact delta.
+
+A final resource review first found NO breach from primary-exchange enlargement
+alone (1PASS/.77s), then causally exposed cache amplification with deliberately
+malformed original Native metadata (1500-digit positive conId plus12KiB primary
+exchange): scaled48KiB private-source quota reached50,353 bytes after an unwrapped
+reference cache write (1FAIL/3boundaryPASS/.91s). This is not observed market
+data. Independent design CLEAR preceded quota adoptionf9e7b334 and implementation
+b758293c. The EXISTING cache now has optional benchmark256KiB prospective exact-
+UTF8/binary publication bounds (ordinaryNone behavior unchanged), with1MiB
+reserved BEFORE wrapped source writes inside48MiB (effective47MiB). Two caches
+and one atomic temp stay below that reserve. Original qualification metadata
+has64KiB raw-first admission; malformed actual1day/formatDate1 dates refuse
+before reference processing rather than being repaired from a valid prefix.
+No native integer range or trading threshold was invented. Source/codebyte
+boundary,+1,Unicode, unchanged-store/file on failure and production-positive
+controls23PASS/64deselected/1.46s (22 new cases), plus existingcache3PASS/.88s and
+namespace/discard2PASS/.42s. Independent original-cause/boundary/atomicity/
+production-positive delta9PASS/2.21s with1 existing warning clearedb758's exact
+three-file delta. Earlier50/190/381/42/65 and independent counts overlap, not
+additive exposure. Final normal CI collection contains8424 tests, including all
+137 new collected cases (50 historical and87 capture/cache); no source-local
+collection omission. Compile/diff checks pass. Complete final-head CI remains
+required; passing local subsets and failed prefixes are not integration permission.
+
+Known concurrency limit: checks recognize running modules and known old/new
+controller phases, recheck source/admission/audit boundaries and stop only owned
+work; the new profile pins/verifies actual71. Genuine exclusive operator scheduling
+through cleanup remains required. Frozen c65 does not share a whole-attempt lock;
+preflight/audit TOCTOU and opaque interactive launch limitations prevent an
+unconditional full-process nonoverlap certificate. No actual alternate-ID broker
+connection was demonstrated in the frozen route; no replacement or safety claim
+is manufactured from that source observation. Both attempts must be scheduled
+exclusively and never reuse roots. Existing frozen3f48bf3f caller bytes SHA256
+964e4dc4aad874a5aaa1d77dc91ff4de31d9d8960940601dfcdc0abe2d8b64be and its
+c65 source/calendar are unchanged. All6 reviewed calendar source-owner blobs
+still match; the completed78 calendar calls were reused, not repeated.
+
+This is offline synthetic transport/SDK callback and controlled-process proof,
+not real acquisition, natural progression, broker acceptance or live dataset
+approval. No capture/observer/provider/broker operation was launched. P03's
+adopted structural/event contract still lacks genuine finite official receipts,
+qualified current benchmark evidence and implemented active handoff fences;
+no alwaysUNKNOWN carrier closes that dependency. P02 admission stages, ATR
+numerical bounds and native entry/management remain CLOSED/UNKNOWN. All five
+ownership vetoes, parked work, evidence/databases and recovery state remain.
+
+ONE next bounded action after verified source integration: publish the separately
+reviewed immutable capture-only caller pinned to actual accepted source and the
+same reviewed calendar, then coordinator inspection before ONE exclusive later
+user-run attempt. Raw data remains private and any later quality decision is
+separate. Additional P02 securities need a predeclared finite cohort/selection/
+request budget. No trading, operational enrollment, recovery clearing or readiness
+upgrade follows. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### PR1235 final-head CI fixture-isolation correction — 2026-11-15
+
+PR1235 initial reviewed head `0f29d988f3e72ae54b33531d95cf98670b4d63eb`
+(tree `9495e81b91582db649d08da8b83946b4db03bf6f`, independent exact-head
+review [5913359807](https://github.com/NelzonMamani/ibkr-trading-system/pull/1235#pullrequestreview-5913359807))
+was tested at ordered merge checkout `cd62ab7845d3c9c659a8adb3098582fc2f1b3c9f`
+with parents accepted main `a38b057d18c3254c9c8dfe0e1899b398ba362056`
+and that candidate. Its tested tree matched the reviewed tree.
+
+[CI43771634891](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43771634891)
+Linux job132988675943 FAILED: **62 failed, 8359 passed, 3 skipped**, four
+warnings, 1070.38s. Preserve this failure, not a pass: 49 new history tests,
+eight capture tests and five later existing quote/Ross tests failed. The
+Windows controlled-process job132988675887 succeeded, including actual
+Windows PowerShell **52 harness checks**; the initial-head Windows full
+suite remains pending at this correction record and is not final-head evidence.
+No passing job was manually rerun or cancelled.
+
+Two causal test-process isolation defects were reproduced. The existing joined
+PMH pattern fixture's trace builder copies its temporary history function into
+the shared normalized provider module; restoring the trace alias alone leaves
+the foreign function behind. The new tests then called that function with
+`completed_opening`, producing TypeError before genuine source dispatch.
+Separately, the actual READ_ONLY child entrypoint deliberately publishes its
+safe environment directly; calling it in-process without restoring the complete
+environment leaked READ_ONLY/force-approval values into later strategy tests.
+Neither demonstrates a production acquisition/risk defect.
+
+Only the two new test modules were repaired: retain the actual provider callable
+at collection, restore it before and finally after capture fixtures, and isolate
+complete caller environment plus prior config overrides around in-process child
+entrypoint tests. Add two permanent causal controls using the actual native
+encoder/full capture owners and original environment publisher. Preserve all
+existing assertions, production defaults, deadlines, source/risk/safety gates and
+frozen observation distribution. Positive failure messages now expose the
+private synthetic refusal cause during tests.
+
+Ordered causal evidence (overlapping, not additive): real PMH complete-empty
+case then new native encoder **1 failed/1 passed**, 1.06s, before; same case then
+all 51 history tests **52 passed**, 1.61s, after. ABCD joined tests then capture
+**8 failed/139 passed**, 7.04s, before; corrected ABCD/capture/actual Core control
+**149 passed**, 7.45s. Two real entrypoint controls then existing force-approval
+control **1 failed/2 passed**, 1.10s, before and **3 passed**, 1.18s, after. An
+initial diagnostic command used a nonexistent node and collected no tests; it is
+not a regression pass. Final combined ABCD → capture → completed-history → quote
+future-admission → Ross policy/fast-trigger order **299 passed**, 62 existing
+datetime deprecation warnings, 10.00s. No unchanged full suite was repeated
+locally. Two added causal controls bring expected normal collection to 8426;
+required changed-head CI must establish actual complete results.
+
+The correction requires independent exact-head delta review and fresh automatic
+required Linux/Windows/downstream CI. Initial-head Windows successes, if any,
+remain historical. No source or artifact acceptance is inferred from these
+focused checks; final immutable caller publication remains pending verified
+integration. No acquisition/observer/broker mutation occurred. P03 actual source
+coverage and active handoff, P02 admission/ATR bounds/native entry/management,
+all five ownership vetoes and `PAPER_READY=NO; PAPER_READINESS_GATE=FAIL` remain
+unchanged. Next bounded action: independently review this fixture-only delta,
+finish required final-head CI, integrate the verified tree, and publish the
+accepted-source-pinned capture caller without launching it.
+
+
+### PR1235 Windows child-startup fixture correction — 2026-11-15
+
+Initial-head CI43771634891 completed Windows full suite job132988675929:
+**64 failed, 8358 passed, 2 skipped**, 6312 warnings, 2989.96s. Its downstream
+`windows-offline` job133003612765 correctly failed. Preserve this alongside the
+initial Linux62-failure receipt. Windows included the same49 history/eight
+capture/five downstream failures, plus two child-dependency probe failures.
+No completed job was manually rerun or cancelled.
+
+The fixture-isolation head `c38dfe166c7058572e3872f7e7ad8ee429e86d48`
+(tree `d90be96a060568272456d6a0c24010b385a65ed6`) independently cleared
+[review5913443165](https://github.com/NelzonMamani/ibkr-trading-system/pull/1235#pullrequestreview-5913443165).
+Seven independently ordered regression controls passed in3.75s (four existing
+warnings). Automatic CI43773850842 Linux job132995556621 passed **8423 passed,
+3 skipped**, four warnings, 809.65s at actual checkout
+`6e02f249acb36828388f92815d12852f94839371`; its ordered parents are accepted
+main `a38b057d18c3254c9c8dfe0e1899b398ba362056` then c38dfe16 and its tree
+matches d90be96a. Windows controlled-process job132995556594 passed, including
+52 actual PowerShell harness checks. That head's Windows full suite remains
+pending at this record; neither Linux nor controlled-process passes substitute
+for its outcome or subsequent changed-head CI.
+
+The two extra initial Windows failures were investigated separately. Their
+new test startup shim indiscriminately rejected socket.bind/connect. Both
+failures reproduce offline when Python's actual stdlib TCP socketpair fallback
+is selected: safe_import_ib_insync → ensure_event_loop → asyncio self-pipe →
+stdlib fallback listener bind → the custom test guard's AssertionError. This
+controlled reproduction is not the unretained original Windows child stack.
+Original Windows child stderr was not printed by the tests; no unseen stack or
+production clock/dependency defect is claimed. Installed timezone data was
+present in the original Windows environment.
+
+Repair only the new capture test module: reuse the exact maintained
+`tests/offline/sitecustomize.py` boundary and its existing strictly correlated
+stdlib socketpair exception, rather than inventing a loopback allowance. Keep
+normal plus forced real-fallback cases, controlled absent ibapi/ib_insync
+failures, successful child exit, capped/draining output and retention refusal
+assertions. Require the actual controlled missing-module reason, and print
+bounded synthetic receipt/stderr diagnostics on failure. The maintained offline
+guard and all production owners remain byte-unchanged.
+
+Causal evidence: original shim plus forced fallback **2 failed**, 1.28s;
+corrected normal/fallback available/missing-SDK/noisy-cap controls **8 passed**,
+2.80s (108 deselected; overlapping controls, not added to a full-suite total).
+Existing maintained offline socketpair/external/broker/DNS/datagram/native-curl/
+grandchild controls **24 passed**, 3.33s. Four additional parametrized controls
+bring expected normal collection to8430 (143 added over8287); actual required
+final-head CI remains authoritative. Diff/compile checks passed. No observer,
+provider/broker acquisition, production networking exception, operational action
+or readiness upgrade occurred.
+
+Next bounded action remains exact-head delta review and complete automatic
+required final-head CI, verified integration and immutable capture-only caller
+publication. Frozen Ross3f48bf3f/c65/calendar, actual P03-source/active-handoff
+closure, P02 vetoes, five ownership vetoes and
+`PAPER_READY=NO; PAPER_READINESS_GATE=FAIL` remain intact.
