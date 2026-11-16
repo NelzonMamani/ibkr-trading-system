@@ -435,7 +435,9 @@ def test_effective_child_dependencies_refuse_before_network_admission(tmp_path,m
     (package/'cache.py').write_text('_readonly_cache_isolated=True\n_readonly_cache_locations=[]\n')
     write_capture_probe_startup(startup,force_fallback=force_fallback)
     if missing:(startup/(missing+'.py')).write_text("raise ModuleNotFoundError('controlled child-only SDK absence')\n")
-    evidence=tmp_path/'private-probe';evidence.mkdir()
+    private=tmp_path/'private';private.mkdir()
+    evidence=private/'cache-probe'
+    assert not evidence.exists()
     child_env=dict(os.environ,PYTHONPATH=os.pathsep.join((str(startup),str(Path(__file__).resolve().parents[1]))),
         PR1108_YFINANCE_CACHE=str(tmp_path/'cache'))
     if missing:
@@ -584,7 +586,9 @@ def test_capture_dependency_probe_caps_and_drains_noisy_imports_before_admission
     (package/'__init__.py').write_text('')
     (package/'cache.py').write_text("print('PRIVATE_DEPENDENCY_DETAIL'*60000,flush=True)\n_readonly_cache_isolated=True\n_readonly_cache_locations=[]\n")
     write_capture_probe_startup(startup,force_fallback=force_fallback)
-    evidence=tmp_path/'private-probe';evidence.mkdir()
+    private=tmp_path/'private';private.mkdir()
+    evidence=private/'cache-probe'
+    assert not evidence.exists()
     child_env=dict(os.environ,PYTHONPATH=os.pathsep.join((str(startup),str(Path(__file__).resolve().parents[1]))),
         PR1108_YFINANCE_CACHE=str(tmp_path/'cache'))
     with pytest.raises(RuntimeError,match='logs incomplete or over limit'):
@@ -760,3 +764,24 @@ def test_capture_fixture_restores_actual_owner_and_child_environment(component,m
         assert os.environ['FORCE_RISK_APPROVAL_FOR_TRADE_READY']=='false'
     assert historical.get_intraday_bars is _CANONICAL_GET_INTRADAY_BARS
     assert dict(os.environ)==before and cfg._CONFIG_OVERRIDES==overrides
+
+
+@pytest.mark.parametrize('kind', ['directory', 'file', 'symlink', 'ancestor-link'])
+def test_capture_probe_refuses_collisions_before_child_start(tmp_path, monkeypatch, kind):
+    from scripts.certification import readonly_cache_probe as probe
+    private = tmp_path/'private'; private.mkdir()
+    target = private/'cache-probe'
+    sentinel = tmp_path/'sentinel'; sentinel.mkdir()
+    (sentinel/'keep').write_text('unchanged')
+    if kind == 'directory': target.mkdir(); (target/'keep').write_text('unchanged')
+    elif kind == 'file': target.write_text('unchanged')
+    else:
+        if kind == 'ancestor-link': private.rmdir(); link = private
+        else: link = target
+        try: link.symlink_to(sentinel, target_is_directory=True)
+        except OSError: pytest.skip('Symlink creation unavailable')
+    monkeypatch.setattr(probe.subprocess, 'Popen', lambda *a, **k: pytest.fail('child started on collision'))
+    with pytest.raises((FileExistsError, ValueError)):
+        probe.run_cache_probe('unused', tmp_path, target, {}, require_capture_dependencies=True)
+    assert (sentinel/'keep').read_text() == 'unchanged'
+    assert not (sentinel/'child-cache-probe.json').exists()
