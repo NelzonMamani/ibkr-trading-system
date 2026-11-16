@@ -6892,3 +6892,129 @@ required final-head CI, verified integration and immutable capture-only caller
 publication. Frozen Ross3f48bf3f/c65/calendar, actual P03-source/active-handoff
 closure, P02 vetoes, five ownership vetoes and
 `PAPER_READY=NO; PAPER_READINESS_GATE=FAIL` remain intact.
+
+
+### PR1235 accepted integration and immutable capture-only delivery — 2026-11-16
+
+Completed the bounded preparation scope from receipt
+`f69ca17c92d6762ab386c472706dceceaf7378c9`; its missing PR1234 receipt/scope
+additions were carried once into these records. No completed foundation or
+calendar investigation was repeated. [PR1235](https://github.com/NelzonMamani/ibkr-trading-system/pull/1235)
+was integrated under standing authorization with expected-head protection:
+
+- Base: `a38b057d18c3254c9c8dfe0e1899b398ba362056`, tree `ac52b56426b890643dd69e3812019d41ef62d696`.
+- Final reviewed head: `d4a0b516e8f63e90325e2a7a84cfe6304c0aa2ce`.
+- Candidate/reviewed/tested/accepted tree: `e582cabf3e8ef0b314abfa46af0fee2d6406c326`.
+- Actual PR CI checkout: `faac8f155750344047509169fa13b56b1ae8a4e1`, ordered parents base then final head.
+- Accepted main merge: `0a9e76d54267f8b0512cb352ec01dae5cfb9cf72`, independently verified ordered parents base then final head and identical tree.
+- [Final exact-head independent review5913578082](https://github.com/NelzonMamani/ibkr-trading-system/pull/1235#pullrequestreview-5913578082) CLEAR; REST review commit_id independently verified as the final head. Previous reviews5913359807/5913443165 remain history, not substitutes for the final delta review.
+
+[Required final-head CI43776829515](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43776829515)
+succeeded on attempt1 with all five jobs: scope133004890993; Linux133004948509
+**8427 passed, 3 skipped**, four warnings, 1212.53s; Windows133004948468
+**8428 passed, 2 skipped**, 6312 warnings, 2336.38s; controlled-process133004948512
+including **52 actual Windows PowerShell harness checks**; downstream133017076615.
+Both full-suite logs show the actual PR merge checkout above.
+
+[Automatic main CI43780932346](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43780932346)
+succeeded on attempt1 with all five jobs: scope133017703244; Linux133017760395
+**8427 passed, 3 skipped**, four warnings, 1103.72s; Windows133017760291
+**8428 passed, 2 skipped**, 6312 warnings, 2836.46s; controlled-process133017760320
+including **52 actual Windows PowerShell harness checks**; downstream133033110320.
+Actual full-suite and controlled checkout logs bind accepted main0a9e76d5, not
+the PR head or an inferred branch tip. All counts overlap across suites/jobs;
+8430 collected equals the prior8287 plus143 new controls (51 history,92 capture).
+Platform skips and existing warnings remain recorded; they are not passes.
+
+Preserved failure receipts: initial CI43771634891 Linux **62 failed/8359 passed/
+3 skipped**,1070.38s and Windows **64 failed/8358 passed/2 skipped**,2989.96s;
+intermediate CI43773850842 Linux **8423 passed/3 skipped**,809.65s but Windows
+**2 failed/8422 passed/2 skipped**,2670.93s, with its downstream gate failed.
+The intermediate two failures are exactly the child-dependency probes. The
+joined-history alias and in-process READ_ONLY environment leaks, then the custom
+test startup guard's incompatibility with real stdlib TCP socketpair fallback,
+were repaired only in the new test modules. The original Windows child stderr
+was not retained; the controlled fallback traceback is a reproduction, not the
+original unobserved stack. Production and the maintained offline guard were
+unchanged by those two correction commits. No job was cancelled, no successful
+unchanged-head suite was manually rerun, and Linux30/Windows60-minute budgets
+and downstream gates were unchanged. Earlier causal failures and focused checks
+remain preserved above; focused/independent counts are not added to CI totals.
+
+NEW project policy was independently reviewed/adopted before source changes:
+completed benchmark capture plus P03_REGIME_SOURCE_V1 source/measurement/window
+contracts; resource-bound refinement was adopted before its cache correction.
+These are project choices, not historical Ross authority or verified official
+schedule coverage. Existing policy owners contain the complete definitions.
+The default-off BENCHMARK_CAPTURE_V1 uses separately qualified SPY then QQQ;
+one qualification, primary25D daily reference, explicitly completed/open-aligned
+minute request and one fresh LIVE quote per asset, with original identities,
+SDK parameters, clocks, callbacks, raw bars and refusal provenance retained.
+Actual existing context, ATR measurement and P02_ATR_OFFLINE_V1 reporting are
+used only when their own strict inputs qualify. No forming/gapped result is
+trimmed into approval; no favorable-result retry or replacement source is added.
+
+The profile uses the existing PAPER/read-only localhost source and native
+exact71 admission, one180-second acquisition attempt plus360-second finalization
+within one covered actual RTH_OPEN envelope, after at least16 completed minutes.
+Original PAPER account/client/epoch scope, pacing, cancellation and owned cleanup
+remain mandatory. All detailed logs/raw brokerage records remain private; only
+safe statuses/counts/hashes enter the archive. The finite64MiB private allocation
+and prewrite bounded canonical caches are enforced; any retention/source refusal
+remains explicit incomplete evidence. Ordinary defaults are unchanged. No Core,
+scanner/news/strategy/risk/execution/capital pipeline is constructed by capture.
+
+Published independently reviewed exact bytes on
+`docs/pr1235-ci-acceptance-20261116`, immutable artifact commit
+`cc897770f03693bae1655571831a24dc20427b79` (parent accepted0a9e76d5,
+tree `5f71a756c5cb1d35e5f6b6da2a5041b70d49ad75`):
+
+- [Capture caller](https://github.com/NelzonMamani/ibkr-trading-system/blob/cc897770f03693bae1655571831a24dc20427b79/docs/ross/READ_ONLY_BENCHMARK_CAPTURE_REQUIRED.ps1), [raw](https://raw.githubusercontent.com/NelzonMamani/ibkr-trading-system/cc897770f03693bae1655571831a24dc20427b79/docs/ross/READ_ONLY_BENCHMARK_CAPTURE_REQUIRED.ps1): **30971 bytes**, SHA256 `1fe16941bc137aa8c560b4ed4e2a928360c6340dc225d5eb3cf59820391492db`, Git blob `b260c81e4fbfa7ab75ff51df8bd18ad6bc426332`.
+- [Fetch-only source helper](https://github.com/NelzonMamani/ibkr-trading-system/blob/cc897770f03693bae1655571831a24dc20427b79/docs/ross/PREPARE_READ_ONLY_BENCHMARK_CAPTURE.ps1), [raw](https://raw.githubusercontent.com/NelzonMamani/ibkr-trading-system/cc897770f03693bae1655571831a24dc20427b79/docs/ross/PREPARE_READ_ONLY_BENCHMARK_CAPTURE.ps1): **6865 bytes**, SHA256 `c30ddf18b84465bd32e3ffc54043d0c16c15dd3e419bd7706f7f9ffaa82a3276`, Git blob `1797a1e0363f55986d35a856fb47a6f1dfa140ac`.
+
+Root and independent reviewer each fetched both actual immutable raw URLs and
+verified ASCII/UTF8 bytes, lengths and SHA256 against the reviewed final files;
+root also verified their exact Git blob identities. The caller's accepted
+source/tree pins are0a9e76d5/e582cabf, preparation blob5cbb8bcdbed3041b41f5fce7cd64b1bf72a37ee4,
+calendar receipt196c45f0c34749aa17d74c67022656d0e6837f60/blob6f199a036a0b558923ec9975cebe73267532ca76,
+SHA256d487d73d2e0f9ef44a4345dbf4269da9e945589333c10fface07cc393cab99cd.
+All six reviewed calendar source-owner blobs were checked unchanged without
+rerunning the completed78-call calendar review. Inherited Git/LFS/attribute,
+path/hash/source, current execution-policy, READ_ONLY/client/session/fresh-root
+and cleanup guards are preserved. Confirmed laptop locations are automated.
+
+The complete two-download command is independently CLEAR at **3060 bytes**,
+SHA256 `88e0d2ddffeb8726ab6ff0a98dea18ef4864b0924cb1df5995a21c7553365518`:
+only reviewed template placeholders were replaced by immutable artifact commit
+and verified file hashes. It creates a fresh script folder, verifies BOTH
+complete downloads before either executes, invokes fetch-only source preparation
+then the genuine contemporaneously attested capture owner under current policy.
+The maintained caller displays the separate fresh actual evidence root. Neither
+the command nor either script was executed in this preparation/review batch.
+PowerShell CI used controlled stub children, not broker/provider capture.
+
+Limits remain explicit: private runtime benchmark data has NOT been acquired;
+SPY/QQQ is not a representative P02 universe, calibration/cost/performance proof,
+P03 trend validation or scheduled macro clearance. Official-source research
+remained proxy403/zero-byte blocked. P03's actual finite official event receipts
+and active immutable handoff/version fences remain missing and unenrolled;
+no always-UNKNOWN carrier is credited as completion. P02 numerical ATR bounds,
+admission/native entry/management and unsupported cooldown stages stay closed.
+Scheduled-event coverage would not establish absence of unforeseen macro risk.
+
+The frozen Ross distribution3f48bf3fb769cbffc6ddfdc515d965968e71c31a/sourcec65/
+calendar remains unchanged (original caller30004B SHA256964e4dc4aad874a5aaa1d77dc91ff4de31d9d8960940601dfcdc0abe2d8b64be).
+Attempts must be separately scheduled through completed owned cleanup. Known
+process checks plus native exact71 admission do not establish an atomic global
+lock across every offline phase of the unchanged frozen launcher. Exclusive
+whole-attempt operator scheduling is an explicit precondition; client vacancy
+remains UNKNOWN until native admission and is never operator-certified. No
+existing client is terminated, no old root reused and no admission fact inferred.
+
+Next bounded action: one later user-run, exclusively scheduled SPY/QQQ capture
+through this immutable caller, followed by offline inspection of its private
+source/refusal and exact P02 reports; share only reviewed safe metadata/hashes.
+Do not add cohort members or P03/P02 permissions from that attempt. No observer,
+provider/broker acquisition, order/holding mutation, operational capital action,
+recovery clearing or readiness upgrade occurred here. All five ownership vetoes
+and parked work remain intact. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
