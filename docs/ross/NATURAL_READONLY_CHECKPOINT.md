@@ -20841,3 +20841,342 @@ Focused duration/profile suites154passed/8.75s (overlaps earlier145). Windows
 PowerShell additions require actual changed-head CI; no local native parse claim.
 Exact final review and required automatic CI remain gates before authorized merge.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### PR1236 acceptance and PR1235_BENCHMARK_PREFLIGHT_REPAIR delivery — 2026-11-16
+
+Authorized expected-head merge accepted main
+b0ec1bf606a676fa5ca55847c3eba4278a582a1e, tree
+0ba25fef228e496c22897f2873e18a6bf6123478. Ordered parents are exactly
+base0a9e76d54267f8b0512cb352ec01dae5cfb9cf72 then reviewed final head
+495688502eb5870fe44495f8931ab518098bf957. Actual CI candidate
+ff883cd158c4d3e94b43b70f5b68b851581b994d has those same ordered parents/tree.
+PR https://github.com/NelzonMamani/ibkr-trading-system/pull/1236
+Final independent exact-head review5923981142 CLEAR supersedes the reopened
+initial review5923931685. Independent final completed-CI/refs/parents/tree review
+also cleared integration immediately before the authorized expected-head merge.
+
+Required automatic PR CI43913198692 attempt1 COMPLETE SUCCESS:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43913198692
+All five jobs completed successfully, actual HARNESS_ONLY=False:
+scope133460302199; Linux133460516459:8443passed/3skipped/4warnings/1129.75s;
+Windows133460516482:8444passed/2skipped/6312warnings/2708.97s;
+controlled133460516457:58serial/6cache/13exit/61orchestration checks plus quote
+parser; aggregate133490310830. Linux/Windows actual logs identify candidateff883.
+Controlled negative-child exits are expected fault controls, not failed CI jobs.
+These platform/focused scopes overlap and are not added as financial exposure.
+Initial CI43912189684 belongs only to superseded0915fbe0, not final authority.
+Automatic main push CI43921908266 is separate accepted-head evidence; currently
+Linux and controlled jobs succeeded and the full Windows/aggregate gates remain
+pending. No manual successful-suite rerun or CI cancellation was performed.
+
+Independent accepted-main verification re-fetched the exact ref/ordered parents/
+tree above and read the COMPLETE delivery block below. Its UTF8/LF final-newline
+SHA256 is44ccfd0257add47efcf3fee7b0ce82df77b76e5d403363d6d1d8e46f14631b4d.
+Confirmed historical source/Python paths and user-confirmed evidence base are
+checked automatically; helper verifies interpreter3.13.3. One fresh worktree,
+strict head/tree/clean/unused-root checks and one exact benchmark runner command;
+no old-root reuse or configuration write. Fixed sample session16November2026,
+London14:46-20:25 helper start/20:30 runner start. This is a later USER-operated
+capture-only block, never executed here. Its review is static; no native parse
+or execution of this standalone block is claimed. Actual CI separately exercises
+and parses the maintained helper/runner/outer PowerShell owners.
+
+Privacy wording clarification: mode0700 is REQUESTED on directory creation;
+actual laptop ACLs were not inspected. The earlier inherited-ACL wording is not
+an independently verified Windows ACL guarantee. All prior failure/receipt bytes
+remain intact. Final acceptance additions are retained locally for the next
+substantive carry, without amending the reviewed candidate or a docs-only PR loop.
+Frozen Ross3f48bf3f/sourcec65/calendar, original failed root and five ownership
+vetoes remain unchanged. No observer, broker/provider acquisition, laptop/TWS
+change, operational enrollment or recovery clearing. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Use Windows PowerShell 5.1 Desktop.'
+    }
+    $SourceCheckout = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $BaseDirectory = 'C:\Users\nelzo\RossObservationEvidence'
+    $RuntimePin = 'b0ec1bf606a676fa5ca55847c3eba4278a582a1e'
+    $ExpectedTree = '0ba25fef228e496c22897f2873e18a6bf6123478'
+    # Fixed sample session; do not retry or select favorable observations.
+    $LondonZone = [TimeZoneInfo]::FindSystemTimeZoneById('GMT Standard Time')
+    $EarliestStart = [datetime]::new(2026,11,16,14,46,0)
+    $LatestStart = [datetime]::new(2026,11,16,20,25,0)
+    $LatestRunnerStart = [datetime]::new(2026,11,16,20,30,0)
+    $LondonNow = [TimeZoneInfo]::ConvertTimeFromUtc([datetime]::UtcNow, $LondonZone)
+    if ($LondonNow -lt $EarliestStart -or $LondonNow -gt $LatestStart) {
+        throw 'This block is for 16 November 2026, 14:46-20:25 London only; nothing launched.'
+    }
+    foreach ($directory in @($SourceCheckout, $BaseDirectory)) {
+        if (!(Test-Path -LiteralPath $directory -PathType Container)) {
+            throw "Confirmed directory missing: $directory. Nothing launched."
+        }
+    }
+    if (!(Test-Path -LiteralPath $Python -PathType Leaf)) { throw 'Confirmed Python path missing.' }
+    & git -C $SourceCheckout fetch origin main
+    if ($global:LASTEXITCODE -ne 0) { throw 'Fetch failed; nothing launched.' }
+    $fetchedMain = (& git -C $SourceCheckout rev-parse refs/remotes/origin/main | Out-String).Trim()
+    if ($global:LASTEXITCODE -ne 0 -or $fetchedMain -cne $RuntimePin) {
+        throw 'Main differs from reviewed delivery; stop for delta review.'
+    }
+    $pinTree = (& git -C $SourceCheckout rev-parse ($RuntimePin + '^{tree}') | Out-String).Trim()
+    if ($global:LASTEXITCODE -ne 0 -or $pinTree -cne $ExpectedTree) { throw 'Accepted tree mismatch.' }
+    $before = @(& git -C $SourceCheckout worktree list --porcelain)
+    if ($global:LASTEXITCODE -ne 0) { throw 'Cannot inventory worktrees.' }
+    $prepareText = (& git -C $SourceCheckout show ($RuntimePin + ':docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1') | Out-String)
+    if ($global:LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($prepareText)) {
+        throw 'Pinned preparation helper unavailable.'
+    }
+    $prepareArgs = @{
+        ExpectedCommit = $RuntimePin; Python = $Python; SourceCheckout = $SourceCheckout
+        BaseDirectory = $BaseDirectory; RuntimeSeconds = 180
+    }
+    & ([scriptblock]::Create($prepareText)) @prepareArgs
+    $after = @(& git -C $SourceCheckout worktree list --porcelain)
+    if ($global:LASTEXITCODE -ne 0) { throw 'Cannot verify worktrees; preserve roots.' }
+    $added = @($after | Where-Object {
+        $_.StartsWith('worktree ') -and $before -notcontains $_
+    } | ForEach-Object { $_.Substring(9) })
+    if ($added.Count -ne 1) { throw 'Expected exactly one new worktree; preserve all roots.' }
+    $checkout = [IO.Path]::GetFullPath($added[0])
+    $root = Split-Path -Parent $checkout
+    if ((Split-Path -Parent $root) -cne $BaseDirectory -or
+        (Split-Path -Leaf $root) -cnotmatch '^ro-[0-9a-f]{8}$' -or
+        (Split-Path -Leaf $checkout) -cne 's') { throw 'Unexpected fresh-root path.' }
+    $head = (& git -C $checkout rev-parse HEAD | Out-String).Trim()
+    if ($global:LASTEXITCODE -ne 0 -or $head -cne $RuntimePin) { throw 'Prepared head mismatch.' }
+    $tree = (& git -C $checkout rev-parse 'HEAD^{tree}' | Out-String).Trim()
+    if ($global:LASTEXITCODE -ne 0 -or $tree -cne $ExpectedTree) { throw 'Prepared tree mismatch.' }
+    $dirty = @(& git -C $checkout status --porcelain)
+    if ($global:LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'Prepared checkout not clean.' }
+    foreach ($name in @('e','state','preparation','private','runner.json','admission.json','admission-consumed')) {
+        if (Test-Path -LiteralPath (Join-Path $root $name)) { throw 'Root already used; preserve it.' }
+    }
+    $runner = Join-Path $checkout 'scripts\certification\run_natural_readonly_observation.ps1'
+    if (!(Test-Path -LiteralPath $runner -PathType Leaf)) { throw 'Pinned runner missing.' }
+    $LondonNow = [TimeZoneInfo]::ConvertTimeFromUtc([datetime]::UtcNow, $LondonZone)
+    if ($LondonNow -lt $EarliestStart -or $LondonNow -gt $LatestRunnerStart) {
+        throw 'Start window expired; preserve prepared root. Nothing launched.'
+    }
+    Write-Host "BENCHMARK_CAPTURE_V1: $RuntimePin; new root: $root"
+    Write-Host 'SPY then QQQ only; runtime180/supervisor540; single-use immediate admission.'
+    Write-Host 'Prepare150/preflight150/package150/seal90; owned cleanup30 per phase.'
+    Write-Host 'Keep every other Ross/capture launcher idle until this attempt and cleanup finish.'
+    Write-Host 'Existing PAPER127.0.0.1:7497 Read-Only API/client71 guards apply; no configuration changed.'
+    Write-Host 'Invoke ONCE below. Do not run the ordinary command printed by the preparation helper.'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Python $Python -Root $root -ExpectedCommit $RuntimePin -RuntimeSeconds 180 -ReviewedCalendar -BenchmarkCapture
+    $operatorExit = $global:LASTEXITCODE
+    Write-Host "Operator exit: $operatorExit. Preserve all evidence; no automatic retry."
+    Write-Host 'Share only the final DIAGNOSTIC ZIP announced after successful privacy sealing.'
+    Write-Host 'Private records stay private. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.'
+    $global:LASTEXITCODE = $operatorExit
+}
+```
+
+
+### PR1236 accepted-main automatic CI completion — 2026-11-16
+
+Automatic main push CI43921908266 attempt1 COMPLETE SUCCESS at accepted
+b0ec1bf606a676fa5ca55847c3eba4278a582a1e:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43921908266
+All five mandatory jobs completed successfully: scope133491099872;
+Linux133491256016:8443passed/3skipped/4warnings/1255.80s;
+Windows full133491256000:8444passed/2skipped/6312warnings/3353.20s;
+controlled133491256364:58serial/6actualcache/13exit/61orchestration controls,
+quote parser and artifact upload; aggregate133526731204SUCCESS.
+Native Windows cleanup-receipt refusal cases pass. Controlled failures inside
+exit-propagation fixtures are expected negative controls, not failed CI jobs.
+Actual completed Linux/Windows logs identify accepted b0ec1bf6. Main remains
+that exact commit; ordered parents and tree equal the independently reviewed
+and PR-tested source. This automatic push coverage is separate from successful
+PR43913198692, and counts overlap rather than add to exposure or runtime proof.
+No unchanged-success rerun, cancellation, timeout weakening or source amendment.
+
+Independent accepted-merge and full delivery verification CLEAR: exact source,
+ordered parents/tree, source/Python/evidence-base path provenance, fresh root and
+clean unused worktree checks, fixed16November London window, existing helper and
+single180s ReviewedCalendar/BenchmarkCapture runner. Delivery SHA256
+44ccfd0257add47efcf3fee7b0ce82df77b76e5d403363d6d1d8e46f14631b4d
+is the complete preceding PowerShell block, UTF8/LF with final newline. The
+standalone block was statically reviewed, not natively parsed or executed here;
+accepted helper/runner were exercised by actual Windows CI. No observation or
+broker/provider operation was launched. Final acceptance additions remain local
+SAME3 carry for the next substantive scope; no documentation-only PR loop.
+Original failed Windows attempt/root/hash and earlier review/CI history remain.
+Frozen Ross distribution and laptop/TWS configuration are unchanged.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### PR1235 accepted integration and immutable capture-only delivery — 2026-11-16
+
+Completed the bounded preparation scope from receipt
+`f69ca17c92d6762ab386c472706dceceaf7378c9`; its missing PR1234 receipt/scope
+additions were carried once into these records. No completed foundation or
+calendar investigation was repeated. [PR1235](https://github.com/NelzonMamani/ibkr-trading-system/pull/1235)
+was integrated under standing authorization with expected-head protection:
+
+- Base: `a38b057d18c3254c9c8dfe0e1899b398ba362056`, tree `ac52b56426b890643dd69e3812019d41ef62d696`.
+- Final reviewed head: `d4a0b516e8f63e90325e2a7a84cfe6304c0aa2ce`.
+- Candidate/reviewed/tested/accepted tree: `e582cabf3e8ef0b314abfa46af0fee2d6406c326`.
+- Actual PR CI checkout: `faac8f155750344047509169fa13b56b1ae8a4e1`, ordered parents base then final head.
+- Accepted main merge: `0a9e76d54267f8b0512cb352ec01dae5cfb9cf72`, independently verified ordered parents base then final head and identical tree.
+- [Final exact-head independent review5913578082](https://github.com/NelzonMamani/ibkr-trading-system/pull/1235#pullrequestreview-5913578082) CLEAR; REST review commit_id independently verified as the final head. Previous reviews5913359807/5913443165 remain history, not substitutes for the final delta review.
+
+[Required final-head CI43776829515](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43776829515)
+succeeded on attempt1 with all five jobs: scope133004890993; Linux133004948509
+**8427 passed, 3 skipped**, four warnings, 1212.53s; Windows133004948468
+**8428 passed, 2 skipped**, 6312 warnings, 2336.38s; controlled-process133004948512
+including **52 actual Windows PowerShell harness checks**; downstream133017076615.
+Both full-suite logs show the actual PR merge checkout above.
+
+[Automatic main CI43780932346](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43780932346)
+succeeded on attempt1 with all five jobs: scope133017703244; Linux133017760395
+**8427 passed, 3 skipped**, four warnings, 1103.72s; Windows133017760291
+**8428 passed, 2 skipped**, 6312 warnings, 2836.46s; controlled-process133017760320
+including **52 actual Windows PowerShell harness checks**; downstream133033110320.
+Actual full-suite and controlled checkout logs bind accepted main0a9e76d5, not
+the PR head or an inferred branch tip. All counts overlap across suites/jobs;
+8430 collected equals the prior8287 plus143 new controls (51 history,92 capture).
+Platform skips and existing warnings remain recorded; they are not passes.
+
+Preserved failure receipts: initial CI43771634891 Linux **62 failed/8359 passed/
+3 skipped**,1070.38s and Windows **64 failed/8358 passed/2 skipped**,2989.96s;
+intermediate CI43773850842 Linux **8423 passed/3 skipped**,809.65s but Windows
+**2 failed/8422 passed/2 skipped**,2670.93s, with its downstream gate failed.
+The intermediate two failures are exactly the child-dependency probes. The
+joined-history alias and in-process READ_ONLY environment leaks, then the custom
+test startup guard's incompatibility with real stdlib TCP socketpair fallback,
+were repaired only in the new test modules. The original Windows child stderr
+was not retained; the controlled fallback traceback is a reproduction, not the
+original unobserved stack. Production and the maintained offline guard were
+unchanged by those two correction commits. No job was cancelled, no successful
+unchanged-head suite was manually rerun, and Linux30/Windows60-minute budgets
+and downstream gates were unchanged. Earlier causal failures and focused checks
+remain preserved above; focused/independent counts are not added to CI totals.
+
+NEW project policy was independently reviewed/adopted before source changes:
+completed benchmark capture plus P03_REGIME_SOURCE_V1 source/measurement/window
+contracts; resource-bound refinement was adopted before its cache correction.
+These are project choices, not historical Ross authority or verified official
+schedule coverage. Existing policy owners contain the complete definitions.
+The default-off BENCHMARK_CAPTURE_V1 uses separately qualified SPY then QQQ;
+one qualification, primary25D daily reference, explicitly completed/open-aligned
+minute request and one fresh LIVE quote per asset, with original identities,
+SDK parameters, clocks, callbacks, raw bars and refusal provenance retained.
+Actual existing context, ATR measurement and P02_ATR_OFFLINE_V1 reporting are
+used only when their own strict inputs qualify. No forming/gapped result is
+trimmed into approval; no favorable-result retry or replacement source is added.
+
+The profile uses the existing PAPER/read-only localhost source and native
+exact71 admission, one180-second acquisition attempt plus360-second finalization
+within one covered actual RTH_OPEN envelope, after at least16 completed minutes.
+Original PAPER account/client/epoch scope, pacing, cancellation and owned cleanup
+remain mandatory. All detailed logs/raw brokerage records remain private; only
+safe statuses/counts/hashes enter the archive. The finite64MiB private allocation
+and prewrite bounded canonical caches are enforced; any retention/source refusal
+remains explicit incomplete evidence. Ordinary defaults are unchanged. No Core,
+scanner/news/strategy/risk/execution/capital pipeline is constructed by capture.
+
+Published independently reviewed exact bytes on
+`docs/pr1235-ci-acceptance-20261116`, immutable artifact commit
+`cc897770f03693bae1655571831a24dc20427b79` (parent accepted0a9e76d5,
+tree `5f71a756c5cb1d35e5f6b6da2a5041b70d49ad75`):
+
+- [Capture caller](https://github.com/NelzonMamani/ibkr-trading-system/blob/cc897770f03693bae1655571831a24dc20427b79/docs/ross/READ_ONLY_BENCHMARK_CAPTURE_REQUIRED.ps1), [raw](https://raw.githubusercontent.com/NelzonMamani/ibkr-trading-system/cc897770f03693bae1655571831a24dc20427b79/docs/ross/READ_ONLY_BENCHMARK_CAPTURE_REQUIRED.ps1): **30971 bytes**, SHA256 `1fe16941bc137aa8c560b4ed4e2a928360c6340dc225d5eb3cf59820391492db`, Git blob `b260c81e4fbfa7ab75ff51df8bd18ad6bc426332`.
+- [Fetch-only source helper](https://github.com/NelzonMamani/ibkr-trading-system/blob/cc897770f03693bae1655571831a24dc20427b79/docs/ross/PREPARE_READ_ONLY_BENCHMARK_CAPTURE.ps1), [raw](https://raw.githubusercontent.com/NelzonMamani/ibkr-trading-system/cc897770f03693bae1655571831a24dc20427b79/docs/ross/PREPARE_READ_ONLY_BENCHMARK_CAPTURE.ps1): **6865 bytes**, SHA256 `c30ddf18b84465bd32e3ffc54043d0c16c15dd3e419bd7706f7f9ffaa82a3276`, Git blob `1797a1e0363f55986d35a856fb47a6f1dfa140ac`.
+
+Root and independent reviewer each fetched both actual immutable raw URLs and
+verified ASCII/UTF8 bytes, lengths and SHA256 against the reviewed final files;
+root also verified their exact Git blob identities. The caller's accepted
+source/tree pins are0a9e76d5/e582cabf, preparation blob5cbb8bcdbed3041b41f5fce7cd64b1bf72a37ee4,
+calendar receipt196c45f0c34749aa17d74c67022656d0e6837f60/blob6f199a036a0b558923ec9975cebe73267532ca76,
+SHA256d487d73d2e0f9ef44a4345dbf4269da9e945589333c10fface07cc393cab99cd.
+All six reviewed calendar source-owner blobs were checked unchanged without
+rerunning the completed78-call calendar review. Inherited Git/LFS/attribute,
+path/hash/source, current execution-policy, READ_ONLY/client/session/fresh-root
+and cleanup guards are preserved. Confirmed laptop locations are automated.
+
+The complete two-download command is independently CLEAR at **3060 bytes**,
+SHA256 `88e0d2ddffeb8726ab6ff0a98dea18ef4864b0924cb1df5995a21c7553365518`:
+only reviewed template placeholders were replaced by immutable artifact commit
+and verified file hashes. It creates a fresh script folder, verifies BOTH
+complete downloads before either executes, invokes fetch-only source preparation
+then the genuine contemporaneously attested capture owner under current policy.
+The maintained caller displays the separate fresh actual evidence root. Neither
+the command nor either script was executed in this preparation/review batch.
+PowerShell CI used controlled stub children, not broker/provider capture.
+
+Limits remain explicit: private runtime benchmark data has NOT been acquired;
+SPY/QQQ is not a representative P02 universe, calibration/cost/performance proof,
+P03 trend validation or scheduled macro clearance. Official-source research
+remained proxy403/zero-byte blocked. P03's actual finite official event receipts
+and active immutable handoff/version fences remain missing and unenrolled;
+no always-UNKNOWN carrier is credited as completion. P02 numerical ATR bounds,
+admission/native entry/management and unsupported cooldown stages stay closed.
+Scheduled-event coverage would not establish absence of unforeseen macro risk.
+
+The frozen Ross distribution3f48bf3fb769cbffc6ddfdc515d965968e71c31a/sourcec65/
+calendar remains unchanged (original caller30004B SHA256964e4dc4aad874a5aaa1d77dc91ff4de31d9d8960940601dfcdc0abe2d8b64be).
+Attempts must be separately scheduled through completed owned cleanup. Known
+process checks plus native exact71 admission do not establish an atomic global
+lock across every offline phase of the unchanged frozen launcher. Exclusive
+whole-attempt operator scheduling is an explicit precondition; client vacancy
+remains UNKNOWN until native admission and is never operator-certified. No
+existing client is terminated, no old root reused and no admission fact inferred.
+
+Next bounded action: one later user-run, exclusively scheduled SPY/QQQ capture
+through this immutable caller, followed by offline inspection of its private
+source/refusal and exact P02 reports; share only reviewed safe metadata/hashes.
+Do not add cohort members or P03/P02 permissions from that attempt. No observer,
+provider/broker acquisition, order/holding mutation, operational capital action,
+recovery clearing or readiness upgrade occurred here. All five ownership vetoes
+and parked work remain intact. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### PR1236 maintained benchmark delivery correction — 2026-11-16
+
+The earlier standalone inline44ccfd0257add47efcf3fee7b0ce82df77b76e5d403363d6d1d8e46f14631b4d
+block is WITHDRAWN. It used an obsolete interpreter path, broadened the benchmark
+window to full RTH and did not preserve the maintained current-policy/LFS/path/
+attestation owner. Its historical bytes and review claims remain above as a
+superseded receipt, not current delivery authority. No execution is claimed.
+
+Recovered the actual maintained immutable artifact parent
+cc897770f03693bae1655571831a24dc20427b79 and receipt b3a17ca4. The missing PR1235
+integration/distribution suffix is carried exactly once above, without rewriting
+accepted source or historical records. Repair is EXACTLY two literal substitutions
+in each existing helper/caller: runtime0a9e76d5/treee582cabf to accepted
+b0ec1bf606a676fa5ca55847c3eba4278a582a1e/tree0ba25fef228e496c22897f2873e18a6bf6123478.
+No other caller/helper byte changes. Preparation blob5cbb8b and LF/CRLF hashes,
+calendar blob6f199a/SHAd487d73 and all six reviewed calendar owners remain exact.
+The caller already uses the confirmed Python313 installation, full540-second
+same RTH_OPEN fingerprint, at least16completed minutes, contemporaneous local
+attestation and ordinary current-policy FILE invocation. All Git/nativeLFS/
+attributes/config/path/source/hash/fresh-root/client/cleanup/privacy checks stay.
+RTH_OPEN ends10:30NewYork; the old full-RTH afternoon start window is withdrawn.
+
+Repaired caller30971bytes SHA256
+5c84ca6272d05fdc42f2c66d71b47ab566d70698f5532d46c4010e80eadf93d5.
+Repaired fetch-only helper6865bytes SHA256
+1e36253808f194a036bd50a10f1fb02251239f3e2c62ea3186814fde963f4938.
+Independent exact-byte/source/preparation/calendar/guard delta review CLEAR.
+Required runtime PR43913198692 and accepted-main43921908266 are independently
+re-read COMPLETE SUCCESS attempt1, all five jobs; no unchanged suite rerun.
+This separate artifact receipt changes only the two maintained distribution
+paths and append-only SAME3; runtime production/harness code is unchanged.
+Frozen Ross3f48bf3f/sourcec65/calendar and every old artifact/root remain exact.
+No caller/helper execution, acquisition, observation or scheduler registration.
+
+Separate AIMD16November investigation: source ownership maps canonical facts
+through issuer relevance and fresh policy reassessment, not optional cached
+classification fields. Actual three original items, original clocks/identity/
+qualification/consumer decisions and disabled scheduler draft are not present in
+this workspace or recovered artifact branch. Their locations have been requested;
+no payload, positive qualification, scheduler or production defect is fabricated.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
