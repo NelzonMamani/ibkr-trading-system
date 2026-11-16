@@ -2111,3 +2111,30 @@ remain integration gates; local checks do not replace those receipts.
 Frozen Ross distribution3f48bf3f/sourcec65/calendar is unchanged. No observation,
 provider/broker acquisition, laptop/TWS change or old-root reuse occurred.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### Independent cleanup-receipt finding and narrow correction — 2026-11-16
+
+Initial source review5923931685 CLEAR at0915fbe0/treedae613d4 was reopened:
+review follow-up confirmed that failed benchmark probes never reach their public
+receipt projection. Both package and outer PowerShell finalizer had read only
+that public path; runtime inventory classifies Ross entrypoints, not this python
+-c probe. Thus child_exited=false/unknown in the retained private receipt could
+permit diagnostic packaging/sealing while probe writers remain alive. This
+predates the directory repair but directly affects its cleanup safeguards.
+Initial CI43912189684 at0915fbe0 remains historical, not final-head authority.
+
+Narrow correction: benchmark package and outer finalizer read the ORIGINAL
+private/cache-probe/child-cache-probe.json whenever the claimed directory exists.
+Missing, malformed, non-object, absent/null/false/string exit status refuses later
+phases; only typed true verifies exit. Shared receipt cannot override private
+uncertainty. Ordinary Ross branch remains unchanged. Known exited failures can
+still retain their diagnostic archive; no process-wide kill, deletion or retry.
+Nine actual Python package-prefix controls cover receipt shapes and verified
+exit; nine new native Windows PowerShell orchestration cases assert no observe,
+package or seal for uncertainty and preserve diagnostic packaging for known exit.
+These are controlled receipts, not an actual leaked-child or broker experiment.
+Focused duration/profile suites154passed/8.75s (overlaps earlier145). Windows
+PowerShell additions require actual changed-head CI; no local native parse claim.
+Exact final review and required automatic CI remain gates before authorized merge.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

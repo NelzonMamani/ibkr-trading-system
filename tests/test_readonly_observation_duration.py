@@ -318,3 +318,23 @@ def test_real_benchmark_preflight_claims_private_probe_before_startup(tmp_path, 
     assert not (tmp_path/'e/observation-attempt.json').exists()
     if case == 'missing-dependency':
         assert 'controlled child-only SDK absence' in receipt['stderr']
+
+
+@pytest.mark.parametrize('receipt', [None, '{', 'null', '[]', '{}',
+    '{"child_exited":false}', '{"child_exited":null}', '{"child_exited":"true"}',
+    '{"child_exited":true}'])
+def test_benchmark_package_requires_original_private_cleanup_receipt(tmp_path, receipt):
+    private = tmp_path/'private'/'cache-probe'; private.mkdir(parents=True)
+    if receipt is not None: (private/'child-cache-probe.json').write_text(receipt)
+    evidence = tmp_path/'e'; evidence.mkdir()
+    # A favorable public projection cannot conceal unresolved private ownership.
+    (evidence/'child-cache-probe.json').write_text('{"child_exited":true}')
+    node = next(n for n in ast.walk(ast.parse(OWNER.read_text()))
+                if isinstance(n, ast.If) and ast.unparse(n.test) == "phase == 'package'")
+    prefix = node.body[:next(i for i, n in enumerate(node.body) if isinstance(n, ast.With))]
+    code = compile(ast.Module(body=prefix, type_ignores=[]), str(OWNER), 'exec')
+    ns = dict(root=tmp_path, evidence=evidence, benchmark_capture=True, json=json)
+    if receipt == '{"child_exited":true}': exec(code, ns)
+    else:
+        with pytest.raises(SystemExit, match='no archive'): exec(code, ns)
+    assert not (tmp_path/'ross-natural-readonly-upload.zip').exists()

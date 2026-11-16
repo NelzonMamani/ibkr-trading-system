@@ -413,7 +413,18 @@ elif phase == 'package':
     # exclusively to the existing supervisor after its observed runtime exits.
     evidence.mkdir(exist_ok=True)
     probe_path = evidence/'child-cache-probe.json'
-    if probe_path.exists() and json.loads(probe_path.read_text()).get('child_exited') is False:
+    if globals().get('benchmark_capture', False):
+        private_probe = root/'private'/'cache-probe'
+        if private_probe.exists():
+            # Failed probes never reach the public projection. The original
+            # private receipt is the cleanup authority, including unknown exit.
+            try:
+                probe = json.loads((private_probe/'child-cache-probe.json').read_text())
+            except (OSError, ValueError):
+                raise SystemExit('Private cache probe cleanup unknown; no archive.')
+            if not isinstance(probe, dict) or probe.get('child_exited') is not True:
+                raise SystemExit('Private cache probe exit unverified; no archive.')
+    elif probe_path.exists() and json.loads(probe_path.read_text()).get('child_exited') is False:
         raise SystemExit('Cache probe still alive; preserve raw evidence, no archive.')
     with (benchmark_private_console(root/'private'/'packaging') if globals().get('benchmark_capture', False) else capture_console(evidence/'packaging')):
         preflight_timing('packaging_begin')

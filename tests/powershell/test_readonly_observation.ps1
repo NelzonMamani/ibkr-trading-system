@@ -44,6 +44,15 @@ if case=='venv-handoff' and phase in ('prepare','preflight','observe'):
     exec(compile(ast.Module(body=[node],type_ignores=[]),str(source),'exec'),ns)
     ns['require_controller']()
 if phase == 'preflight':
+    if case.startswith('benchmark-cleanup-'):
+        private=p/'private'/'cache-probe';private.mkdir(parents=True)
+        value=case.removeprefix('benchmark-cleanup-')
+        raw={'false':'{"child_exited":false}','null':'{"child_exited":null}',
+             'string':'{"child_exited":"true"}','true':'{"child_exited":true}',
+             'malformed':'{','array':'[]','empty':'{}','json-null':'null'}
+        if value!='missing':(private/'child-cache-probe.json').write_text(raw[value])
+        (e/'child-cache-probe.json').write_text('{"child_exited":true}')
+        sys.exit(1)
     if case=='cache-unowned':
         (e/'child-cache-probe.json').write_text(json.dumps(dict(child_exited=False)));sys.exit(1)
     if case=='preflight-late-pass':
@@ -226,6 +235,21 @@ try {
     $phases=Get-Content (Join-Path $root 'e/phases')
     Check ($code -ne 0 -and !(($phases -contains 'observe') -or ($phases -contains 'package') -or ($phases -contains 'seal'))) 'Unknown cache cleanup progressed'
     $passed++
+    foreach ($value in @('false','null','string','true','malformed','array','empty','json-null','missing')) {
+        $case = 'benchmark-cleanup-' + $value
+        $env:OBS_TEST_CASE=$case; $root=Join-Path $scratch $case
+        New-Item -ItemType Directory $root | Out-Null
+        $code=Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -ReviewedCalendar -BenchmarkCapture
+        $phases=Get-Content (Join-Path $root 'e/phases')
+        Check ($code -ne 0 -and !($phases -contains 'observe')) 'Failed private probe admitted observation'
+        if ($value -eq 'true') {
+            Check (($phases -contains 'package') -and ($phases -contains 'seal')) 'Verified cleanup lost diagnostic package'
+        } else {
+            Check (!(($phases -contains 'package') -or ($phases -contains 'seal'))) 'Unverified private cleanup progressed'
+            Check (!(Test-Path (Join-Path $root 'ross-natural-readonly-upload.zip'))) 'Unverified private cleanup archived'
+        }
+        $passed++
+    }
     # Literal150s boundary proof without waiting150s; OS exit remains authority.
     $start=[datetime]::UtcNow;$deadline=$start.AddSeconds(150)
     Check (!(Test-ObservationExitDeadline $deadline ($deadline.AddTicks(1)))) 'New150s budget accepted late zero exit'
