@@ -256,7 +256,18 @@ function Invoke-ReadonlyObservation {
         # A failed probe may have left its own child alive even after the
         # operator exits. Unknown probe ownership forbids every later phase.
         $probePath = Join-Path $evidence 'child-cache-probe.json'
-        if (Test-Path $probePath) {
+        $privateProbe = Join-Path (Join-Path $Root 'private') 'cache-probe'
+        if ($BenchmarkCapture -and (Test-Path -LiteralPath $privateProbe)) {
+            # Failed probes have no public projection. Require their original
+            # private cleanup receipt before either packaging or sealing.
+            $probePath = Join-Path $privateProbe 'child-cache-probe.json'
+            try {
+                $probe = Get-Content -Raw -LiteralPath $probePath | ConvertFrom-Json
+                if ($probe.child_exited -isnot [bool] -or !$probe.child_exited) {
+                    $canPackage = $false; if ($result -eq 0) { $result = 1 }
+                }
+            } catch { $canPackage = $false; if ($result -eq 0) { $result = 1 } }
+        } elseif (Test-Path $probePath) {
             try {
                 $probe = Get-Content -Raw $probePath | ConvertFrom-Json
                 if ($probe.child_exited -ne $true) { $canPackage = $false; if ($result -eq 0) { $result = 1 } }

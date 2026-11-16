@@ -6,11 +6,27 @@ import subprocess
 import sys
 import time
 import threading
+import stat
 from contextlib import ExitStack
 
 
 def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5, require_news_dependencies=False, require_capture_dependencies=False):
     evidence = Path(evidence)
+    if require_capture_dependencies:
+        # The preflight selects root/private/cache-probe. Claim it once before
+        # startup tracing or pipe readers can write. Never reuse prior evidence.
+        if not evidence.is_absolute() or evidence.name != 'cache-probe' or evidence.parent.name != 'private':
+            raise ValueError('Capture probe requires the owned absolute private/cache-probe path')
+        for parent in (evidence.parent, *evidence.parent.parents):
+            info = parent.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode)
+                    or getattr(info, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+                raise ValueError('Capture probe ancestor is not a plain directory')
+        evidence.mkdir(mode=0o700, exist_ok=False)
+        info = evidence.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode)
+                or getattr(info, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+            raise ValueError('Capture probe is not a fresh plain directory')
     trace = evidence / 'child-cache-stages.jsonl'
     child_env = dict(env, PR1108_CACHE_PROBE_TRACE=str(trace))
     body = (

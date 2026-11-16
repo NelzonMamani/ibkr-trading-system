@@ -2072,3 +2072,69 @@ required final-head CI, verified integration and immutable capture-only caller
 publication. Frozen Ross3f48bf3f/c65/calendar, actual P03-source/active-handoff
 closure, P02 vetoes, five ownership vetoes and
 `PAPER_READY=NO; PAPER_READINESS_GATE=FAIL` remain intact.
+
+
+### PR1235 benchmark preflight private-directory repair — 2026-11-16
+
+Failed Windows attempt: source0a9e76d54267f8b0512cb352ec01dae5cfb9cf72,
+root C:\Users\nelzo\RossObservationEvidence\ro-dfd75d8c. Preflight
+child_cache_isolation failed with FileNotFoundError; observation did not start,
+and independent final runtime inventory completed empty. Diagnostic ZIP SHA256
+5c3b884004e58923feeafe4356174d64bd96aec21026621446cb74437ed9ee95
+is user-supplied evidence identity, not a downloaded-byte verification here.
+Two reported isolated filesystem controls were stubbed-child controls, not real
+dependency or broker admission. The original failed root must remain preserved.
+PR1235 automated review5913773605 independently identified the same missing path;
+its later finding is preserved alongside the earlier exact-head CLEAR reviews.
+
+The existing run_cache_probe owner now claims absolute private/cache-probe once
+before startup, validates plain ancestor directories (including Windows reparse
+attributes), and refuses existing paths without overwriting evidence or starting
+a child. POSIX creation mode0700; Windows inherits the owned root ACL. No broader
+ACL guarantee is claimed. Ordinary Ross probe setup stays caller-owned. Existing
+private cap/drain, dependency qualification, deadline, exact-child kill/wait and
+failure receipt owners remain unchanged. No root deletion or retry is added.
+
+Regression executes the actual benchmark preflight body and real probe with a
+fresh missing cache-probe: synthetic available dependencies, controlled missing
+SDK and blocked-import timeout verify private receipt/log retention, child exit,
+public safe failure receipt and admission refusal. Other platform/session/source
+checks are fixture-controlled, not real Windows or broker admission. Existing
+normal/forced socketpair dependency/noisy-cap tests also stop precreating the
+probe path. Directory/file/link/linked-ancestor collisions refuse before Popen.
+Focused duration/profile suites145passed in8.52s; counts overlap prior coverage.
+Initial new fixture run3failed/142passed because its supervisor lacked the
+benchmark_conflict_check stub; corrected fixture supplies that controlled gate.
+Required exact-head review and automatic Linux/Windows/control/downstream CI
+remain integration gates; local checks do not replace those receipts.
+
+Frozen Ross distribution3f48bf3f/sourcec65/calendar is unchanged. No observation,
+provider/broker acquisition, laptop/TWS change or old-root reuse occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### Independent cleanup-receipt finding and narrow correction — 2026-11-16
+
+Initial source review5923931685 CLEAR at0915fbe0/treedae613d4 was reopened:
+review follow-up confirmed that failed benchmark probes never reach their public
+receipt projection. Both package and outer PowerShell finalizer had read only
+that public path; runtime inventory classifies Ross entrypoints, not this python
+-c probe. Thus child_exited=false/unknown in the retained private receipt could
+permit diagnostic packaging/sealing while probe writers remain alive. This
+predates the directory repair but directly affects its cleanup safeguards.
+Initial CI43912189684 at0915fbe0 remains historical, not final-head authority.
+
+Narrow correction: benchmark package and outer finalizer read the ORIGINAL
+private/cache-probe/child-cache-probe.json whenever the claimed directory exists.
+Missing, malformed, non-object, absent/null/false/string exit status refuses later
+phases; only typed true verifies exit. Shared receipt cannot override private
+uncertainty. Ordinary Ross branch remains unchanged. Known exited failures can
+still retain their diagnostic archive; no process-wide kill, deletion or retry.
+Nine actual Python package-prefix controls cover receipt shapes and verified
+exit; nine new native Windows PowerShell orchestration cases assert no observe,
+package or seal for uncertainty and preserve diagnostic packaging for known exit.
+These are controlled receipts, not an actual leaked-child or broker experiment.
+Focused duration/profile suites154passed/8.75s (overlaps earlier145). Windows
+PowerShell additions require actual changed-head CI; no local native parse claim.
+Exact final review and required automatic CI remain gates before authorized merge.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

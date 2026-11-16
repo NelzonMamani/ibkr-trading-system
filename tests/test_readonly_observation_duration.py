@@ -260,3 +260,81 @@ def test_effective_runtime_child_requires_news_before_admission(tmp_path, case):
     assert receipt['required_news_dependencies'] and receipt['child_exited']
     assert not receipt['timed_out'] and receipt['exit_code']==(0 if case=='valid' else 1)
     assert not (evidence/'preflight-result.json').exists()
+
+
+@pytest.mark.parametrize('case', ['pass', 'missing-dependency', 'timeout'])
+def test_real_benchmark_preflight_claims_private_probe_before_startup(tmp_path, monkeypatch, case):
+    from test_benchmark_capture_profile import write_capture_probe_startup
+    from scripts.certification import readonly_cache_probe, pr1040_real_readonly_runtime_observation_adapter as adapter
+    ns = functions(tmp_path)
+    startup = tmp_path/'child-startup'; startup.mkdir()
+    write_capture_probe_startup(startup, force_fallback=False)
+    package = startup/'yfinance'; package.mkdir()
+    (package/'__init__.py').write_text('')
+    (package/'cache.py').write_text('_readonly_cache_isolated=True\n_readonly_cache_locations=[]\n')
+    if case == 'missing-dependency':
+        (startup/'ibapi.py').write_text("raise ModuleNotFoundError('controlled child-only SDK absence')\n")
+    if case == 'timeout':
+        (startup/'ibapi.py').write_text('import threading; threading.Event().wait()\n')
+    actual_probe = readonly_cache_probe.run_cache_probe
+    def bounded_probe(*args, **kwargs):
+        # Only shorten the timeout fixture, keeping the real owner and child.
+        return actual_probe(*args, **kwargs, **({'timeout': 1} if case == 'timeout' else {}))
+    monkeypatch.setattr(readonly_cache_probe, 'run_cache_probe', bounded_probe)
+    def write(path, value):
+        path.parent.mkdir(parents=True, exist_ok=True); path.write_text(json.dumps(value))
+    manifest = ns['complete_manifest']()
+    (tmp_path/'preparation/source-prepared.json').write_text(json.dumps(manifest))
+    ns.update(benchmark_capture=True, benchmark_private_console=adapter.benchmark_private_console,
+        os=types.SimpleNamespace(name='nt', environ=os.environ),
+        sys=types.SimpleNamespace(version_info=(3,13,3), executable=sys.executable, stderr=sys.stderr),
+        require_controller=lambda: {}, require_prepared=lambda: {'binding': ns['binding']()},
+        session_check=lambda: None, verify_write_guards=lambda: None,
+        supervisor=types.SimpleNamespace(require_clean_certification_worktree=lambda _:None,
+            runtime_inventory=lambda: {'completed':True, 'runtimes':[]}, benchmark_conflict_check=lambda _:None),
+        write_json=write, original_state=tmp_path/'absent-original',
+        env=dict(os.environ, PYTHONPATH=os.pathsep.join((str(startup),str(REPO))),
+                 PR1108_YFINANCE_CACHE=str(tmp_path/'cache')))
+    target = tmp_path/'private'/'cache-probe'
+    assert not target.exists()
+    node = next(n for n in ast.walk(ast.parse(OWNER.read_text()))
+                if isinstance(n, ast.If) and ast.unparse(n.test) == "phase == 'preflight'")
+    code = compile(ast.Module(body=node.body, type_ignores=[]), str(OWNER), 'exec')
+    if case == 'pass': exec(code, ns)
+    else:
+        with pytest.raises((RuntimeError, subprocess.TimeoutExpired)): exec(code, ns)
+    receipt = json.loads((target/'child-cache-probe.json').read_text())
+    assert receipt['child_exited'] is True
+    assert receipt['timed_out'] == (case == 'timeout')
+    assert receipt['retention_complete'] is True
+    assert (target/'child-cache.stderr.log').exists()
+    outcome = json.loads((tmp_path/'e/preflight-result.json').read_text())
+    assert outcome['status'] == ('PASS' if case == 'pass' else 'FAIL')
+    assert (tmp_path/'admission.json').exists() == (case == 'pass')
+    if case != 'pass':
+        assert outcome['stage'] == 'child_cache_isolation'
+        assert outcome['reason'] == 'PREFLIGHT_REFUSED'
+        assert outcome['observation_started'] is False
+    assert not (tmp_path/'e/observation-attempt.json').exists()
+    if case == 'missing-dependency':
+        assert 'controlled child-only SDK absence' in receipt['stderr']
+
+
+@pytest.mark.parametrize('receipt', [None, '{', 'null', '[]', '{}',
+    '{"child_exited":false}', '{"child_exited":null}', '{"child_exited":"true"}',
+    '{"child_exited":true}'])
+def test_benchmark_package_requires_original_private_cleanup_receipt(tmp_path, receipt):
+    private = tmp_path/'private'/'cache-probe'; private.mkdir(parents=True)
+    if receipt is not None: (private/'child-cache-probe.json').write_text(receipt)
+    evidence = tmp_path/'e'; evidence.mkdir()
+    # A favorable public projection cannot conceal unresolved private ownership.
+    (evidence/'child-cache-probe.json').write_text('{"child_exited":true}')
+    node = next(n for n in ast.walk(ast.parse(OWNER.read_text()))
+                if isinstance(n, ast.If) and ast.unparse(n.test) == "phase == 'package'")
+    prefix = node.body[:next(i for i, n in enumerate(node.body) if isinstance(n, ast.With))]
+    code = compile(ast.Module(body=prefix, type_ignores=[]), str(OWNER), 'exec')
+    ns = dict(root=tmp_path, evidence=evidence, benchmark_capture=True, json=json)
+    if receipt == '{"child_exited":true}': exec(code, ns)
+    else:
+        with pytest.raises(SystemExit, match='no archive'): exec(code, ns)
+    assert not (tmp_path/'ross-natural-readonly-upload.zip').exists()
