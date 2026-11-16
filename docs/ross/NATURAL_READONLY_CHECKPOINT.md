@@ -21180,3 +21180,107 @@ qualification/consumer decisions and disabled scheduler draft are not present in
 this workspace or recovered artifact branch. Their locations have been requested;
 no payload, positive qualification, scheduler or production defect is fabricated.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### Immutable PR1236 delivery publication and exact missing-input boundary — 2026-11-16
+
+Artifact commit a427f887c9cf93f72dbc218d786d4bb44b0fcfdc, tree
+829bca266cf7f4cd8f81e0812845edd84a6b0fa2, sole parent accepted runtimeb0ec1bf6,
+is published on docs/pr1236-delivery-repair. Runtime main remains b0ec1bf6.
+Root and independent reviewer each fetched BOTH actual immutable raw URLs and
+verified exact ASCII/UTF8 bytes against reviewed committed files:
+PREPARE_READ_ONLY_BENCHMARK_CAPTURE.ps1:6865bytes SHA256
+1e36253808f194a036bd50a10f1fb02251239f3e2c62ea3186814fde963f4938;
+READ_ONLY_BENCHMARK_CAPTURE_REQUIRED.ps1:30971bytes SHA256
+5c84ca6272d05fdc42f2c66d71b47ab566d70698f5532d46c4010e80eadf93d5.
+Existing artifact versions cc897770 remain immutable; only accepted runtime/tree
+literals changed. Source/preparation/calendar/path/LFS/current-policy/attestation
+and finite RTH_OPEN guards remain exact. No bootstrap/policy-bypass replacement.
+
+One complete replacement download block is independently statically CLEAR:
+SHA2564283aa4597f0ff31a9719efa629f57741cade1f8a304dd341e480378a4b3213a,
+UTF8/LF final newline. It downloads BOTH exact immutable files into one fresh
+local non-reparse ordinary directory, verifies lengths/hashes and ParseFile for
+BOTH before either normal FILE invocation, rechecks before invocation and keeps
+current policy and contemporaneous caller attestation. No block/script execution
+or native local PowerShell parsing is claimed. Required runtime CI was re-read,
+not rerun. Frozen Ross caller independently read at3f48bf3f is exactly30004bytes,
+SHA256964e4dc4aad874a5aaa1d77dc91ff4de31d9d8960940601dfcdc0abe2d8b64be.
+Its sourcec65 news/scanner/catalyst-policy/handoff owner bytes equal acceptedb0e.
+
+User supplied exact pending attachment identities (NOT materialized/verified):
+SCHEDULE_REVIEWED_BENCHMARK_DRAFT.ps1:11896bytes, SHA256
+874784c3c00e2f0b1c31bee14277c341790d1070cc07425a67bfe468f2c3f3f5;
+ross-natural-readonly-upload(20261116-144942).zip:1783226bytes,51members,
+user-reported CRC verification, SHA256
+691a01e6af3765f52f48fdca2c08c61391dc4915a4b717092f35e10ad22bd418.
+Expected AIMD arrays: cache-exports/news.json -> news_intelligence.symbols.AIMD
+.evidence and .ross_qualification_evidence; original consumer terminal/stdout.log.
+The tool layer received filenames/hashes only, no attachment file IDs/paths;
+workspace/library/shared/download locations and available attachment tools were
+checked. No bytes or original clocks can be recovered from a filename/hash.
+Scheduler edit and actual AIMD causal replay remain blocked on those originals.
+No substitute scheduler, forced-positive fixture, guessed publication/assessment
+clock or source defect is manufactured. Known older AIMD quote diagnostics are
+not this16November news evidence. Optional canonical classifier fields are not
+Ross qualification authority: actual issuer/time/attribution/veto and downstream
+handoff must be evaluated at the retained original decision clocks.
+No task registration, acquisition, observation, old-root reuse, configuration
+change or gate relaxation occurred. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+```powershell
+& {
+    Set-StrictMode -Version 2.0
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Use Windows PowerShell 5.1 Desktop under its current execution policy.'
+    }
+    $base = 'C:\Users\nelzo\RossObservationEvidence'
+    $cursor = Get-Item -LiteralPath $base -Force -ErrorAction Stop
+    if (!$cursor.PSIsContainer -or $cursor.PSProvider.Name -ne 'FileSystem') { throw 'Confirmed local base missing.' }
+    $drive = New-Object IO.DriveInfo -ArgumentList ([IO.Path]::GetPathRoot($cursor.FullName))
+    if ($drive.DriveType -ne [IO.DriveType]::Fixed) { throw 'Local fixed drive required.' }
+    while ($null -ne $cursor) {
+        if (($cursor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Reparse ancestry refused.' }
+        foreach ($marker in @('runner.json','admission.json','operator-state-source.json','s\.git')) {
+            if (Test-Path -LiteralPath (Join-Path $cursor.FullName $marker)) { throw 'Existing run-root ancestry refused.' }
+        }
+        $cursor = $cursor.Parent
+    }
+    $folder = Join-Path $base ('benchmark-scripts-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $folder -ErrorAction Stop | Out-Null
+    $commit = 'a427f887c9cf93f72dbc218d786d4bb44b0fcfdc'
+    $files = @(
+        @{ Name='PREPARE_READ_ONLY_BENCHMARK_CAPTURE.ps1'; Bytes=6865; Hash='1e36253808f194a036bd50a10f1fb02251239f3e2c62ea3186814fde963f4938' },
+        @{ Name='READ_ONLY_BENCHMARK_CAPTURE_REQUIRED.ps1'; Bytes=30971; Hash='5c84ca6272d05fdc42f2c66d71b47ab566d70698f5532d46c4010e80eadf93d5' }
+    )
+    function Assert-VerifiedFile($file, $path) {
+        $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+        if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            $item.Length -ne $file.Bytes -or
+            (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $file.Hash) {
+            throw 'Downloaded length/hash/path verification failed; nothing further executes.'
+        }
+        $tokens = $null; $errors = $null
+        $null = [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+        if ($errors.Count -ne 0) { throw 'PowerShell parse failed; nothing further executes.' }
+    }
+    foreach ($file in $files) {
+        $path = Join-Path $folder $file.Name
+        if (Test-Path -LiteralPath $path) { throw 'Download collision; preserve files.' }
+        $uri = 'https://raw.githubusercontent.com/NelzonMamani/ibkr-trading-system/' + $commit + '/docs/ross/' + $file.Name
+        Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $path -ErrorAction Stop
+        Assert-VerifiedFile $file $path
+    }
+    # BOTH complete downloads must verify before either normal FILE invocation.
+    foreach ($file in $files) { Assert-VerifiedFile $file (Join-Path $folder $file.Name) }
+    Write-Host 'Current execution policy applies. If blocked, STOP; do not change policy or permissions.'
+    Write-Host 'The maintained caller requires current operator attestation and enforces its finite RTH_OPEN envelope.'
+    $helper = Join-Path $folder $files[0].Name
+    $caller = Join-Path $folder $files[1].Name
+    & $helper
+    Assert-VerifiedFile $files[1] $caller
+    & $caller
+}
+```
