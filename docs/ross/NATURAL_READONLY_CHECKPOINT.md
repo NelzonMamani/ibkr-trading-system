@@ -21325,3 +21325,54 @@ task-definition validation, interactive prompt visibility and staging on the
 Windows laptop remain unverified. No release scripts were invoked and no task
 was installed. No provider retrieval, broker connection or observation ran.
 PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+### PR1236 disabled scheduler Windows validation (2026-11-17)
+
+The retained AIMD replay and disabled scheduler were published at
+[4fc0d780c17ac60ea997f91c81c5c19bd41eb0c7](https://github.com/NelzonMamani/ibkr-trading-system/commit/4fc0d780c17ac60ea997f91c81c5c19bd41eb0c7).
+The attached manifest was 822 bytes, SHA-256
+`abe366f6e9133b70affd1ac7f5dba6028c4b507499c21711e629f3e74de0c181`.
+Its original disabled scheduler was 11,896 bytes, SHA-256
+`874784c3c00e2f0b1c31bee14277c341790d1070cc07425a67bfe468f2c3f3f5`.
+Its completed Ross archive was 1,783,226 bytes, SHA-256
+`691a01e6af3765f52f48fdca2c08c61391dc4915a4b717092f35e10ad22bd418`.
+The earlier replay and benchmark pin-only publication were reused.
+
+| Delivered file | SHA-256 |
+| --- | --- |
+| `SCHEDULE_REVIEWED_BENCHMARK_DRAFT.ps1` | `610ddba85a6acca3701217cd7683b62a97b741f443e303cb6c62875442541f3d` |
+| `PREPARE_READ_ONLY_BENCHMARK_CAPTURE.ps1` | `1e36253808f194a036bd50a10f1fb02251239f3e2c62ea3186814fde963f4938` |
+| `READ_ONLY_BENCHMARK_CAPTURE_REQUIRED.ps1` | `5c84ca6272d05fdc42f2c66d71b47ab566d70698f5532d46c4010e80eadf93d5` |
+| `PR1236_WINDOWS_SCHEDULER_VALIDATION_RECEIPT.json` | `5a64b11b1a0416649537db596f308ae0471dc40d1de87af71c5ca268484c8b68` |
+
+Independent review cleared exact PR head
+`8ab2a622780adb35bcc2b8edcc4735633232c293`. The first CI run
+(44171065043) passed the Windows scheduler step, but its full Linux and Windows suites
+failed the static guard that required exactly three PowerShell steps.
+The final head requires the fourth PowerShell step and its evidence path.
+The four focused CI gate tests passed locally. The final-head Linux suite
+passed 8,443 tests with three skips. The full Windows suite passed 8,444
+tests with two skips. All five original CI jobs passed with full scope,
+including the required Windows aggregate. The verified head was merged
+into the delivery branch at `ee18551d48de4e0683440db5505a6061c079e6fa`.
+[Required CI run](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/44174854268)
+The diff adds the scheduler test and its evidence to the existing
+Windows controlled-process owner. Existing CI scope and the scheduler, helper,
+caller, operating policy and production source were preserved.
+[PR #1237](https://github.com/NelzonMamani/ibkr-trading-system/pull/1237)
+
+PowerShell Desktop 5.1.26100.33648 parsed all three exact files. The Windows
+runner built the native task definition with a UTC local zone, verified a
+14:55 London trigger, checked default preview and disabled refusal, compared
+the quoted action with a path containing spaces, and exercised early and missed
+windows, duplicate install and single-use invocation. Wrong wrapper and
+same-length tampered release hashes refused. Registration and both
+release invocations used substitutes. The retained 890-byte JSON receipt is
+the exact member of Actions artifact 14369552059, whose downloaded ZIP matched
+SHA-256 `aa5fdd68b29230450d663b9a5e730427e3d10dd87c07f6e7823a5a5673b7d117`.
+[Windows CI job](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/44174854268/job/134363479624)
+
+Laptop staging and interactive prompt visibility remain UNVERIFIED. No actual task
+was registered or installed. No laptop operation, broker connection, provider
+retrieval or observation ran. The delivered draft remains disabled.
+PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.

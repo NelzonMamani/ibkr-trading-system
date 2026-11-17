@@ -1,0 +1,23 @@
+﻿{
+    "status":  "PASS",
+    "scheduler_sha256":  "610ddba85a6acca3701217cd7683b62a97b741f443e303cb6c62875442541f3d",
+    "shell":  "5.1.26100.33648",
+    "windows_zone":  "UTC",
+    "trigger_utc":  "2026-11-18T14:55:00.0000000Z",
+    "checks":  [
+                   "native_parse_all_three",
+                   "default_and_disabled",
+                   "native_task_definition",
+                   "london_time_conversion",
+                   "quoted_action",
+                   "early_and_missed_window",
+                   "duplicate_install_and_attempt",
+                   "wrapper_hash_and_both_release_hashes"
+               ],
+    "registration":  "SUBSTITUTE_ONLY",
+    "helper_and_caller":  "SUBSTITUTES_ONLY",
+    "laptop_staging":  "UNVERIFIED",
+    "prompt_visibility":  "UNVERIFIED",
+    "PAPER_READY":  false,
+    "PAPER_READINESS_GATE":  "FAIL"
+}
