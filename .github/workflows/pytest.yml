@@ -200,6 +200,10 @@ jobs:
       - name: Windows PowerShell5.1 quote diagnostic parser (no acquisition)
         shell: powershell
         run: .\tests\powershell\verify_quote_transport.ps1
+      - name: Windows PowerShell 5.1 disabled benchmark scheduler controls
+        if: hashFiles('docs/ross/SCHEDULE_REVIEWED_BENCHMARK_DRAFT.ps1') != ''
+        shell: powershell
+        run: .\tests\powershell\test_reviewed_benchmark_scheduler.ps1
       - name: Upload controlled harness evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -208,6 +212,7 @@ jobs:
           path: |
             ${{ runner.temp }}/ps-status-*/
             ${{ runner.temp }}/ps-observation-*/
+            ${{ runner.temp }}/ps-scheduler-*/scheduler-validation.json
           if-no-files-found: error
 
   windows-offline:
