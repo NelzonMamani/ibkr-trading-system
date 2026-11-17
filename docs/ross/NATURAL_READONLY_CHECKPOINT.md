@@ -21284,3 +21284,44 @@ change or gate relaxation occurred. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
     & $caller
 }
 ```
+
+### PR1236 offline attachment follow-up (2026-11-17)
+
+Both original attachments matched the sizes and SHA-256 values in the handoff
+manifest. The completed Ross export contains three AIMD publications in both
+the presentation and Ross qualification cohorts. The common provider retains
+issuer, publisher, publication and timestamp provenance and leaves catalyst
+classification to the Ross strategy adapter.
+
+At the recorded 14:47:37 London reassessment on 16 November, a frozen-clock
+cache-only replay at c65bc001 and accepted main b0ec1bf6 passed all three items
+through verified issuer relevance and the ordinary six-hour time gate. The
+14:40:48 GuruFocus revenue-growth headline is truncated. The 14:03:06
+Investing.com India Form 8-K headline and 13:47:33 Form 8-K headline describe
+filings without a qualifying event assertion. Ross returned
+`no_catalyst_classification` for each item. The scanner produced
+`no_valid_canonical_event` with incomplete coverage and a degraded acquisition
+receipt. Offline consumer revalidation of that scanner handoff returned zero
+qualifying IDs and no dilution veto. The terminal logged 51 AIMD refusals
+with the same qualification reason and degraded coverage, with no AIMD
+consumer revalidation line in the retained log. The cache-only replay
+reconstructed the consumer input from the final export and did not replay each
+historical refresh or establish search completeness. With the reviewed
+calendar supplied offline at the next opening, all three publications were
+before the prior close and ineligible for the overnight route. The affected
+policy, news and scanner paths were identical across the two sources.
+The three focused catalyst test modules passed 181 tests on accepted main.
+No production change was warranted.
+
+The disabled scheduler draft now binds delivery a427f887c9cf93f72dbc218d786d4bb44b0fcfdc,
+source b0ec1bf606a676fa5ca55847c3eba4278a582a1e and tree
+0ba25fef228e496c22897f2873e18a6bf6123478. Both delivery blobs matched the
+recorded sizes and SHA-256 values. The draft rejects Install and Run before
+local path access while disabled. All nine dates passed the offline time
+check for 14:55 London, 25 minutes after the reviewed open, with the
+five-minute wrapper window and full 540-second admission envelope fitting
+within the reviewed opening session. Native Windows PowerShell 5.1 parsing,
+task-definition validation, interactive prompt visibility and staging on the
+Windows laptop remain unverified. No release scripts were invoked and no task
+was installed. No provider retrieval, broker connection or observation ran.
+PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
