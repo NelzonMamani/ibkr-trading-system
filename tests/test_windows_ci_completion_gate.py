@@ -116,8 +116,16 @@ def test_windows_split_preserves_required_owners_budgets_and_guards():
         '.\\tests\\powershell\\verify_quote_transport.ps1',
     ):
         assert command in controlled
-    assert controlled.count('shell: powershell') == 3
+    scheduler_step = (
+        "      - name: Windows PowerShell 5.1 disabled benchmark scheduler controls\n"
+        "        if: hashFiles('docs/ross/SCHEDULE_REVIEWED_BENCHMARK_DRAFT.ps1') != ''\n"
+        "        shell: powershell\n"
+        "        run: .\\tests\\powershell\\test_reviewed_benchmark_scheduler.ps1\n"
+    )
+    assert scheduler_step in controlled
+    assert controlled.count('shell: powershell') == 4
     assert controlled.count('if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }') == 2
     assert 'name: windows-powershell-status-evidence' in controlled
     assert '${{ runner.temp }}/ps-status-*/' in controlled
     assert '${{ runner.temp }}/ps-observation-*/' in controlled
+    assert '${{ runner.temp }}/ps-scheduler-*/scheduler-validation.json' in controlled
