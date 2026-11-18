@@ -7606,3 +7606,62 @@ Historical copies remain available as immutable evidence.
 No remote observation, broker/provider connection, schedule installation,
 or laptop/TWS settings change occurred. PAPER_READY=NO.
 PAPER_READINESS_GATE=FAIL.
+
+
+## 2026-11-18 ordinary RTH observation — verified uploaded evidence
+
+Accepted source `69e9f658a37a2dcf495a74cedddedd51076f5dea`, tree
+`c7a716f07b96a34c578247158d57c63d86e7a153`; immutable caller delivery
+`565eb2aa043d0f683bde8ada13225064ab8f4180`. User-side fresh root:
+`C:\Users\nelzo\RossObservationEvidence\ro-3cef3cf1` (retain; single-use).
+Uploaded ZIP `ross-natural-readonly-upload(20261118-194626).zip` is
+1,497,377 bytes, SHA256
+`a44d3b5ad882bf48cb3f79436b2cf390b50baab00413c94d588999d372be484d`.
+All 51 archive members passed CRC verification. This receipt records direct
+review of uploaded bytes; it does not publish the archive or private records.
+
+Preflight at 19:22:12.179436 UTC passed. Preparation, preflight, observation,
+package and final process exits were zero; console archive-seal exit was zero.
+Runtime explicitly logged the supervised full-Core exact client71 pin BEFORE
+its only recorded connect attempt, then connected on71. This verifies actual
+pin enrollment and observed use71 in this run, not a natural occupied71 trial;
+the conflict refusal remains separately supported by offline causal tests.
+
+Both runtime SDK and independent audit counters recorded place=0, modify=0,
+cancel=0. Independent mutation validation passed. Graceful shutdown completed
+all hooks, the exact runtime exited without forced termination, both capture
+readers completed without errors, and final recognized-runtime inventory was
+complete and empty. Final broker audit completed reqAllOpenOrders and
+explicitly disconnected; zero open orders is not proof of a flat account.
+Tracked source-before/source-after bytes were identical; source integrity,
+operator order-state preservation and privacy scans passed.
+
+Natural results:215 Core cycles;3 actual scanner snapshots, labelled
+RTH_MID/RTH_MID/RTH_LATE. Watchlist sizes5/2/2; first AKAN,CUE,CLRO,AZI,HIHO,
+final AKAN,CUE. Official Focus and intents remained zero. Nine actual Focus
+evaluations rejected for no catalyst/no_valid_canonical_event;128 later news
+reassessments are repeated observations, not128 distinct candidates.
+190 native historical queries completed, with95 reuses (285 complete attempt
+results across those layers). Five distinct ownership/manual-review vetoes remained across215 cycles;
+1075 diagnostic lines are repetitions, not1075 exposures. News maintenance
+recorded185 completed/6 failed (GTN A five times; ICU once),
+313 feed requests/3381 reuses; shutdown had no inflight work or live workers and
+cleanup_complete=true. These counts are scoped to this run and are not summed
+with earlier overlapping proof batches.
+
+Next bounded offline investigation: HIHO retained a fresh explicit earnings-
+results headline and had later canonical reassessments before its next-scan
+stale-market-data removal. Trace actual retained inputs through issuer/event
+ownership, classification, provenance and acquisition-receipt revalidation.
+Null provider-cache classifications are not themselves a bug: the strategy
+adapter owns event classification. A reporting-period ownership grammar issue
+is a source lead requiring causal reproduction, not an established repaired
+root cause or authorization to manufacture positive qualification.
+
+Four yfinance HTTP404 stderr messages remain retained; they were not fatal
+terminal outcomes and their causes are not assigned here. Natural positive
+Focus/intent progression remains unproved. This ordinary RTH run supplies no
+natural PRE evidence and does not satisfy the separate opening-benchmark
+capture contract. Those actual acquisitions remain outstanding. No ownership
+or execution gate is relaxed by this receipt. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
