@@ -128,7 +128,7 @@ def test_real_observe_entry_only_dispatches_after_single_use_admission(tmp_path,
     assert bool(called)==(case in {'valid','pre-valid'})
     if called:
         assert result.value.code==0 and (tmp_path/'admission-consumed').exists()
-        assert called[0][1] == ({'premarket_window': pre_window} if ns['premarket'] else {})
+        assert called[0][1] == {'full_core_admitted': True, **({'premarket_window': pre_window} if ns['premarket'] else {})}
 
 
 def test_session_requires_entire_supervisor_window(tmp_path,monkeypatch):

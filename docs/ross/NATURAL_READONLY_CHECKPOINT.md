@@ -20872,3 +20872,26 @@ five ownership vetoes continue to apply. PRE evidence is separate from the
 RTH benchmark. No task registration, remote observation, laptop setting change
 or readiness upgrade is part of this integration.
 PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+### Full-Core exact client71 and ordinary RTH contract (2026-11-18)
+
+A controlled conflict at accepted main 83335d58 showed that the ordinary
+supervised Core route could fall back from client71 to client72. The November
+16 observation evidence records connection on client71. The reproduction
+does not establish a fallback in that observation.
+
+Both maintained full-Core routes now bind the acknowledged supervisor nonce
+to fresh shared-owner creation. The canonical owner applies its existing exact
+client pin before publication or connection. Unacknowledged or inconsistent
+bindings and previously unenrolled owners refuse. Reconnect uses the same
+exact-ID configuration. Unenrolled operational startup retains its defaults.
+Benchmark capture retains its existing separate pin.
+
+The ordinary RTH caller provides a 900-second natural attempt plus the
+existing 360-second allowance. The existing session owner checks both
+endpoints during admission and immediately before launch. The finite reviewed
+exchange-date, holiday and early-close facts govern the actual close. Ordinary
+RTH enables neither the PRE route, the reviewed opening window, nor benchmark
+capture. An endpoint at the actual close refuses. All existing ownership,
+PAPER/Read-Only confirmation, single-use, cleanup and privacy protections
+remain in force. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.

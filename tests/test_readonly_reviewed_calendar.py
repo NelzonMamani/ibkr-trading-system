@@ -190,7 +190,8 @@ def test_premarket_rejects_conflicting_inherited_enrollment(override, monkeypatc
     ['900','--premarket'], ['901','--reviewed-calendar','--premarket'],
     ['180','--reviewed-calendar','--premarket','--benchmark-capture'],
     ['900','--reviewed-calendar','--premarket','--premarket'],
-    ['900','--reviewed-calendar','--premarket','--rth-open']])
+    ['900','--reviewed-calendar','--premarket','--rth-open'],
+    ['900','--reviewed-calendar','--ordinary-rth'], ['180','--ordinary-rth']])
 def test_malformed_optin_arguments_refuse_before_any_phase(args,monkeypatch):
     import sys
     monkeypatch.setattr(sys,'argv',['operator','prepare','unused','a'*40,*args])
@@ -297,6 +298,8 @@ def test_supervisor_checks_premarket_at_spawn_without_invoking_runtime(tmp_path,
         def now(cls, tz=None):
             return next(checks)
 
+    for key, value in {'IBKR_HOST':'127.0.0.1', 'IBKR_PORT':'7497', 'IBKR_CLIENT_ID':'71'}.items():
+        monkeypatch.setenv(key,value)
     monkeypatch.setattr(supervisor, 'datetime', Clock)
     monkeypatch.setattr(supervisor, 'install_console_protection', lambda: None)
     monkeypatch.setattr(supervisor, 'require_clean_certification_worktree', lambda _: None)
@@ -311,6 +314,8 @@ def test_supervisor_checks_premarket_at_spawn_without_invoking_runtime(tmp_path,
     class LaunchIntercepted(Exception):
         pass
     def intercept(command, **kwargs):
+        from src.runtime.process_identity import FULL_CORE_CLIENT71, HANDSHAKE_NONCE
+        assert kwargs['env'][FULL_CORE_CLIENT71] == kwargs['env'][HANDSHAKE_NONCE]
         assert kwargs['env']['PR1090_PREMARKET_HISTORY_EVIDENCE'] == '1'
         reached.append(command)
         raise LaunchIntercepted
@@ -320,7 +325,7 @@ def test_supervisor_checks_premarket_at_spawn_without_invoking_runtime(tmp_path,
     if case == 'conflict':
         args.append('--benchmark-capture')
     with pytest.raises(LaunchIntercepted if case == 'valid' else SystemExit):
-        supervisor.main(args, premarket_window=window)
+        supervisor.main(args, premarket_window=window, full_core_admitted=True)
     assert reached == ([[sys.executable, '-u', '-m', 'src.main']] if case == 'valid' else [])
     if case == 'valid':
         assert json.loads((output/'premarket-launch.json').read_text())['phase'] == 'PRE'
@@ -347,3 +352,34 @@ def test_premarket_history_evidence_projects_existing_dispatch_and_completion(mo
     assert receipt['request_spec']['end_date_time'] == arguments['end_date_time']
     assert receipt['end_received'] and receipt['owned_at_retirement']
     assert receipt['completed_utc'] == state['completed_at_utc']
+
+@pytest.mark.parametrize('instant,allowed', [
+    ('2026-11-18T14:29:00+00:00', False),
+    ('2026-11-18T18:30:00+00:00', True),
+    ('2026-11-18T20:38:59+00:00', True),
+    ('2026-11-18T20:39:00+00:00', False),
+    ('2026-11-26T16:00:00+00:00', False),
+    ('2026-11-27T17:38:59+00:00', True),
+    ('2026-11-27T17:39:00+00:00', False),
+    ('2026-12-01T16:00:00+00:00', False),
+])
+def test_ordinary_rth_uses_full_session_close_without_opening_enrollment(owned, instant, allowed):
+    before = dict(os.environ); overrides = dict(cfg._CONFIG_OVERRIDES)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromisoformat(instant)
+    try:
+        owned.update(ordinary_rth=True, datetime=Clock)
+        scrub(owned, False)
+        cfg.set_config_overrides({})
+        assert not cfg.get_config('ROSS_NEXT_SESSION_CATALYST_ENABLED')
+        enrollment = owned['binding']()['calendar_enrollment']
+        assert not enrollment['enabled'] and enrollment['phase'] == 'RTH'
+        if allowed:
+            owned['session_check']()
+        else:
+            with pytest.raises(SystemExit):
+                owned['session_check']()
+    finally:
+        os.environ.clear(); os.environ.update(before); cfg.set_config_overrides(overrides)

@@ -20,8 +20,10 @@ from src.ibkr.evidence_safety import write_json
 
 HANDSHAKE_PATH = "CERTIFICATION_PROCESS_IDENTITY_FILE"
 HANDSHAKE_NONCE = "CERTIFICATION_PROCESS_NONCE"
+FULL_CORE_CLIENT71 = "PR1090_FULL_CORE_CLIENT71"
 HANDSHAKE_ACK = "CERTIFICATION_PROCESS_ACK_FILE"
 _runtime_identity = None
+_runtime_identity_nonce = None
 
 
 def split_windows_command_line(command):
@@ -190,7 +192,7 @@ def read_process_identity(pid, *, platform=None, proc_root=None, timeout=15):
 
 def publish_runtime_identity(*, timeout=90):
     """Called before main imports only for an explicitly supervised launch."""
-    global _runtime_identity
+    global _runtime_identity, _runtime_identity_nonce
     path, nonce = os.environ.get(HANDSHAKE_PATH), os.environ.get(HANDSHAKE_NONCE)
     ack = os.environ.get(HANDSHAKE_ACK)
     if not path and not nonce and not ack:
@@ -199,7 +201,6 @@ def publish_runtime_identity(*, timeout=90):
         raise RuntimeError("Incomplete supervised process handshake configuration")
     identity = read_process_identity(os.getpid())
     write_json(path, {"nonce": nonce, "identity": identity})
-    _runtime_identity = identity
     # Hold before application imports: startup cannot outrun the OS binding.
     deadline = time.monotonic() + timeout
     while True:
@@ -210,10 +211,17 @@ def publish_runtime_identity(*, timeout=90):
         if accepted is not None:
             if accepted != {"nonce": nonce, "identity": identity}:
                 raise RuntimeError("Invalid supervisor startup acknowledgement")
+            _runtime_identity = identity
+            _runtime_identity_nonce = nonce
             return
         if time.monotonic() >= deadline:
             raise RuntimeError("Supervisor startup acknowledgement unavailable")
         time.sleep(0.05)
+
+
+def supervised_runtime_acknowledged(nonce):
+    return bool(nonce and nonce == _runtime_identity_nonce and _runtime_identity
+                and _runtime_identity.get("pid") == os.getpid())
 
 
 def runtime_identity_for_evidence():

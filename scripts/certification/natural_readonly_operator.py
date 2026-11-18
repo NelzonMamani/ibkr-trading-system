@@ -5,13 +5,14 @@ from pathlib import Path
 phase, root_text, expected, *duration_args = sys.argv[1:]
 if len(duration_args) != len(set(duration_args)):
     raise SystemExit('Duplicate operator options are not allowed')
-opt_ins = ('--benchmark-capture', '--reviewed-calendar', '--premarket')
+opt_ins = ('--benchmark-capture', '--reviewed-calendar', '--premarket', '--ordinary-rth')
 if any(arg not in opt_ins for index,arg in enumerate(duration_args)
        if any(value.startswith('--') for value in duration_args[:index])):
     raise SystemExit('Runtime duration must precede opt-in switches')
 benchmark_capture = '--benchmark-capture' in duration_args
 reviewed_calendar = '--reviewed-calendar' in duration_args
 premarket = '--premarket' in duration_args
+ordinary_rth = '--ordinary-rth' in duration_args
 for option in opt_ins:
     if option in duration_args:
         duration_args.remove(option)
@@ -24,13 +25,14 @@ if not 180 <= runtime_seconds <= 1800:
     raise SystemExit('Runtime duration must be between180 and1800 seconds')
 if globals().get('benchmark_capture', False) and runtime_seconds != 180:
     raise SystemExit('Benchmark capture runtime must remain180 seconds')
-if premarket:
-    if not reviewed_calendar or benchmark_capture or runtime_seconds != 900:
-        raise SystemExit('PRE requires the reviewed calendar, 900 seconds and no benchmark capture.')
-    if any(os.environ.get(key, '').strip() for key in (
-            'FORCE_SESSION', 'SESSION_OVERRIDE', 'MARKET_SESSION_OVERRIDE',
-            'SESSION_PHASE_OVERRIDE', 'READONLY_BENCHMARK_CAPTURE')):
-        raise SystemExit('PRE enrollment conflicts with an inherited session or benchmark override.')
+if premarket and (not reviewed_calendar or benchmark_capture or runtime_seconds != 900):
+    raise SystemExit('PRE requires the reviewed calendar, 900 seconds and no benchmark capture.')
+if ordinary_rth and (reviewed_calendar or premarket or benchmark_capture or runtime_seconds != 900):
+    raise SystemExit('Ordinary RTH requires 900 seconds without other session or capture enrollment.')
+if (premarket or ordinary_rth) and any(os.environ.get(key, '').strip() for key in (
+        'FORCE_SESSION', 'SESSION_OVERRIDE', 'MARKET_SESSION_OVERRIDE',
+        'SESSION_PHASE_OVERRIDE', 'READONLY_BENCHMARK_CAPTURE')):
+    raise SystemExit('Observation enrollment conflicts with an inherited session or benchmark override.')
 if phase not in ('prepare', 'preflight', 'observe', 'package', 'seal'):
     raise SystemExit('Unknown operator phase')
 root = Path(root_text); repo = root/'s'; evidence = root/'e'; state = root/'state'
@@ -64,7 +66,8 @@ def reviewed_calendar_environment(checkout, enabled, safe_env, source_head):
     Calendar owners must still be identical to those reviewed at PR1226;
     the caller separately pins the accepted harness commit passed as expected.
     """
-    if not enabled:
+    ordinary = globals().get('ordinary_rth', False)
+    if not enabled and not ordinary:
         return {}, {'enabled': False}
     assert_safe_runtime_env(safe_env)
     if (safe_env.get('IBKR_CLIENT_ID') != '71' or safe_env.get('IBKR_HOST') != '127.0.0.1'
@@ -90,7 +93,10 @@ def reviewed_calendar_environment(checkout, enabled, safe_env, source_head):
     coverage = reviewed['files']['calendar_receipt.json']['utf8']
     updates = dict(ROSS_NEXT_SESSION_CATALYST_ENABLED='false' if globals().get('benchmark_capture',False) else 'true', MARKET_SESSION_COVERAGE=coverage,
                    MARKET_HOLIDAYS='2026-11-26', MARKET_HALF_DAYS='2026-11-27', MARKET_EARLY_CLOSE_TIME='13:00')
-    return updates, {'enabled': True, 'review_commit': '196c45f0c34749aa17d74c67022656d0e6837f60',
+    if ordinary:
+        updates['ROSS_NEXT_SESSION_CATALYST_ENABLED'] = 'false'
+    return updates, {'enabled': enabled,
+        **({'phase': 'RTH'} if ordinary else {}), 'review_commit': '196c45f0c34749aa17d74c67022656d0e6837f60',
         'reviewed_source': manifest['commit'], 'source_head': head,
         'evidence_sha256': reviewed_hash, 'checkout_bytes_sha256': hashlib.sha256(raw).hexdigest(),
         'calendar_sha256': reviewed['files']['calendar_receipt.json']['sha256']}
@@ -223,6 +229,13 @@ def session_check():
             raise SystemExit('Full opt-in observation envelope must stay in one reviewed RTH_OPEN window.')
         if globals().get('benchmark_capture', False) and (now-start.current_open).total_seconds() < 16*60:
             raise SystemExit('Benchmark capture requires16 completed current-session minutes.')
+    if globals().get('ordinary_rth', False):
+        from src.config.config_resolver import get_config
+        from src.utils.time_utils import to_ny_time
+        date = to_ny_time(now).date().isoformat()
+        coverage = json.loads(get_config('MARKET_SESSION_COVERAGE'))
+        if coverage['days'].get(date, {}).get('status') != 'OPEN':
+            raise SystemExit('Ordinary RTH date is outside the reviewed exchange calendar.')
     if (get_current_market_session(now) != 'RTH' or
             get_current_market_session(now + timedelta(seconds=runtime_seconds + 360)) != 'RTH'):
         raise SystemExit('Requires normal configured RTH with runtime and finalization time remaining; no session override.')
@@ -431,6 +444,8 @@ elif phase == 'observe':
     install_console_protection()
     write_json(evidence/'observation-attempt.json', {'attempted':True})
     raise SystemExit(supervisor.main(['--seconds',str(runtime_seconds),'--output',str(evidence/'terminal'),'--expected-commit',expected] + (['--benchmark-capture'] if globals().get('benchmark_capture', False) else []),
+        full_core_admitted=not globals().get('benchmark_capture', False),
+        **({'rth_launch_check': session_check} if globals().get('ordinary_rth', False) else {}),
         **({'premarket_window': observed_window} if globals().get('premarket', False) else {})))
 elif phase == 'package':
     # This phase performs filesystem/process checks only. Broker audit belongs

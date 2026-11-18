@@ -8,6 +8,7 @@ from typing import Optional
 
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
 from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint
+from src.runtime.process_identity import FULL_CORE_CLIENT71, HANDSHAKE_NONCE, supervised_runtime_acknowledged
 from src.config.runtime_config import (
     RuntimeConfigError,
     get_execution_enabled,
@@ -44,6 +45,7 @@ class IbkrConnectionManager:
         self._reconnect_count = 0
         self._last_disconnect_reason: Optional[str] = None
         self._shutdown_requested = False
+        self._observation_nonce: str | None = None
         self._lock = Lock()
         print(
             "[IBKR][CONFIG] "
@@ -326,6 +328,12 @@ def get_shared_ibkr_connection_manager(
     readonly_enabled: Optional[bool] = None,
 ) -> IbkrConnectionManager:
     global _default_manager
+    observation_nonce = os.environ.get(FULL_CORE_CLIENT71)
+    if observation_nonce is not None and (
+            not supervised_runtime_acknowledged(observation_nonce)
+            or observation_nonce != os.environ.get(HANDSHAKE_NONCE)
+            or _is_test_environment()):
+        raise RuntimeError("READONLY_FULL_CORE_CLIENT71_BINDING_INVALID")
     if _is_test_environment():
         print("[IBKR][TEST_MODE] returning dummy manager")
 
@@ -399,8 +407,18 @@ def get_shared_ibkr_connection_manager(
         return DummyManager()  # type: ignore[return-value]
 
     with _default_manager_lock:
+        observation_config = None
+        if observation_nonce is not None:
+            observation_config = resolve_ibkr_connection()
+            if (observation_config != ("127.0.0.1", 7497, 71, "READ_ONLY")
+                    or os.environ.get("RUN_MODE_EFFECTIVE") != "READ_ONLY"
+                    or get_execution_enabled() or not get_ibkr_readonly_enabled()):
+                raise RuntimeError("READONLY_FULL_CORE_CLIENT71_BINDING_INVALID")
+        if (_default_manager is not None
+                and getattr(_default_manager, "_observation_nonce", None) != observation_nonce):
+            raise RuntimeError("READONLY_FULL_CORE_CLIENT71_OWNER_ALREADY_USED")
         if _default_manager is None:
-            host, port, client_id, run_mode = resolve_ibkr_connection()
+            host, port, client_id, run_mode = observation_config or resolve_ibkr_connection()
             execution_enabled = get_execution_enabled()
             readonly = (
                 get_ibkr_readonly_enabled()
@@ -422,7 +440,7 @@ def get_shared_ibkr_connection_manager(
                 f"[IBKR][READONLY_OVERRIDE] readonly={readonly} "
                 f"(execution_enabled={execution_enabled}, run_mode={run_mode_upper})"
             )
-            _default_manager = IbkrConnectionManager(
+            manager = IbkrConnectionManager(
                 IbkrConnectionConfig(
                     host=host,
                     port=port,
@@ -433,4 +451,9 @@ def get_shared_ibkr_connection_manager(
                     readonly_enabled=readonly,
                 )
             )
+            if observation_nonce is not None:
+                manager.pin_readonly_client_id(71)
+                manager._observation_nonce = observation_nonce
+                print("[IBKR][MANAGER] supervised full-Core exact client71 pin applied")
+            _default_manager = manager
         return _default_manager
