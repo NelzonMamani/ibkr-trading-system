@@ -5,12 +5,14 @@ from pathlib import Path
 phase, root_text, expected, *duration_args = sys.argv[1:]
 if len(duration_args) != len(set(duration_args)):
     raise SystemExit('Duplicate operator options are not allowed')
-if any(arg not in ('--benchmark-capture','--reviewed-calendar') for index,arg in enumerate(duration_args)
+opt_ins = ('--benchmark-capture', '--reviewed-calendar', '--premarket')
+if any(arg not in opt_ins for index,arg in enumerate(duration_args)
        if any(value.startswith('--') for value in duration_args[:index])):
     raise SystemExit('Runtime duration must precede opt-in switches')
 benchmark_capture = '--benchmark-capture' in duration_args
 reviewed_calendar = '--reviewed-calendar' in duration_args
-for option in ('--benchmark-capture', '--reviewed-calendar'):
+premarket = '--premarket' in duration_args
+for option in opt_ins:
     if option in duration_args:
         duration_args.remove(option)
 if globals().get('benchmark_capture', False) and not reviewed_calendar:
@@ -22,6 +24,13 @@ if not 180 <= runtime_seconds <= 1800:
     raise SystemExit('Runtime duration must be between180 and1800 seconds')
 if globals().get('benchmark_capture', False) and runtime_seconds != 180:
     raise SystemExit('Benchmark capture runtime must remain180 seconds')
+if premarket:
+    if not reviewed_calendar or benchmark_capture or runtime_seconds != 900:
+        raise SystemExit('PRE requires the reviewed calendar, 900 seconds and no benchmark capture.')
+    if any(os.environ.get(key, '').strip() for key in (
+            'FORCE_SESSION', 'SESSION_OVERRIDE', 'MARKET_SESSION_OVERRIDE',
+            'SESSION_PHASE_OVERRIDE', 'READONLY_BENCHMARK_CAPTURE')):
+        raise SystemExit('PRE enrollment conflicts with an inherited session or benchmark override.')
 if phase not in ('prepare', 'preflight', 'observe', 'package', 'seal'):
     raise SystemExit('Unknown operator phase')
 root = Path(root_text); repo = root/'s'; evidence = root/'e'; state = root/'state'
@@ -169,6 +178,8 @@ def binding():
     updates, enrollment = reviewed_calendar_environment(repo, globals().get('reviewed_calendar', False), os.environ, expected)
     if any(os.environ.get(key) != value for key, value in updates.items()):
         raise SystemExit('Reviewed calendar environment changed after admission.')
+    if globals().get('premarket', False):
+        enrollment['phase'] = 'PRE'
     return {'root': str(root.resolve()), 'head': actual_head,
         'calendar_enrollment': enrollment, 'runtime_profile': 'BENCHMARK_CAPTURE_V1' if globals().get('benchmark_capture', False) else None,
         'tree': subprocess.check_output(['git','rev-parse','HEAD^{tree}'], cwd=repo, text=True).strip(),
@@ -202,6 +213,8 @@ def session_check():
     from datetime import timedelta
     if globals().get('reviewed_calendar', False):
         reviewed_calendar_environment(repo, True, os.environ, expected)
+        if globals().get('premarket', False):
+            return supervisor.require_premarket_window(now, runtime_seconds)
         from src.market_data.session_pct_change import covered_opening_window
         start = covered_opening_window(now)
         end = covered_opening_window(now + timedelta(seconds=runtime_seconds + 360))
@@ -339,7 +352,7 @@ elif phase == 'preflight':
             supervisor.require_clean_certification_worktree(expected)
             if prepared['binding'] != binding():
                 raise SystemExit('Final guard/config/hook binding changed.')
-            session_check()
+            premarket_window = session_check()
             inventory = supervisor.runtime_inventory()
             write_json(evidence/'admission-runtime-inventory.json', inventory)
             if not inventory['completed'] or inventory['runtimes']:
@@ -360,12 +373,18 @@ elif phase == 'preflight':
                 'mode': 'READ_ONLY', 'seconds': runtime_seconds, 'top_n': get_config('TOPN_MAX_SYMBOLS_PER_STRATEGY'),
                 'watchlist_k': get_config('WATCHLIST_MAX_SYMBOLS_PER_STRATEGY'), 'focus_m': get_config('FOCUS_MAX_SYMBOLS_PER_STRATEGY'),
                 'issuer_query': get_config('ROSS_ISSUER_QUERY_ENABLED'), 'require_news': get_config('ROSS_REQUIRE_NEWS'),
-                'write_guards_verified': True, 'sdk_attempt_audit_verified': True, 'PAPER_READY': False})
+                'write_guards_verified': True, 'sdk_attempt_audit_verified': True, 'PAPER_READY': False,
+                **({'premarket_window': premarket_window} if globals().get('premarket', False) else {})})
         preflight_timing('guard_checks_and_baselines_complete')
+        admitted_binding = binding()
+        controller = require_controller()
+        if globals().get('premarket', False) and session_check() != premarket_window:
+            raise SystemExit('Reviewed PRE window changed before admission.')
         write_json(evidence/'preflight-result.json', {'status':'PASS', 'stage':'complete', 'exit_code':0})
-        write_json(root/'admission.json', {'binding': binding(), 'controller': require_controller(),
+        write_json(root/'admission.json', {'binding': admitted_binding, 'controller': controller,
             'operator_receipt': digest(root/'operator-state-source.json'),
-            'issued_monotonic': time.monotonic(), 'issued_utc': time.time()})
+            'issued_monotonic': time.monotonic(), 'issued_utc': time.time(),
+            **({'premarket_window': premarket_window} if globals().get('premarket', False) else {})})
     except BaseException as exc:
         code = exc.code if isinstance(exc, SystemExit) and isinstance(exc.code, int) else 1
         failure = {'status':'FAIL', 'stage':preflight_stage,
@@ -395,7 +414,9 @@ elif phase == 'observe':
     supervisor.require_clean_certification_worktree(expected)
     if admission['operator_receipt'] != digest(root/'operator-state-source.json') or not operator_unchanged():
         raise SystemExit('Operator state changed before launch.')
-    session_check()
+    observed_window = session_check()
+    if globals().get('premarket', False) and observed_window != admission.get('premarket_window'):
+        raise SystemExit('Reviewed PRE window changed after admission.')
     if globals().get('benchmark_capture', False):
         supervisor.benchmark_conflict_check(root)
     # Exclusive single-use claim; an interrupted attempt cannot resume.
@@ -405,9 +426,12 @@ elif phase == 'observe':
     preflight_receipt = json.loads((evidence/'preflight.json').read_text())
     if preflight_receipt.get('seconds') != runtime_seconds or preflight_receipt.get('head') != expected:
         raise SystemExit('Observation duration/head differs from successful preflight')
+    if globals().get('premarket', False) and preflight_receipt.get('premarket_window') != observed_window:
+        raise SystemExit('PRE window differs from successful preflight.')
     install_console_protection()
     write_json(evidence/'observation-attempt.json', {'attempted':True})
-    raise SystemExit(supervisor.main(['--seconds',str(runtime_seconds),'--output',str(evidence/'terminal'),'--expected-commit',expected] + (['--benchmark-capture'] if globals().get('benchmark_capture', False) else [])))
+    raise SystemExit(supervisor.main(['--seconds',str(runtime_seconds),'--output',str(evidence/'terminal'),'--expected-commit',expected] + (['--benchmark-capture'] if globals().get('benchmark_capture', False) else []),
+        **({'premarket_window': observed_window} if globals().get('premarket', False) else {})))
 elif phase == 'package':
     # This phase performs filesystem/process checks only. Broker audit belongs
     # exclusively to the existing supervisor after its observed runtime exits.

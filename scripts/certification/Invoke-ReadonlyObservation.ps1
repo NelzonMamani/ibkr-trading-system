@@ -179,11 +179,17 @@ function Invoke-ReadonlyObservation {
           [double]$StopSeconds = 30, [double]$PackageSeconds = 150,
           [double]$PreparationSeconds = 150, [double]$SealSeconds = 90,
           [ValidateRange(180,1800)][int]$RuntimeSeconds = 180, [switch]$PreflightOnly,
-          [switch]$ReviewedCalendar, [switch]$BenchmarkCapture)
+          [switch]$ReviewedCalendar, [switch]$BenchmarkCapture, [switch]$Premarket)
     $ErrorActionPreference = 'Stop'
     $durationArguments = @()
     if ($RuntimeSeconds -ne 180) { $durationArguments = @([string]$RuntimeSeconds) }
     if ($ReviewedCalendar) { $durationArguments += '--reviewed-calendar' }
+    if ($Premarket) {
+        if (!$ReviewedCalendar -or $BenchmarkCapture -or $RuntimeSeconds -ne 900 -or $ObservationSeconds -ne 1260) {
+            throw 'PRE requires reviewed calendar, 900 seconds, a 1260-second envelope and no benchmark capture.'
+        }
+        $durationArguments += '--premarket'
+    }
     if ($BenchmarkCapture) {
         if (!$ReviewedCalendar -or $RuntimeSeconds -ne 180) { throw 'Benchmark capture requires reviewed calendar and180 seconds.' }
         $durationArguments += '--benchmark-capture'

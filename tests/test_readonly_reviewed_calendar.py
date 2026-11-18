@@ -1,15 +1,17 @@
 """Owned READ_ONLY calendar admission only; no observer/provider/broker launch."""
 import ast
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 import pytest
 
 from test_readonly_observation_duration import functions, save, OWNER, REPO
+from scripts.certification import pr1090_terminal_observation_supervisor as supervisor
 from scripts.certification.pr1040_real_readonly_runtime_observation_adapter import build_safe_readonly_env, assert_safe_runtime_env
 from src.config.config_registry import CONFIG_REGISTRY
 from src.config import config_resolver as cfg
@@ -158,6 +160,7 @@ def test_actual_session_owner_bounds_optin_before_runtime(owned, instant, allowe
 @pytest.mark.parametrize('args,seconds,enrolled',[
     ([],180,False),(['900'],900,False),(['--reviewed-calendar'],180,True),
     (['900','--reviewed-calendar'],900,True),
+    (['900','--reviewed-calendar','--premarket'],900,True),
 ])
 def test_actual_argument_admission_preserves_duration_default(args,seconds,enrolled,monkeypatch):
     import sys
@@ -166,9 +169,28 @@ def test_actual_argument_admission_preserves_duration_default(args,seconds,enrol
     stop=next(i for i,n in enumerate(nodes) if isinstance(n,ast.Assign) and any(isinstance(x,ast.Name) and x.id=='root' for x in n.targets))
     ns={}; exec(compile(ast.Module(body=nodes[:stop],type_ignores=[]),str(OWNER),'exec'),ns)
     assert ns['runtime_seconds']==seconds and ns['reviewed_calendar'] is enrolled
+    assert ns['premarket'] == ('--premarket' in args)
 
 
-@pytest.mark.parametrize('args',[['900','--reviewed-calendar','--reviewed-calendar'],['--reviewed-calendar','900'],['179','--reviewed-calendar'],['1801','--reviewed-calendar']])
+@pytest.mark.parametrize('override', [
+    ('FORCE_SESSION', 'RTH_OPEN'), ('READONLY_BENCHMARK_CAPTURE', 'BENCHMARK_CAPTURE_V1'),
+])
+def test_premarket_rejects_conflicting_inherited_enrollment(override, monkeypatch):
+    monkeypatch.setattr(sys, 'argv', ['operator', 'prepare', 'unused', 'a'*40,
+                                    '900', '--reviewed-calendar', '--premarket'])
+    monkeypatch.setenv(*override)
+    nodes = ast.parse(OWNER.read_text()).body
+    stop = next(i for i, n in enumerate(nodes) if isinstance(n, ast.Assign)
+                and any(isinstance(x, ast.Name) and x.id == 'root' for x in n.targets))
+    with pytest.raises(SystemExit, match='inherited session or benchmark override'):
+        exec(compile(ast.Module(body=nodes[:stop], type_ignores=[]), str(OWNER), 'exec'), {})
+
+
+@pytest.mark.parametrize('args',[['900','--reviewed-calendar','--reviewed-calendar'],['--reviewed-calendar','900'],['179','--reviewed-calendar'],['1801','--reviewed-calendar'],
+    ['900','--premarket'], ['901','--reviewed-calendar','--premarket'],
+    ['180','--reviewed-calendar','--premarket','--benchmark-capture'],
+    ['900','--reviewed-calendar','--premarket','--premarket'],
+    ['900','--reviewed-calendar','--premarket','--rth-open']])
 def test_malformed_optin_arguments_refuse_before_any_phase(args,monkeypatch):
     import sys
     monkeypatch.setattr(sys,'argv',['operator','prepare','unused','a'*40,*args])
@@ -193,6 +215,7 @@ def audit(event,args):
         raise AssertionError('Child configuration proof forbids network/children')
 sys.addaudithook(audit)
 from src.config.config_resolver import get_config
+from scripts.certification import pr1090_terminal_observation_supervisor as supervisor
 from scripts.certification.pr1040_real_readonly_runtime_observation_adapter import assert_safe_runtime_env
 import os
 assert_safe_runtime_env(os.environ)
@@ -207,3 +230,120 @@ print('BOUND_CHILD='+json.dumps(dict(python=sys.executable,mode=get_config('RUN_
     assert Path(payload['python']).resolve()==Path(sys.executable).resolve()
     assert payload['mode']=='READ_ONLY' and payload['client']==71 and payload['enabled'] is enabled
     assert bool(payload['coverage']) is enabled
+
+@pytest.mark.parametrize('instant,allowed', [
+    ('2026-11-18T08:59:59+00:00', False),
+    ('2026-11-18T09:00:00+00:00', True),
+    ('2026-11-18T14:08:59.999999+00:00', True),
+    ('2026-11-18T14:09:00+00:00', False),
+    ('2026-11-18T14:30:00+00:00', False),
+    ('2026-11-26T11:00:00+00:00', False),
+    ('2026-11-27T11:00:00+00:00', True),
+    ('2026-11-30T09:00:00+00:00', True),
+    ('2026-12-01T09:00:00+00:00', False),
+])
+def test_actual_premarket_admission_requires_full_reviewed_pre_envelope(owned, instant, allowed):
+    before = dict(os.environ); overrides = dict(cfg._CONFIG_OVERRIDES)
+    now = datetime.fromisoformat(instant)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now
+    try:
+        scrub(owned, True)
+        cfg.set_config_overrides({})
+        owned.update(premarket=True, datetime=Clock, supervisor=supervisor)
+        assert owned['binding']()['calendar_enrollment']['phase'] == 'PRE'
+        if not allowed:
+            with pytest.raises(SystemExit, match='reviewed PRE window'):
+                owned['session_check']()
+            return
+        result = owned['session_check']()
+        assert result['phase'] == 'PRE' and result['target_session'] == instant[:10]
+        assert result['rth_open'].startswith(instant[:10] + 'T14:30')
+        assert result['fingerprint']
+    finally:
+        os.environ.clear(); os.environ.update(before); cfg.set_config_overrides(overrides)
+
+
+def test_equal_fingerprints_cannot_admit_a_premarket_envelope_crossing_open(owned):
+    from src.market_data.session_pct_change import covered_opening_window
+
+    before = dict(os.environ); overrides = dict(cfg._CONFIG_OVERRIDES)
+    try:
+        scrub(owned, True)
+        cfg.set_config_overrides({})
+        now = datetime(2026, 11, 18, 14, 9, tzinfo=timezone.utc)
+        start, end = covered_opening_window(now), covered_opening_window(now + timedelta(seconds=1260))
+        assert start.fingerprint == end.fingerprint
+        assert (start.phase, end.phase) == ('PRE', 'RTH_OPEN')
+        with pytest.raises(SystemExit, match='reviewed PRE window'):
+            supervisor.require_premarket_window(now, 900)
+    finally:
+        os.environ.clear(); os.environ.update(before); cfg.set_config_overrides(overrides)
+
+
+@pytest.mark.parametrize('case', ['valid', 'wrong_identity', 'late_at_spawn', 'conflict'])
+def test_supervisor_checks_premarket_at_spawn_without_invoking_runtime(tmp_path, monkeypatch, case):
+    from src.market_data import session_pct_change
+
+    now = datetime(2026, 11, 18, 14, 8, 59, tzinfo=timezone.utc)
+    checks = iter([now, now + timedelta(seconds=case == 'late_at_spawn')])
+    opening = now.replace(minute=30, second=0)
+    from types import SimpleNamespace
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return next(checks)
+
+    monkeypatch.setattr(supervisor, 'datetime', Clock)
+    monkeypatch.setattr(supervisor, 'install_console_protection', lambda: None)
+    monkeypatch.setattr(supervisor, 'require_clean_certification_worktree', lambda _: None)
+    monkeypatch.setattr(session_pct_change, 'covered_opening_window', lambda point: SimpleNamespace(
+        phase='PRE' if point < opening else 'RTH_OPEN', target_session='2026-11-18',
+        fingerprint='reviewed', current_open=opening))
+    window = supervisor.require_premarket_window(now, 900)
+    if case == 'wrong_identity':
+        window['target_session'] = '2026-11-17'
+
+    reached = []
+    class LaunchIntercepted(Exception):
+        pass
+    def intercept(command, **kwargs):
+        assert kwargs['env']['PR1090_PREMARKET_HISTORY_EVIDENCE'] == '1'
+        reached.append(command)
+        raise LaunchIntercepted
+    monkeypatch.setattr(supervisor.subprocess, 'Popen', intercept)
+    output = tmp_path/'terminal'
+    args = ['--seconds', '900', '--output', str(output), '--expected-commit', 'a' * 40]
+    if case == 'conflict':
+        args.append('--benchmark-capture')
+    with pytest.raises(LaunchIntercepted if case == 'valid' else SystemExit):
+        supervisor.main(args, premarket_window=window)
+    assert reached == ([[sys.executable, '-u', '-m', 'src.main']] if case == 'valid' else [])
+    if case == 'valid':
+        assert json.loads((output/'premarket-launch.json').read_text())['phase'] == 'PRE'
+
+
+def test_premarket_history_evidence_projects_existing_dispatch_and_completion(monkeypatch, capsys):
+    from src.ibkr.market_data_client import historical_request_spec, record_premarket_history
+
+    arguments = dict(end_date_time='20261118 13:00:00 UTC', duration_str='1200 S',
+                     bar_size_setting='1 min', what_to_show='TRADES', use_rth=0,
+                     format_date=2, keep_up_to_date=False, chart_options=[])
+    request = historical_request_spec(**arguments)
+    state = dict(status='COMPLETE_BARS', end_received=True,
+                 request_dispatched_at_utc='2026-11-18T13:00:00+00:00',
+                 completed_at_utc='2026-11-18T13:00:01+00:00')
+    monkeypatch.delenv('PR1090_PREMARKET_HISTORY_EVIDENCE', raising=False)
+    record_premarket_history('ibapi', 7, request, state, owned=True, cancellation='NOT_OUTSTANDING')
+    assert capsys.readouterr().out == ''
+    monkeypatch.setenv('PR1090_PREMARKET_HISTORY_EVIDENCE', '1')
+    record_premarket_history('ibapi', 7, request, state, owned=True, cancellation='NOT_OUTSTANDING')
+    output = capsys.readouterr().out
+    receipt = json.loads(output.split('[IBKR][HISTORICAL_PRE_EVIDENCE] ', 1)[1])
+    assert receipt['request_id'] == 7 and receipt['request_spec']['use_rth'] == 0
+    assert receipt['request_spec']['end_date_time'] == arguments['end_date_time']
+    assert receipt['end_received'] and receipt['owned_at_retirement']
+    assert receipt['completed_utc'] == state['completed_at_utc']

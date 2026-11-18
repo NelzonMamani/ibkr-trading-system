@@ -2902,6 +2902,10 @@ class IbkrClient(EWrapper, EClient):
         print(f"[IBKR][HIST_RESULT] req_id={req_id} outcome={state['status']} "
               f"end_received={state['end_received']} received_count={len(state['bars'])} "
               f"retired=true cancellation={cancellation}")
+        if os.environ.get("PR1090_PREMARKET_HISTORY_EVIDENCE") == "1":
+            from src.ibkr.market_data_client import record_premarket_history
+            record_premarket_history("ibapi", req_id, state.get("request_spec") if state["sent"] else None,
+                                     state, owned=owned and not ambiguous, cancellation=cancellation)
 
     def cancelHistoricalData(self, req_id):  # type: ignore[override]
         with self._lock:

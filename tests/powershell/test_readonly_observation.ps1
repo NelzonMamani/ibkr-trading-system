@@ -20,6 +20,9 @@ p = pathlib.Path(root); e=p/'e'; e.mkdir(exist_ok=True)
 benchmark = '--benchmark-capture' in duration_args
 if benchmark: duration_args.remove('--benchmark-capture')
 with (e/'capture_modes').open('a') as modes: modes.write(phase+':'+str(benchmark)+'\n')
+premarket = '--premarket' in duration_args
+if premarket: duration_args.remove('--premarket')
+with (e/'premarket_modes').open('a') as modes: modes.write(phase+':'+str(premarket)+'\n')
 calendar = duration_args[-1:] == ['--reviewed-calendar']
 if calendar: duration_args.pop()
 with (e/'calendar_modes').open('a') as modes: modes.write(phase+':'+str(calendar)+'\n')
@@ -492,6 +495,33 @@ print('CACHE_STARTUP_CHECKS_PASS')
     $modes=@(Get-Content (Join-Path $calendarRoot 'e/calendar_modes'))
     Check (($modes -join ',') -eq 'prepare:True,preflight:True,observe:True,package:True,seal:True') 'Calendar opt-in lost across owned phase boundaries.'
     $passed++
+    # The real runner and controller propagate PRE through all five stub phases.
+    $preScripts=Join-Path $scratch 'premarket-runner'
+    $preRoot=Join-Path $scratch 'premarket-propagation'
+    New-Item -ItemType Directory $preScripts,$preRoot | Out-Null
+    foreach ($name in @('run_natural_readonly_observation.ps1','Invoke-ReadonlyObservation.ps1','Invoke-LoggedNativeProcess.ps1')) {
+        Copy-Item (Join-Path $repo ('scripts\certification\' + $name)) $preScripts
+    }
+    Copy-Item $stub (Join-Path $preScripts 'natural_readonly_operator.py')
+    $preRunner=Join-Path $preScripts 'run_natural_readonly_observation.ps1'
+    $preEntry = Invoke-ObservationChild -Python (Get-Command powershell.exe).Source -ChildArguments @(
+        '-NoProfile','-File',$preRunner,'-Python',$Python,'-Root',$preRoot,'-ExpectedCommit',('a'*40),
+        '-RuntimeSeconds','900','-ReviewedCalendar','-Premarket'
+    ) -LogPrefix (Join-Path $scratch 'premarket-entry') -BudgetSeconds 20
+    Check ($preEntry.ExitCode -eq 0 -and !$preEntry.TimedOut) "PRE runner stub pipeline failed: actual exit $($preEntry.ExitCode)."
+    foreach ($entry in @('premarket_modes','calendar_modes','durations')) {
+        $value=if ($entry -eq 'durations') {'900'} else {'True'}
+        $expected=(@('prepare','preflight','observe','package','seal') | ForEach-Object { $_ + ':' + $value }) -join ','
+        Check (((Get-Content (Join-Path $preRoot ('e/' + $entry))) -join ',') -ceq $expected) ('PRE phase options changed: ' + $entry)
+    }
+    $conflictRoot=Join-Path $scratch 'premarket-conflict'
+    New-Item -ItemType Directory $conflictRoot | Out-Null
+    $failed=$false
+    try {
+        Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $conflictRoot -ExpectedCommit ('a'*40) -RuntimeSeconds 900 -ObservationSeconds 1260 -ReviewedCalendar -Premarket -BenchmarkCapture | Out-Null
+    } catch { $failed=$true }
+    Check ($failed -and !(Test-Path (Join-Path $conflictRoot 'runner.json'))) 'Conflicting PRE and benchmark enrollment created a runner.'
+    $passed++
     # Real packaging implementation with synthetic terminal/inventory; no supervisor.main.
     $result=Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',(Join-Path $repo 'tests\powershell\verify_observation_package.py'),$repo,$scratch) -LogPrefix (Join-Path $scratch 'real-package') -BudgetSeconds 45
     Check ($result.ExitCode -eq 0) 'Real package regression failed.'
@@ -507,6 +537,13 @@ print('CACHE_STARTUP_CHECKS_PASS')
     $parseTokens = $null; $parseErrors = $null
     $null = [Management.Automation.Language.Parser]::ParseInput($match.Groups[1].Value, [ref]$parseTokens, [ref]$parseErrors)
     Check ($parseErrors.Count -eq 0) ('Local PowerShell5.1 observation block parse failed: '+($parseErrors | Out-String))
+    $passed++
+    $preCaller = Join-Path $repo 'docs\ross\NATURAL_PRE_READ_ONLY_LOCAL_EXECUTION.ps1.in'
+    $tokens = $null
+    $errors = $null
+    $null = [Management.Automation.Language.Parser]::ParseFile($preCaller, [ref]$tokens, [ref]$errors)
+    $parserMessages = @($errors | ForEach-Object { 'Line {0}: {1}' -f $_.Extent.StartLineNumber,$_.Message })
+    Check ($errors.Count -eq 0) ('PRE caller PowerShell 5.1 parse failed: ' + ($parserMessages -join '; '))
     $passed++
     @{passed=$passed; powershell=$PSVersionTable.PSVersion.ToString(); platform=$env:OS; scope='controlled stub children only; no providers/broker/runtime'} | ConvertTo-Json | Set-Content (Join-Path $scratch 'receipt.json')
     Write-Host "OBSERVATION_HARNESS_PASS: $passed checks; $scratch"
