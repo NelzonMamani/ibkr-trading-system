@@ -7681,3 +7681,52 @@ fact or acquisition receipt was fabricated or changed. This is a per-evidence
 attribution reproduction, not full consumer/Core positive admission. A bounded
 reporting-period grammar repair needs current-main comparison, causal negative
 controls and independent review; all other qualification gates remain necessary.
+
+### HIHO reporting-period attribution repair and replay
+
+The attached November 18 ZIP matched SHA-256
+`a44d3b5ad882bf48cb3f79436b2cf390b50baab00413c94d588999d372be484d`.
+All 51 members passed CRC checks. The pre-repair main source
+`69e9f658a37a2dcf495a74cedddedd51076f5dea` matched the observation's
+attribution, scanner, evidence-store and lifecycle manifest hashes in
+Windows CRLF form. Current-main replay reproduced EARNINGS with
+`event_ownership_uncertain_or_other_issuer` on the retained evidence
+`rss-operational:HIHO:377b54c62d3a8ab47793c50c` at both recorded clocks.
+
+The existing earnings owner now accepts a complete `for` complement of
+an ordinal quarter and six months ended on a valid date. The dated
+complement must match the entire remaining text. The causal control
+failed only the positive case on old main (one failure and eight
+passing controls). After the repair, the five focused news-policy
+modules passed 300 tests. The controls retain refusal of malformed
+dates, rival or coordinated ownership, trailing issuer text, a
+different connector, non-earnings assertions, research provenance,
+update-only time, future publication and expired publication.
+
+With the unmodified retained input and the actual cache-only service,
+scanner adapter, and lifecycle consumer, HIHO qualified as EARNINGS at
+19:24:39.799766 and 19:27:21.194314 London on November 18. The consumer
+reported `verified_issuer_event_valid` and that single evidence ID,
+with ordinary expiry at 01:20:48 London on November 19. At 01:20:49
+it refused the event on publication age. Source coverage remained
+incomplete and acquisition degraded. The retained export contains a
+later acquisition receipt stamped 19:32:43, so replay at the earlier
+clocks cannot verify their contemporaneous acquisition receipts. The
+policy result supplies no independent source verification.
+
+The separate recorded market-data decision remained valid. HIHO's
+19:27:44 last-trade quote, request 906, was assessed at 19:28:24.572485
+and the quote freshness owner returned `MD_STALE`. The terminal
+record shows `DROP_STALE_MARKET_DATA` at shortlist refresh. No new
+positive Focus, intent, or trading admission was demonstrated.
+
+Independent exact-head review cleared `a2efd8fab582da04d58a83dccd90aad3bc802872`.
+Accepted main `a87ed0c097c57151e6dfd68aa7447600c78ac3f5`, tree `6e0ea80dac031fb8e454fb8b3ce4ddc63070b702`.
+All five required PR jobs passed. The first full Windows job reached its
+existing 60-minute limit. The same-head isolated retry passed at full scope.
+[Required PR CI](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/44387971908)
+[Post-merge CI, started at publication](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/44406847501)
+
+Replay used retained data only. No provider acquisition, observation,
+schedule activation, or TWS change occurred.
+PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
