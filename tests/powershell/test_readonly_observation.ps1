@@ -504,8 +504,11 @@ print('CACHE_STARTUP_CHECKS_PASS')
     }
     Copy-Item $stub (Join-Path $preScripts 'natural_readonly_operator.py')
     $preRunner=Join-Path $preScripts 'run_natural_readonly_observation.ps1'
-    & (Join-Path $PSHOME 'powershell.exe') -NoProfile -File $preRunner -Python $Python -Root $preRoot -ExpectedCommit ('a'*40) -RuntimeSeconds 900 -ReviewedCalendar -Premarket
-    Check ($LASTEXITCODE -eq 0) 'PRE runner stub pipeline failed.'
+    $preEntry = Invoke-ObservationChild -Python (Get-Command powershell.exe).Source -ChildArguments @(
+        '-NoProfile','-File',$preRunner,'-Python',$Python,'-Root',$preRoot,'-ExpectedCommit',('a'*40),
+        '-RuntimeSeconds','900','-ReviewedCalendar','-Premarket'
+    ) -LogPrefix (Join-Path $scratch 'premarket-entry') -BudgetSeconds 20
+    Check ($preEntry.ExitCode -eq 0 -and !$preEntry.TimedOut) "PRE runner stub pipeline failed: actual exit $($preEntry.ExitCode)."
     foreach ($entry in @('premarket_modes','calendar_modes','durations')) {
         $value=if ($entry -eq 'durations') {'900'} else {'True'}
         $expected=(@('prepare','preflight','observe','package','seal') | ForEach-Object { $_ + ':' + $value }) -join ','
