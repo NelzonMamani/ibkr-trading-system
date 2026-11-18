@@ -1,5 +1,6 @@
 """Controlled latency and outcome fixtures; not live trading/news acceptance."""
 from dataclasses import replace
+from datetime import timezone
 from types import SimpleNamespace
 import threading
 import pytest
@@ -281,6 +282,11 @@ def test_direct_event_ordinary_complements_are_not_issuer_owners(headline):
 
 @pytest.mark.parametrize('tail',[
     'the quarter ended September 31, 2026',
+    'the second quarter and six months ended September 31, 2026',
+    'the second quarter and six months ended September 30, 2026 for Bank of America',
+    'the second quarter and Bank of America six months ended September 30, 2026',
+    'the second quarter and six months ended September 30, 2026 and Bank of America',
+    'the second quarter and nine months ended September 30, 2026',
     'the quarter ended September 30, 2026 of Bank of America',
     'its lead drug AX-101 of Bank of America',
     'cloud services from Bank of America',
@@ -366,3 +372,50 @@ def test_verified_recipient_complement_separator_punctuation(suffix,qualified):
     result=NewsBatchResult(candidates=(CANDIDATE,),request=ross._ross_news_request(),diagnostics=RetrievalDiagnostics(provider_available=True))
     context=ross._ross_news_context_from_evidence('JPM',(item('JPM announces FDA approval granted to JPMorgan Chase'+suffix),),None,result)
     assert context['ross_catalyst_valid'] is qualified
+
+@pytest.mark.parametrize('case,expected', [
+    ('retained_shape', 'issuer_subject_event_attributed'),
+    ('other_connector', 'event_ownership_uncertain_or_other_issuer'),
+    ('non_earnings', 'event_ownership_uncertain_or_other_issuer'),
+    ('another_issuer', 'event_not_attributed_to_requested_issuer'),
+    ('coordinated_subject', 'event_not_attributed_to_requested_issuer'),
+    ('expired', 'missing_future_or_stale_publication_time'),
+    ('future', 'missing_future_or_stale_publication_time'),
+    ('update_only', 'publication_time_unverified_update_only'),
+    ('research', 'research_only_evidence'),
+])
+def test_combined_reporting_period_attribution_through_adapter_and_consumer(offline, tmp_path, case, expected):
+    from test_ross_operational_issuer_news import item
+    from src.news.evidence_store import CanonicalNewsEvidenceStore
+    from src.news.news_intelligence_contract import NewsBatchResult, NewsCandidate, RetrievalDiagnostics
+    from src.strategies.ross_momentum.policy.catalyst_lifecycle import revalidate_handoff
+
+    issuer = 'Highway Holdings Limited'
+    candidate = NewsCandidate('HIHO', company_name=issuer)
+    tail = 'the Second Quarter and Six Months Ended September 30, 2026'
+    title = f'{issuer} Reports Earnings Results for {tail}'
+    if case == 'other_connector':
+        title = f'{issuer} Reports Earnings Results of {tail}'
+    elif case == 'non_earnings':
+        title = f'{issuer} Receives FDA Approval for {tail}'
+    elif case == 'another_issuer':
+        title = f'Rival Holdings Reports Earnings Results for {tail} while HIHO holds steady'
+    elif case == 'coordinated_subject':
+        title = f'{issuer} and Rival Holdings Report Earnings Results for {tail}'
+    age = {'expired': 21601, 'future': -1}.get(case, 60)
+    evidence = replace(item(title, age=age), symbol='HIHO', company_name=issuer, aliases=(),
+                       published_at=ross.datetime.fromtimestamp(time.time() - age, timezone.utc),
+                       source_tier='research' if case == 'research' else 'operational_query',
+                       raw={'timestamp_provenance': {'selected_time_basis': 'updated'}} if case == 'update_only' else {})
+    batch = NewsBatchResult(candidates=(candidate,), request=ross._ross_news_request(),
+                            diagnostics=RetrievalDiagnostics(provider_available=False, provider_status='provider_unavailable'))
+    context = ross._ross_news_context_from_evidence('HIHO', (evidence,), None, batch)
+    assert context['qualification_decisions'][0]['reason'] == expected
+    qualified = case == 'retained_shape'
+    assert context['ross_catalyst_valid'] is qualified
+    assert context['acquisition_health'] == 'degraded' and not context['news_available']
+    result = revalidate_handoff('HIHO', context['catalyst_evidence'],
+                                store=CanonicalNewsEvidenceStore(tmp_path / 'news.json'), request=batch.request)
+    assert result['qualified'] is qualified, result
+    assert result['evidence_ids'] == ([evidence.evidence_id] if qualified else [])
+    assert result['acquisition_health'] == 'degraded'
