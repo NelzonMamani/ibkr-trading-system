@@ -21613,3 +21613,87 @@ existing 60-minute limit. The same-head isolated retry passed at full scope.
 Replay used retained data only. No provider acquisition, observation,
 schedule activation, or TWS change occurred.
 PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+### HIHO main acceptance, caller repin and request 906 timing
+
+Accepted source `a87ed0c097c57151e6dfd68aa7447600c78ac3f5` and tree
+`6e0ea80dac031fb8e454fb8b3ce4ddc63070b702` match the independently
+reviewed PR #1240 tree. All five main jobs passed. The first full Windows
+attempt reached the existing 60-minute limit. The same-commit retry
+passed at full scope.
+[Main CI 44406847501](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/44406847501)
+
+The PRE and ordinary RTH callers each have exactly two commit substitutions
+and two tree substitutions. Restoring those four literals reproduces the
+prior published bytes. This record and the two files are the only delivery
+changes. The prior 300-test attribution result was carried forward.
+
+| Caller | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Natural PRE | 37,153 | `77418c4caf4f307e8b59bcd258e92133520339292b20cc68f4e2fed757f07c1c` |
+| Ordinary RTH | 37,172 | `65d64ca9a7da14dc08868d44b89f63661da48c95f303f8bbea41c12c3571a0f9` |
+
+The verified November 18 retained ZIP places request 906 in the ordinary
+scanner's per-symbol discovery pass. `MarketDataClient.snapshot_stock`
+owns native acquisition and cache reuse. The scanner's `_build_symbol_context`
+and provisional gates own per-symbol enrichment and candidate retention.
+The market event was 19:27:44 London.
+The native snapshot completed at 19:27:48.510418, with a 0.339-second
+reported wait and a passing native freshness assessment. The cycle-scope
+cache reused the quote for HIHO enrichment. Two owned native histories
+(907 and 909) and one within-attempt history reuse completed before
+provisional acquisition kept HIHO. The candidate then retained that
+original quote while serial discovery continued through later symbols.
+That interval shows 28 further native historical requests, 14 history
+reuses and 14 market-data-type callbacks before the news queue marker.
+
+The last observed discovery quote-type callback was VITL at 19:28:15.480295.
+The scanner submitted maintenance work at 19:28:19.250081, already more
+than 30 seconds after 906 completed and well past its 15-second market
+timestamp limit. The scanner's synchronous news path read canonical cache
+entries and applied policy. Nineteen diagnostics in that interval show
+a network-disabled read with no write. The maintenance owner reads per
+issuer, and the canonical store loads and parses the cache on each read.
+The maintenance worker requests overlapped this stage. Log ordering does not show the scanner waiting for their
+retrieval completion. The interval from that queue marker through the
+first refreshed leader's snapshot completion at 19:28:22.838182 (3.588101
+seconds later) includes cache reads, diagnostics, ranking and the first
+leader's quote acquisition.
+The trace does not quantify exclusive time per operation.
+
+The scanner's `_refresh_provisional_shortlist` refreshed AKAN and CUE
+with new broker requests 980 and 983. The refresh rebuilds each made two native history requests
+within a new bounded history attempt. From each snapshot receipt to the
+respective rebuild assessment took 0.665335 and 0.591144 seconds, which
+are upper bounds on the corresponding history-only time. The existing
+history lease intentionally prevents treating earlier attempt output as
+a new owner's witnessed result. CUE's original 19:28:10 market timestamp
+had less than half a second of its valid lifetime when its rebuild
+finished at 19:28:24.565828. Even at CUE snapshot receipt, only
+1.025316 seconds remained. Removing its rebuild time could not restore
+the configured five-second reserve for that quote. The
+`_shortlist_selection_deadline` leader freshness reserve deferred the
+rest of the list, including HIHO. HIHO had no refresh request in this
+shortlist pass. Assessment at 19:28:24.572485 used original request 906
+and correctly recorded MD_STALE. Its post-snapshot residence was
+36.062067 seconds. Its market quote age was 40.572485 seconds.
+
+The retained clocks and refresh ordering were replayed offline through
+the actual shortlist refresh, deadline and freshness gates with
+transport and context-build substitutes and the retained rank order.
+Only AKAN and CUE reached the refresh substitute. The reserve deferred
+HIHO, and the strict gate dropped request 906 without changing its
+clock. A zero-rebuild-time control with the retained receipt clocks
+still deferred HIHO and rejected request 906. The two focused shortlist
+modules passed 31 tests. This replay checks the timing and reserve behavior with controlled non-time gate
+fields. It supplies no new candidate or trading result.
+
+Repeated leader rebuild work and the scanner-side cache/policy/log work are
+bounded latency leads. The recorded 906 quote had already expired before
+news processing and leader refresh, so removing those later steps cannot
+make it timely. The retained evidence does not isolate a removable
+transport or processing cost in the preceding serial path or show that
+changing acquisition order would improve the shortlist without displacing
+a higher-ranked candidate. No scanner implementation change was justified.
+No new acquisition, observation, schedule activation, or TWS change occurred.
+PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
