@@ -542,7 +542,8 @@ print('CACHE_STARTUP_CHECKS_PASS')
     $tokens = $null
     $errors = $null
     $null = [Management.Automation.Language.Parser]::ParseFile($preCaller, [ref]$tokens, [ref]$errors)
-    Check ($errors.Count -eq 0) ('PRE caller PowerShell 5.1 parse failed: ' + ($errors | Out-String))
+    $parserMessages = @($errors | ForEach-Object { 'Line {0}: {1}' -f $_.Extent.StartLineNumber,$_.Message })
+    Check ($errors.Count -eq 0) ('PRE caller PowerShell 5.1 parse failed: ' + ($parserMessages -join '; '))
     $passed++
     @{passed=$passed; powershell=$PSVersionTable.PSVersion.ToString(); platform=$env:OS; scope='controlled stub children only; no providers/broker/runtime'} | ConvertTo-Json | Set-Content (Join-Path $scratch 'receipt.json')
     Write-Host "OBSERVATION_HARNESS_PASS: $passed checks; $scratch"
