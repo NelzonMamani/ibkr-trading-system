@@ -87,9 +87,9 @@ def observe_block():
     return compile(ast.Module(body=node.body,type_ignores=[]),str(OWNER),'exec')
 
 
-@pytest.mark.parametrize('case',['valid','stale','reused','parent','operator','hook','late','session','interrupted'])
+@pytest.mark.parametrize('case',['valid','stale','reused','parent','operator','hook','late','session','interrupted','pre-valid','pre-admission','pre-receipt'])
 def test_real_observe_entry_only_dispatches_after_single_use_admission(tmp_path,monkeypatch,case):
-    ns=functions(tmp_path);save(ns)
+    ns=functions(tmp_path); ns['premarket']=case.startswith('pre-');save(ns)
     controller={'pid':os.getppid(),'token':'fixture'}
     if os.name == 'nt':
         from src.runtime.process_identity import WindowsProcessHandle
@@ -101,25 +101,34 @@ def test_real_observe_entry_only_dispatches_after_single_use_admission(tmp_path,
     (tmp_path/'operator-state-source.json').write_text(json.dumps({'path':str(original),'sha256':ns['digest'](original)}))
     admission={'binding':ns['binding'](),'controller':controller,'operator_receipt':ns['digest'](tmp_path/'operator-state-source.json'),
                'issued_monotonic':time.monotonic()-(30 if case=='stale' else 0),'issued_utc':time.time()}
+    pre_window = {'phase': 'PRE', 'target_session': '2026-11-18', 'fingerprint': 'reviewed'}
+    if ns['premarket'] and case != 'pre-admission':
+        admission['premarket_window'] = pre_window
     (tmp_path/'admission.json').write_text(json.dumps(admission))
     (tmp_path/'e/preflight-process.process.json').write_text(json.dumps(dict(exited=True,timely_exit_verified=case!='late',exit_code=0)))
     (tmp_path/'e/preflight-result.json').write_text('{"status":"PASS"}')
-    (tmp_path/'e/preflight.json').write_text(json.dumps(dict(seconds=900,head=ns['expected'])))
+    preflight = dict(seconds=900,head=ns['expected'])
+    if ns['premarket'] and case != 'pre-receipt':
+        preflight['premarket_window'] = pre_window
+    (tmp_path/'e/preflight.json').write_text(json.dumps(preflight))
     if case=='interrupted':(tmp_path/'e/preflight.stop').touch()
     if case=='operator':original.write_bytes(b'changed')
     if case=='hook':(tmp_path/'state/startup/sitecustomize.py').write_text('changed')
     if case=='parent':monkeypatch.setenv('READONLY_ADMISSION_TOKEN','wrong')
     if case=='reused':(tmp_path/'admission-consumed').touch()
     called=[]
-    def dispatch(args):called.append(args);return 0
+    def dispatch(args, **kwargs):called.append((args, kwargs));return 0
     def session():
         if case=='session':raise SystemExit('closed')
+        return pre_window if ns['premarket'] else None
     ns.update(supervisor=types.SimpleNamespace(require_clean_certification_worktree=lambda _:None,main=dispatch),
               session_check=session,install_console_protection=lambda:None,
               write_json=lambda path,value:path.write_text(json.dumps(value)))
     with pytest.raises((SystemExit,FileExistsError)) as result:exec(observe_block(),ns)
-    assert bool(called)==(case=='valid')
-    if case=='valid':assert result.value.code==0 and (tmp_path/'admission-consumed').exists()
+    assert bool(called)==(case in {'valid','pre-valid'})
+    if called:
+        assert result.value.code==0 and (tmp_path/'admission-consumed').exists()
+        assert called[0][1] == ({'premarket_window': pre_window} if ns['premarket'] else {})
 
 
 def test_session_requires_entire_supervisor_window(tmp_path,monkeypatch):

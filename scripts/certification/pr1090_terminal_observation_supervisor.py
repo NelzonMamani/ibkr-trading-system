@@ -8,6 +8,7 @@ not a replacement for full-session RTH strategy certification.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import re
@@ -559,13 +560,31 @@ def stop_and_finalize(process, readers, capture_errors, output, *, expected_prof
     return 0 if healthy and result["passed"] else 2
 
 
-def main(argv=None):
+def require_premarket_window(now, runtime_seconds):
+    """Bind actual PRE endpoints to the reviewed session through the calendar owner."""
+    from src.market_data.session_pct_change import covered_opening_window
+
+    end_time = now + timedelta(seconds=runtime_seconds + 360)
+    start = covered_opening_window(now)
+    end = covered_opening_window(end_time)
+    if (runtime_seconds != 900 or start is None or end is None
+            or start.phase != "PRE" or end.phase != "PRE"
+            or start.target_session != end.target_session or start.fingerprint != end.fingerprint
+            or end_time >= start.current_open):
+        raise SystemExit('Full 1260-second observation envelope must stay in one reviewed PRE window strictly before RTH open.')
+    return {"phase": start.phase, "target_session": start.target_session,
+            "fingerprint": start.fingerprint, "rth_open": start.current_open.isoformat()}
+
+
+def main(argv=None, *, premarket_window=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seconds", type=float, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expected-commit", required=True)
     parser.add_argument("--benchmark-capture", action="store_true")
     args = parser.parse_args(argv)
+    if premarket_window is not None and args.benchmark_capture:
+        parser.error("PRE enrollment conflicts with benchmark capture")
     if args.benchmark_capture and args.seconds != 180:
         parser.error("Benchmark capture uses exactly180 seconds")
     if not math.isfinite(args.seconds) or args.seconds <= 0:
@@ -601,6 +620,19 @@ def main(argv=None):
     output.mkdir(parents=True, exist_ok=False)
     command = ([sys.executable, "-u", "-m", "scripts.certification.pr1040_real_readonly_runtime_observation_adapter",
                 "--benchmark-capture"] if profile else [sys.executable, "-u", "-m", "src.main"])
+    env.pop("PR1090_PREMARKET_HISTORY_EVIDENCE", None)
+    if premarket_window is not None:
+        env["PR1090_PREMARKET_HISTORY_EVIDENCE"] = "1"
+        launch_time = datetime.now(timezone.utc)
+        launch_window = require_premarket_window(launch_time, args.seconds)
+        if launch_window != premarket_window:
+            raise SystemExit('Reviewed PRE window differs at supervisor launch.')
+        write_json(output / "premarket-launch.json", {
+            **launch_window, "checked_utc": launch_time.isoformat(),
+            "envelope_end_utc": (launch_time + timedelta(seconds=args.seconds + 360)).isoformat(),
+        })
+        if require_premarket_window(datetime.now(timezone.utc), args.seconds) != premarket_window:
+            raise SystemExit('Reviewed PRE window changed before runtime launch.')
     launcher = subprocess.Popen(command, cwd=ROOT, env=env,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     process = SupervisedProcess(launcher, command, nonce, handshake, acknowledgement_path=acknowledgement)

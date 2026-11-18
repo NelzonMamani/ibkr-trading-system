@@ -20841,3 +20841,34 @@ Focused duration/profile suites154passed/8.75s (overlaps earlier145). Windows
 PowerShell additions require actual changed-head CI; no local native parse claim.
 Exact final review and required automatic CI remain gates before authorized merge.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### Natural PRE observation admission contract (2026-11-18)
+
+The maintained natural caller explicitly enrolls PRE through the runner,
+controller, operator, and existing supervisor. The operator binds the selected
+phase to preparation and admission, and records the reviewed target date,
+calendar fingerprint and RTH open. Both endpoints of the maintained 900-second
+runtime plus 360-second allowance must be actual PRE in the same covered
+session. The endpoint must be strictly before the RTH open. The supervisor
+checks the same binding again immediately before starting the ordinary Ross
+runtime. The calendar fingerprint alone cannot distinguish PRE from RTH_OPEN.
+Benchmark capture, ambient session overrides and conflicting enrollment refuse.
+Ordinary RTH and the frozen distribution retain their existing entry conditions.
+
+Retain the standard sealed evidence and the PRE preflight and launch records.
+Use the scanner and decision records to establish natural movement from scan
+to watchlist to Focus or the owner-reported rejection. Check the actual prior
+completed RTH-close reference, the PRE volume/RVOL basis, extended-hours
+history arguments and request completion/ownership, and quote timestamps,
+spread and refusals. Use news evidence and acquisition coverage records to
+check original publication time, issuer relevance, qualification, freshness
+and the separate overnight eligibility route. Missing or unverified evidence
+supports only the corresponding refusal or proof limit. Availability does not
+force a catalyst, Focus selection, intent, or an affirmative outcome.
+
+Exact client71, contemporaneous PAPER/Read-Only confirmation, single-use roots,
+source/config binding, mutation audits, privacy sealing, owned cleanup and all
+five ownership vetoes continue to apply. PRE evidence is separate from the
+RTH benchmark. No task registration, remote observation, laptop setting change
+or readiness upgrade is part of this integration.
+PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.

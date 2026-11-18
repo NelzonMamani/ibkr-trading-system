@@ -8,10 +8,11 @@ from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceed
 import asyncio
 import copy
 from contextlib import nullcontext, contextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from collections.abc import Sequence
 from datetime import datetime, timezone
 import math
+import os
 import json
 import time
 from typing import Any, Optional, TYPE_CHECKING
@@ -62,6 +63,24 @@ def historical_request_spec(*, end_date_time, duration_str, bar_size_setting,
     supported = texts[2] in {"10 secs", "1 min", "5 mins"} and format_date == 2
     return HistoricalRequestSpec(*texts, use_rth, format_date, keep_up_to_date, not bool(chart_options),
         "UTC_BAR_START" if supported else None)
+
+
+def record_premarket_history(transport, request_id, spec, state, *, owned, cancellation):
+    """Project the existing request receipt into the supervised PRE evidence stream."""
+    if os.environ.get("PR1090_PREMARKET_HISTORY_EVIDENCE") != "1":
+        return
+    facts = {
+        "transport": transport,
+        "request_id": request_id,
+        "request_spec": asdict(spec) if spec is not None else None,
+        "dispatched_utc": state.get("request_dispatched_at_utc"),
+        "completed_utc": state.get("completed_at_utc"),
+        "outcome": state["status"],
+        "end_received": state["end_received"],
+        "owned_at_retirement": owned,
+        "cancellation": cancellation,
+    }
+    print("[IBKR][HISTORICAL_PRE_EVIDENCE] " + json.dumps(facts, sort_keys=True))
 
 
 @dataclass(frozen=True)
@@ -1344,11 +1363,16 @@ class MarketDataClient:
                 if futures.get(req_id) is future:
                     futures.pop(req_id, None)
                 same_epoch = epoch == getattr(ib.client, "_startTime", None)
+                cancellation = "NOT_ATTEMPTED"
                 if sent and not state["end_received"] and state["status"] != "DISCONNECTED" and not foreign and same_epoch:
                     try:
                         ib.client.cancelHistoricalData(req_id)
+                        cancellation = "SDK_CANCEL_RETURNED_NOT_BROKER_ACK"
                     except Exception as exc:
+                        cancellation = "SDK_CANCEL_ERROR_" + type(exc).__name__
                         print(f"[IBKR][HIST_CANCEL_ERROR] req_id={req_id} error_type={type(exc).__name__}")
+                record_premarket_history("ib_insync", req_id, spec if sent else None, state,
+                                         owned=sent and not foreign and same_epoch, cancellation=cancellation)
         return HistoricalDataResult(state["status"], tuple(bars), state["end_received"],
             req_id, state["error_code"], len(bars) if not state["end_received"] else 0,
             contract_identity=identity if sent else None, dispatched_contract_identity=identity if sent else None,
