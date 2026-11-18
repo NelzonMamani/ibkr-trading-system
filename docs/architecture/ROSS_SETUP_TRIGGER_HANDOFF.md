@@ -7665,3 +7665,19 @@ natural PRE evidence and does not satisfy the separate opening-benchmark
 capture contract. Those actual acquisitions remain outstanding. No ownership
 or execution gate is relaxed by this receipt. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
+
+### Subsequent retained-input HIHO attribution replay
+
+The accepted attribution helper was replayed offline at the original
+19:24:39.799766 and19:27:21.194314 UTC reassessment clocks, using the exact
+retained HIHO item and issuer profile. Fetched classification/retention/
+publication source bytes matched this run's source-before manifest. Both
+assessments recognized EARNINGS but returned qualified=false with
+`event_ownership_uncertain_or_other_issuer`. Tracing the original helper
+localized the rejected complement to `the Second Quarter and Six Months Ended
+September 30, 2026`: its reporting-period, ordinary-purpose and issuer matchers
+returned no match and set owner_uncertain=true. No headline, source-verification
+fact or acquisition receipt was fabricated or changed. This is a per-evidence
+attribution reproduction, not full consumer/Core positive admission. A bounded
+reporting-period grammar repair needs current-main comparison, causal negative
+controls and independent review; all other qualification gates remain necessary.
