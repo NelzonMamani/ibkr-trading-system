@@ -21376,3 +21376,62 @@ Laptop staging and interactive prompt visibility remain UNVERIFIED. No actual ta
 was registered or installed. No laptop operation, broker connection, provider
 retrieval or observation ran. The delivered draft remains disabled.
 PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+### Natural PRE READ_ONLY operator delivery (2026-11-18)
+
+Natural PRE is explicitly enrolled through the maintained caller, runner,
+controller, operator and supervisor. The 900-second runtime and 360-second
+allowance require actual PRE at both endpoints in one reviewed target session
+with the same calendar fingerprint. The endpoint must be strictly before the
+RTH open. The selected phase is part of preparation and admission identity.
+The supervisor rechecks that binding against the actual clock immediately before
+starting the ordinary Ross process. PRE combined with benchmark capture or a
+session override refuses. Ordinary RTH, BENCHMARK_CAPTURE_V1 and the frozen
+Ross delivery remain available through their existing routes.
+
+Retain the existing sealed observation evidence, including
+`preflight.json` and `terminal/premarket-launch.json` for the PRE binding.
+Review scan, watchlist and Focus transitions or the owner-reported rejection.
+Check the actual prior completed RTH-close reference and PRE volume/RVOL basis,
+effective extended-hours history arguments and request completion/retirement
+facts in `HISTORICAL_PRE_EVIDENCE`, and quote timestamps, spreads and refusals.
+The existing news evidence owns acquisition coverage, original publication
+and freshness, issuer qualification and next-session eligibility. Missing
+evidence establishes the corresponding proof limit. No outcome is forced.
+
+The exact reviewed PR head was `d94eaeb2f0ed45f302e112a6ef15018eb8fdacb2`. Focused offline validation passed
+320 tests, including phase crossing with an equal fingerprint, the strict
+cutoff, mismatched receipt and the final supervisor prelaunch check.
+The historical request owner tests also passed with PRE evidence enabled
+(89 tests). Native Windows PowerShell 5.1 verified the owned runner handoff
+with five stub phases, rejected conflicting enrollment, and parsed the
+unbound caller template. The exact-head Windows receipt recorded PowerShell
+5.1.26100.33648, 63 controlled checks, and owned PRE runner exit 0 with
+a verified timely exit. Actions artifact 14423790744 matched ZIP SHA-256
+`a0c7123995e34c0970073ee7cdb414ef7b9511bb55be4b398dee78ec52ce4366`.
+Earlier Windows CI attempts exposed a harness exit-code read issue, a
+transient CIM timeout in the existing handoff fixture, and a here-string
+indentation error in the unbound template. The harness reads the owned
+process receipt and the template preserves the original here-string
+bytes. Published caller edits are limited to the accepted source/tree
+literals, independently byte-reviewed. [PR #1238](https://github.com/NelzonMamani/ibkr-trading-system/pull/1238)
+
+Accepted source `83335d5835cfd8b38919c779f40af8ea56a5240f`, tree `8a88d5d287028348dedea616d440b890aa897e48`.
+[Required PR CI](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/44294439589)
+All five required PR and accepted-main jobs passed. The first accepted-main
+Windows suite reached its existing 60-minute limit. The isolated retry passed
+on the same commit with the original test scope and budget.
+[Accepted main CI](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/44302921404)
+
+The one local PowerShell block is
+`docs/ross/NATURAL_PRE_READ_ONLY_LOCAL_EXECUTION.ps1`, 37,153 bytes,
+SHA-256 `297a90c0ae2c631de6941188c0c18ee9f263f08102502ddd07d951bc57b985c9`. The block uses the confirmed source, Python 3.13.3
+and evidence paths. It requires contemporaneous operator confirmation and
+retains exact client71, single-use roots, mutation audit, owned cleanup,
+privacy sealing and all five ownership vetoes. Days are limited to the
+reviewed finite calendar. For the covered November dates, the 09:00 London
+PRE start and strict 14:09 London admission cutoff leave the full envelope
+before the 14:30 London RTH open. PRE evidence does not satisfy the RTH
+benchmark. No remote observation, laptop operation, task installation or
+broker/provider acquisition occurred in validation or delivery.
+PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
