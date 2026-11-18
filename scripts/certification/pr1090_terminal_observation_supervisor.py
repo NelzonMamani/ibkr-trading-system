@@ -28,7 +28,7 @@ if str(ROOT) not in sys.path:
 
 from src.ibkr.evidence_safety import SafeTextStream, capture_console, install_console_protection, scrub_text, write_json, write_text
 from src.ibkr.shutdown_evidence import complete_after_process_exit
-from src.runtime.process_identity import (HANDSHAKE_ACK, HANDSHAKE_NONCE, HANDSHAKE_PATH,
+from src.runtime.process_identity import (FULL_CORE_CLIENT71, HANDSHAKE_ACK, HANDSHAKE_NONCE, HANDSHAKE_PATH,
                                           SupervisedProcess, split_windows_command_line)
 
 
@@ -576,15 +576,15 @@ def require_premarket_window(now, runtime_seconds):
             "fingerprint": start.fingerprint, "rth_open": start.current_open.isoformat()}
 
 
-def main(argv=None, *, premarket_window=None):
+def main(argv=None, *, premarket_window=None, full_core_admitted=False, rth_launch_check=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seconds", type=float, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expected-commit", required=True)
     parser.add_argument("--benchmark-capture", action="store_true")
     args = parser.parse_args(argv)
-    if premarket_window is not None and args.benchmark_capture:
-        parser.error("PRE enrollment conflicts with benchmark capture")
+    if args.benchmark_capture and (premarket_window is not None or full_core_admitted or rth_launch_check is not None):
+        parser.error("Full-Core observation enrollment conflicts with benchmark capture")
     if args.benchmark_capture and args.seconds != 180:
         parser.error("Benchmark capture uses exactly180 seconds")
     if not math.isfinite(args.seconds) or args.seconds <= 0:
@@ -597,12 +597,18 @@ def main(argv=None, *, premarket_window=None):
     install_console_protection()
     from scripts.certification.pr1040_real_readonly_runtime_observation_adapter import build_safe_readonly_env
     env = build_safe_readonly_env()
+    env.pop(FULL_CORE_CLIENT71, None)
+    if full_core_admitted:
+        if tuple(env.get(key) for key in ("IBKR_HOST", "IBKR_PORT", "IBKR_CLIENT_ID")) != ("127.0.0.1", "7497", "71"):
+            parser.error("Full-Core observation requires the maintained client71 endpoint")
     env["PR1090_EVIDENCE_DIR"] = str(output)
     env["PR1090_STOP_FILE"] = str(output / "STOP_REQUESTED")
     nonce = secrets.token_hex(32)
     handshake = output / ("runtime_identity_" + nonce + ".json")
     acknowledgement = output / ("runtime_identity_" + nonce + ".accepted.json")
     env[HANDSHAKE_NONCE] = nonce
+    if full_core_admitted:
+        env[FULL_CORE_CLIENT71] = nonce
     env[HANDSHAKE_PATH] = str(handshake)
     env[HANDSHAKE_ACK] = str(acknowledgement)
     # Recheck after preparation, before creating artifacts or starting the child.
@@ -633,6 +639,8 @@ def main(argv=None, *, premarket_window=None):
         })
         if require_premarket_window(datetime.now(timezone.utc), args.seconds) != premarket_window:
             raise SystemExit('Reviewed PRE window changed before runtime launch.')
+    if rth_launch_check is not None:
+        rth_launch_check()
     launcher = subprocess.Popen(command, cwd=ROOT, env=env,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     process = SupervisedProcess(launcher, command, nonce, handshake, acknowledgement_path=acknowledgement)
@@ -654,7 +662,7 @@ def main(argv=None, *, premarket_window=None):
     # Configure only the supervisor audit environment; the child received env.
     # Handshake variables belong exclusively to the child, not the audit.
     os.environ.update({key: value for key, value in env.items()
-                       if key not in {HANDSHAKE_PATH, HANDSHAKE_NONCE, HANDSHAKE_ACK}})
+                       if key not in {HANDSHAKE_PATH, HANDSHAKE_NONCE, HANDSHAKE_ACK, FULL_CORE_CLIENT71}})
     try:
         return (stop_and_finalize(process, readers, capture_errors, output, expected_profile=profile,
                                   private_output=private_output) if profile else

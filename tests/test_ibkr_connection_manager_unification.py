@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+import pytest
+
+from src.adapters.brokers.ibkr import ibkr_connection_manager as manager_module
+
 from src.adapters.brokers.ibkr.ibkr_connection_manager import (
     IbkrConnectionConfig,
     IbkrConnectionManager,
@@ -350,3 +354,107 @@ def test_execution_engine_shutdown_disconnects_once():
     ExecutionEngine.shutdown(engine)
 
     assert broker.calls == 1
+
+
+@pytest.fixture
+def full_core_observation(monkeypatch, tmp_path):
+    import json
+    import os
+    from src.runtime import process_identity
+
+    monkeypatch.setattr(manager_module, "_default_manager", None)
+    monkeypatch.setattr(process_identity, "_runtime_identity", None)
+    monkeypatch.setattr(process_identity, "_runtime_identity_nonce", None)
+    monkeypatch.delenv("EXECUTION_ENV", raising=False)
+    nonce = "a" * 64
+    identity = {"pid": os.getpid()}
+    ack = tmp_path / "ack.json"
+    ack.write_text(json.dumps({"nonce": nonce, "identity": identity}), encoding="utf-8")
+    for key, value in {
+        "RUN_MODE": "READ_ONLY", "RUN_MODE_EFFECTIVE": "READ_ONLY", "IBKR_HOST": "127.0.0.1",
+        "IBKR_PORT": "7497", "IBKR_CLIENT_ID": "71", process_identity.HANDSHAKE_NONCE: nonce,
+        process_identity.HANDSHAKE_PATH: str(tmp_path / "handshake.json"),
+        process_identity.HANDSHAKE_ACK: str(ack),
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(process_identity, "read_process_identity", lambda _: identity)
+    process_identity.publish_runtime_identity()
+    return process_identity.FULL_CORE_CLIENT71, nonce
+
+
+@pytest.mark.parametrize("observed", [True, False])
+def test_core_connectivity_pipeline_obeys_owned_client71_pin(full_core_observation, monkeypatch, observed):
+    from datetime import datetime, timezone
+    from src.core.orchestrator import CoreOrchestrator
+    from src.core.managers.connection_manager import ConnectionManager
+    from src.config.runtime_config import RunMode
+    from types import SimpleNamespace
+
+    key, nonce = full_core_observation
+    if observed:
+        monkeypatch.setenv(key, nonce)
+
+    attempts = []
+    retired = []
+    class ConflictClient:
+        def __init__(self, *, client_id, **_):
+            self.client_id = client_id
+        def connect(self):
+            attempts.append(self.client_id)
+            raise RuntimeError("326 client id conflict")
+        def disconnect(self):
+            retired.append(self.client_id)
+
+    monkeypatch.setattr(manager_module, "IbkrClient", ConflictClient)
+    core = CoreOrchestrator.__new__(CoreOrchestrator)
+    core.run_mode = RunMode.READ_ONLY
+    core.connection_manager = ConnectionManager(core.run_mode)
+    core._expire_selected_failure_enrollment = lambda *_: None
+    monkeypatch.setattr("src.core.orchestrator.RuntimeModeManager.resolve",
+                        lambda: SimpleNamespace(describe=lambda: "controlled"))
+    class ConnectivityRefusal(Exception):
+        pass
+    def stop_after_refusal(**facts):
+        assert facts["reason_code"] == "CONNECTIVITY_FAILURE"
+        raise ConnectivityRefusal
+    core._trace_halt = stop_after_refusal
+    now = datetime.now(timezone.utc)
+    with pytest.raises(ConnectivityRefusal):
+        core._run_manager_pipeline(cycle_started_at=now, ny_time=now, uk_time=now, session_phase="RTH")
+    assert attempts == ([71] if observed else list(range(71, 81)))
+    assert retired == attempts
+    owner = manager_module.get_shared_ibkr_connection_manager()
+    assert owner.config.max_client_id_retries == (1 if observed else 10)
+    assert owner.existing_client is None
+
+
+@pytest.mark.parametrize("case", ["nonce", "unacknowledged", "pid", "client", "host", "port", "mode",
+                                  "effective_mode", "test", "unused_owner", "connected_owner"])
+def test_full_core_client71_rejects_invalid_binding_and_unenrolled_owner(full_core_observation, monkeypatch, case):
+    from src.runtime import process_identity
+    from types import SimpleNamespace
+
+    key, nonce = full_core_observation
+    overrides = {"nonce": (key, "other"), "client": ("IBKR_CLIENT_ID", "72"),
+                 "host": ("IBKR_HOST", "::1"), "port": ("IBKR_PORT", "7496"),
+                 "mode": ("RUN_MODE", "PAPER"), "effective_mode": ("RUN_MODE_EFFECTIVE", "PAPER"),
+                 "test": ("EXECUTION_ENV", "TEST")}
+    if case in {"unused_owner", "connected_owner"}:
+        owner = manager_module.get_shared_ibkr_connection_manager()
+        if case == "connected_owner":
+            owner._client = SimpleNamespace(is_connected=lambda: True)
+            owner._connected_client_id = 72
+
+    monkeypatch.setenv(key, nonce)
+    if case in overrides:
+        monkeypatch.setenv(*overrides[case])
+    if case == "unacknowledged":
+        monkeypatch.setattr(process_identity, "_runtime_identity_nonce", None)
+    if case == "pid":
+        monkeypatch.setattr(process_identity, "_runtime_identity", {"pid": -1})
+    monkeypatch.setattr(manager_module, "IbkrClient", lambda **_: pytest.fail("Unexpected native client"))
+    with pytest.raises(RuntimeError, match="READONLY_FULL_CORE_CLIENT71_"):
+        manager_module.get_shared_ibkr_connection_manager()
+    if case in {"unused_owner", "connected_owner"}:
+        assert manager_module._default_manager is owner
+        assert owner.config.max_client_id_retries == 10

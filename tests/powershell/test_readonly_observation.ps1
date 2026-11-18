@@ -23,6 +23,9 @@ with (e/'capture_modes').open('a') as modes: modes.write(phase+':'+str(benchmark
 premarket = '--premarket' in duration_args
 if premarket: duration_args.remove('--premarket')
 with (e/'premarket_modes').open('a') as modes: modes.write(phase+':'+str(premarket)+'\n')
+ordinary_rth = '--ordinary-rth' in duration_args
+if ordinary_rth: duration_args.remove('--ordinary-rth')
+with (e/'ordinary_rth_modes').open('a') as modes: modes.write(phase+':'+str(ordinary_rth)+'\n')
 calendar = duration_args[-1:] == ['--reviewed-calendar']
 if calendar: duration_args.pop()
 with (e/'calendar_modes').open('a') as modes: modes.write(phase+':'+str(calendar)+'\n')
@@ -514,6 +517,18 @@ print('CACHE_STARTUP_CHECKS_PASS')
         $expected=(@('prepare','preflight','observe','package','seal') | ForEach-Object { $_ + ':' + $value }) -join ','
         Check (((Get-Content (Join-Path $preRoot ('e/' + $entry))) -join ',') -ceq $expected) ('PRE phase options changed: ' + $entry)
     }
+    $rthRoot = Join-Path $scratch 'ordinary-rth-propagation'
+    New-Item -ItemType Directory $rthRoot | Out-Null
+    $rthEntry = Invoke-ObservationChild -Python (Get-Command powershell.exe).Source -ChildArguments @(
+        '-NoProfile','-File',$preRunner,'-Python',$Python,'-Root',$rthRoot,'-ExpectedCommit',('a'*40),
+        '-RuntimeSeconds','900','-OrdinaryRth'
+    ) -LogPrefix (Join-Path $scratch 'ordinary-rth-entry') -BudgetSeconds 20
+    Check ($rthEntry.ExitCode -eq 0 -and !$rthEntry.TimedOut) "Ordinary RTH runner stub failed: actual exit $($rthEntry.ExitCode)."
+    foreach ($entry in @('ordinary_rth_modes','premarket_modes','calendar_modes','capture_modes','durations')) {
+        $value = switch ($entry) { 'ordinary_rth_modes' {'True'} 'durations' {'900'} default {'False'} }
+        $expected = (@('prepare','preflight','observe','package','seal') | ForEach-Object { $_ + ':' + $value }) -join ','
+        Check (((Get-Content (Join-Path $rthRoot ('e/' + $entry))) -join ',') -ceq $expected) ('Ordinary RTH options changed: ' + $entry)
+    }
     $conflictRoot=Join-Path $scratch 'premarket-conflict'
     New-Item -ItemType Directory $conflictRoot | Out-Null
     $failed=$false
@@ -538,13 +553,15 @@ print('CACHE_STARTUP_CHECKS_PASS')
     $null = [Management.Automation.Language.Parser]::ParseInput($match.Groups[1].Value, [ref]$parseTokens, [ref]$parseErrors)
     Check ($parseErrors.Count -eq 0) ('Local PowerShell5.1 observation block parse failed: '+($parseErrors | Out-String))
     $passed++
-    $preCaller = Join-Path $repo 'docs\ross\NATURAL_PRE_READ_ONLY_LOCAL_EXECUTION.ps1.in'
-    $tokens = $null
-    $errors = $null
-    $null = [Management.Automation.Language.Parser]::ParseFile($preCaller, [ref]$tokens, [ref]$errors)
-    $parserMessages = @($errors | ForEach-Object { 'Line {0}: {1}' -f $_.Extent.StartLineNumber,$_.Message })
-    Check ($errors.Count -eq 0) ('PRE caller PowerShell 5.1 parse failed: ' + ($parserMessages -join '; '))
-    $passed++
+    foreach ($name in @('NATURAL_PRE_READ_ONLY_LOCAL_EXECUTION.ps1.in','ORDINARY_RTH_READ_ONLY_LOCAL_EXECUTION.ps1.in')) {
+        $caller = Join-Path $repo ('docs\ross\' + $name)
+        $tokens = $null
+        $errors = $null
+        $null = [Management.Automation.Language.Parser]::ParseFile($caller, [ref]$tokens, [ref]$errors)
+        $parserMessages = @($errors | ForEach-Object { 'Line {0}: {1}' -f $_.Extent.StartLineNumber,$_.Message })
+        Check ($errors.Count -eq 0) ($name + ' PowerShell 5.1 parse failed: ' + ($parserMessages -join '; '))
+        $passed++
+    }
     @{passed=$passed; powershell=$PSVersionTable.PSVersion.ToString(); platform=$env:OS; scope='controlled stub children only; no providers/broker/runtime'} | ConvertTo-Json | Set-Content (Join-Path $scratch 'receipt.json')
     Write-Host "OBSERVATION_HARNESS_PASS: $passed checks; $scratch"
     exit 0
