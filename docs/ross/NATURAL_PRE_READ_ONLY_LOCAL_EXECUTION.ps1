@@ -14,8 +14,8 @@ $ErrorActionPreference = 'Stop'
     }
 
     $rossFetchRepo = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
-    $rossFetchPin = '83335d5835cfd8b38919c779f40af8ea56a5240f'
-    $rossFetchTree = '8a88d5d287028348dedea616d440b890aa897e48'
+    $rossFetchPin = '69e9f658a37a2dcf495a74cedddedd51076f5dea'
+    $rossFetchTree = 'c7a716f07b96a34c578247158d57c63d86e7a153'
     if ($rossFetchPin -cnotmatch '^[0-9a-f]{40}$' -or $rossFetchTree -cnotmatch '^[0-9a-f]{40}$') {
         throw 'Natural PRE release has no immutable source binding.'
     }
@@ -119,8 +119,8 @@ $ErrorActionPreference = 'Stop'
     Set-StrictMode -Version 2.0
     $ErrorActionPreference = 'Stop'
     $release = [pscustomobject]@{
-        Commit = '83335d5835cfd8b38919c779f40af8ea56a5240f'
-        Tree = '8a88d5d287028348dedea616d440b890aa897e48'
+        Commit = '69e9f658a37a2dcf495a74cedddedd51076f5dea'
+        Tree = 'c7a716f07b96a34c578247158d57c63d86e7a153'
         PreparationBlob = '5cbb8bcdbed3041b41f5fce7cd64b1bf72a37ee4'
         # Exact accepted ASCII preparation file, allowing only LF or CRLF checkout bytes.
         PreparationFileSha256 = @('25166f54a9ad17c0b8fc6877d9cfd100f9b00d1a05e9ade669b08606d48d6c2c',

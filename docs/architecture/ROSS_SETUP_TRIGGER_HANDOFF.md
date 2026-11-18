@@ -7552,3 +7552,57 @@ before the 14:30 London RTH open. PRE evidence does not satisfy the RTH
 benchmark. No remote observation, laptop operation, task installation or
 broker/provider acquisition occurred in validation or delivery.
 PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+### Exact client71 full-Core repair and ordinary RTH delivery (2026-11-18)
+
+The November 16 retained observation reports connection on client71. The
+separate offline conflict reproduction at 83335d58 showed the previously
+possible fallback to client72. It does not show a fallback in that observation.
+
+The maintained PRE and ordinary full-Core routes now apply the existing exact
+client71 pin before a fresh shared manager is published. Enrollment is
+bound to the acknowledged supervisor process and its nonce. Invalid binding
+or an unenrolled previously published owner refuses. Offline Core startup
+with a substitute showed attempts [71] on conflict, with no client72 attempt.
+The unenrolled control retained its normal retry defaults. Benchmark capture's
+existing separate pin and its previously published caller remain intact.
+
+The ordinary RTH caller uses the existing preparation, preflight, observation,
+package and seal owners. Its 900-second runtime and 360-second allowance must
+fit strictly before the actual session close, with a fresh check at launch.
+The reviewed exchange closure and early-close facts are used without PRE,
+opening-calendar or benchmark enrollment. On normal covered November dates,
+the London admission and launch cutoff is strictly before 20:39. On the
+reviewed 27 November early close, it is strictly before 17:39.
+Operator confirmation, client71 exclusivity, single-use roots, source/config
+binding, all five vetoes, mutation audits, owned cleanup and privacy sealing
+remain required.
+
+Accepted main `69e9f658a37a2dcf495a74cedddedd51076f5dea`, tree `c7a716f07b96a34c578247158d57c63d86e7a153`. The exact PR head `c1f10c5a705c98dc610f07947d549f81e84bb6d8`
+received independent review. The local focused suites passed 341 tests.
+Native PowerShell 5.1.26100.33648 recorded 64 controlled checks and timely
+exit zero for both stubbed routes, with their exact distinct arguments
+through all five phases. The controlled artifact 14453372168 ZIP matched
+SHA-256 `5f118dd9d6ec4e7f5623bc8c2d0fbf0ed61092e39fdbdb20224568051d91b3de`.
+[PR #1239](https://github.com/NelzonMamani/ibkr-trading-system/pull/1239)
+[Required PR CI](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/44356587546)
+All five required PR and accepted-main jobs passed. The original main
+controlled-process job reached the existing three-second Windows CIM
+timeout in the virtual-environment fixture. The same-commit isolated
+retry passed with the original guards and scope.
+[Accepted main CI](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/44367394077)
+
+| Caller | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `ORDINARY_RTH_READ_ONLY_LOCAL_EXECUTION.ps1` | 37,172 | `71d5bd07fc4add1a8632afc39d2917083aa93ae59f22e6ef5aeb892d2eb14ad4` |
+| `NATURAL_PRE_READ_ONLY_LOCAL_EXECUTION.ps1` | 37,153 | `62c87e616336c65e08275c494c3aa52356c17fdbf60d1ddad9cfbff643c21a0f` |
+
+Use these two repaired callers for their respective routes. This PRE file
+supersedes the caller at 67dca57c43ddf74193aef45af0f80535a33ef07a. The ordinary
+RTH file supersedes the earlier full-Core RTH callers, including the frozen
+distribution's RTH invocation at 3f48bf3fb769cbffc6ddfdc515d965968e71c31a.
+Historical copies remain available as immutable evidence.
+
+No remote observation, broker/provider connection, schedule installation,
+or laptop/TWS settings change occurred. PAPER_READY=NO.
+PAPER_READINESS_GATE=FAIL.
