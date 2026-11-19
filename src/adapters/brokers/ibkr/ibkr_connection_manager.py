@@ -46,6 +46,7 @@ class IbkrConnectionManager:
         self._last_disconnect_reason: Optional[str] = None
         self._shutdown_requested = False
         self._observation_nonce: str | None = None
+        self._preserve_completed_accounts = False
         self._lock = Lock()
         print(
             "[IBKR][CONFIG] "
@@ -89,7 +90,9 @@ class IbkrConnectionManager:
     def connect(self) -> IbkrClient:
         return self.ensure_connected()
 
-    def pin_readonly_client_id(self, expected_client_id: int) -> dict:
+    def pin_readonly_client_id(
+        self, expected_client_id: int, *, preserve_completed_accounts: bool = False
+    ) -> dict:
         """Before any connection, constrain THIS explicit READ_ONLY owner only.
 
         No retry/fallback to another identity; default operational configuration
@@ -103,6 +106,7 @@ class IbkrConnectionManager:
                     or self._connected_client_id is not None):
                 raise RuntimeError("READONLY_EXACT_CLIENT_PIN_UNAVAILABLE")
             self._config = replace(self._config,max_client_id_retries=1)
+            self._preserve_completed_accounts = preserve_completed_accounts
             return {"base_client_id":expected_client_id,"max_client_id_retries":1,
                     "scope":"EXPLICIT_READ_ONLY_OWNER_NO_FALLBACK"}
 
@@ -304,10 +308,12 @@ class IbkrConnectionManager:
                 "LIVE trading requires EXECUTION_ENABLED=true before orders are allowed"
             )
 
-    @staticmethod
-    def _resolve_account_id(client: IbkrClient) -> str:
+    def _resolve_account_id(self, client: IbkrClient) -> str:
         try:
-            account_id = client.get_primary_account()
+            if self._preserve_completed_accounts:
+                account_id = client.get_primary_account(preserve_completed=True)
+            else:
+                account_id = client.get_primary_account()
         except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
             raise
         except Exception:
