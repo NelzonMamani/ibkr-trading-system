@@ -2994,3 +2994,59 @@ changing acquisition order would improve the shortlist without displacing
 a higher-ranked candidate. No scanner implementation change was justified.
 No new acquisition, observation, schedule activation, or TWS change occurred.
 PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+
+## 2026-11-19 natural PRE observation — verified uploaded evidence
+
+Accepted source `a87ed0c097c57151e6dfd68aa7447600c78ac3f5`, tree
+`6e0ea80dac031fb8e454fb8b3ce4ddc63070b702`, caller delivery
+`286a0220ac56432b845969229a94e97d9515b9ce`. Retained single-use root
+`ro-50210bda`. Uploaded `ross-natural-readonly-upload(20261119-095206).zip`
+is 2,440,766 bytes, SHA256
+`2b628679bf9379b4f84c2ee3682cbd0e0818016c4e75c5f44aea68580d60133b`.
+All 52 members passed CRC. This receipt records the archive review without
+publishing the archive or its raw contents.
+
+PRE preflight at 09:28:24 UTC and launch check at 09:28:28 UTC
+bound the same covered November 19 PRE session and 14:30 UTC RTH open.
+The launch receipt reserved through 09:49:28 UTC. Preparation, preflight,
+observation, packaging, archive seal and final exits were zero. The runtime
+logged the exact client71 pin before its only connect attempt and connected
+on 71. Runtime and independent audit mutation counts were all zero for
+place, modify and cancel. Graceful shutdown and final audit disconnect both
+completed. Final runtime inventory was complete and empty. Source manifests
+matched, operator order-state preservation passed, and privacy scans passed.
+The final query found zero open orders. This does not establish a flat account.
+Five distinct ownership/manual-review vetoes persisted.
+
+Nine native scanner requests completed with 50 returned rows each. Six Core
+cycles started and five emitted final evaluation summaries before shutdown.
+The first final watchlist contained INHD, LGHL and GMM, and the last contained
+INHD. Zero official Focus selections, setup evaluations and intents were
+recorded. Repeated Focus logs include INHD, LGHL and GMM without a qualifying
+catalyst, an earlier GMM stale-data refusal, and SPY/QQQ missing-price
+refusals. Native PRE history receipts recorded 520 requests, all daily TRADES
+with useRTH=1 and owned retirement. There were 517 completed bar responses,
+two timeouts and one cancellation, plus 257 complete-result reuses. This
+captures the PRE scanner's daily-history path and leaves intraday PRE bars
+for setup evaluation unproved. PRE gap diagnostics used LAST_RTH_CLOSE.
+
+Maintenance published 146 result markers for 52 symbols. All recorded
+partial_request_failure and zero retained entries, and the final intelligence
+export had zero evidence across 70 symbol records. Latest INHD, LGHL and GMM
+issuer queries each returned HTTP 200. Respectively 13, 5 and 3 entries were
+examined, all outside the recorded lookback, with zero matched entries.
+Each retained diagnostic had 10 HTTP 200 rows and 10 provider-error rows,
+including redirects, access denials and rate limiting. These rows describe
+retained outcomes and may reuse transport results. Source/search coverage
+remained incomplete. The absence of retained catalyst evidence does not
+establish that there were no timely issuer events in the market.
+
+Three shortlist assessments recorded native freshness acceptance followed by
+MD_STALE. Snapshot-to-assessment elapsed time was 132.347690 seconds for
+MPU request506, 32.988819 for LGHL request1292 and 29.518725 for GMM
+request1302. This corroborates quote aging across the scan without
+establishing an implementation defect or a safe change to the current
+freshness rules. No positive Focus or intent progression was observed.
+The separate opening SPY/QQQ benchmark remains outstanding.
+PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
