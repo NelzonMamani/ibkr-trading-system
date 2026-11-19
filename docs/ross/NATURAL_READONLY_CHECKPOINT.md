@@ -21859,6 +21859,11 @@ manager suites passed 130 offline tests. An independent review cleared
 this exact head subject to required CI and separately passed all 107
 benchmark profile tests offline.
 
+Exact-head CI run `44556658409` completed successfully. Verification
+scope, full Linux, full Windows offline, controlled Windows process and
+the aggregate Windows check all passed. Linux reported 8,517 passed and
+3 skipped. Windows reported 8,518 passed and 2 skipped.
+
 Keep the existing benchmark launcher pin until acceptance is verified.
 No TWS connection, provider acquisition, observation, benchmark rerun or
 scheduler activation occurred. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
