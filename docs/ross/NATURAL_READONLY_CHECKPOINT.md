@@ -21795,3 +21795,73 @@ require those archives. The PRE aggregates do not reproduce an issuer
 matcher or catalyst defect. No issuer-news code change or draft PR was
 made. No TWS connection, provider retrieval, or benchmark rerun occurred.
 PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+### November 19 sealed issuer-news trace and PR #1241 race repair
+
+Both user-supplied ZIPs opened and passed CRC validation. SHA-256 and run
+identity were checked before the issuer trace.
+
+| Session | Run | ZIP SHA-256 |
+| --- | --- | --- |
+| PRE | `ro-50210bda` | `2b628679bf9379b4f84c2ee3682cbd0e0818016c4e75c5f44aea68580d60133b` |
+| Opening RTH | `ro-cff44778` | `ffd2b2f715a06015bdd3d184723c283cc0b5adac92c115652f81d8a9a51cf3f2` |
+
+The issuer query used Google News RSS with the quoted broker issuer name
+or dollar-prefixed ticker. The archive's acquisition profiles identify
+`INNO HOLDINGS INC` / `$INHD` and `LION GROUP HOLDING LTD-S ADR` /
+`$LGHL`. The cache exports contain per-source diagnostics and at most
+bounded item samples. The terminal logs identify the earlier single-issuer
+refresh outcomes. Counts below describe individual responses, and refresh
+rows may represent repeated items.
+
+| Session and issuer | Issuer retrieval | Earliest supported stop |
+| --- | --- | --- |
+| PRE INHD | HTTP 200, 13 examined, none in window | All 13 outside the publication window. The newest recorded publication was June 26 at 07:00 UTC. |
+| PRE LGHL | HTTP 200, 5 examined, none in window | All 5 outside the publication window. The newest recorded publication was September 11 at 07:00 UTC. |
+| Opening RTH INHD | Four available HTTP 200 refresh rows, 11 examined per row, none in window | All 11 outside the publication window in each row. The latest export again records June 26 at 07:00 UTC as the newest publication. |
+| Opening RTH LGHL | Three available HTTP 200 refresh rows, 6 examined per row, none in window. The final attempt recorded HTTP 200 and `TIMEOUTERROR`, with unknown item and examined counts. | The successful responses stopped at the publication-window check. The last attempt stopped in retrieval before a usable feed became available. |
+
+The PRE export records the prior RTH close as the publication-window
+start, November 18 at 21:00 UTC. The latest opening RTH INHD evaluation
+used a six-hour window starting at 08:46:39 UTC on November 19. The RSS
+owner applies the window before ticker/company matching and item
+deduplication. All four symbol/session exports retain zero canonical
+evidence, and the terminal qualification records show no valid canonical
+event. The evidence supports neither an item-level issuer mismatch nor an
+item-level catalyst rejection.
+
+The exports retain two stale-item samples per successful final issuer
+response, with publication provenance. They lack full feed bodies, the
+complete rejected item lists and item-level samples for opening RTH LGHL's
+earlier successful responses. The final LGHL timeout produced no item
+samples or count. Other sources had partial coverage, and a completed
+issuer query does not establish search completeness. The archives cannot
+establish whether timely news existed outside the returned data or how
+matching, deduplication or qualification would have handled it. No
+specific news code defect reproduced and no issuer-news PR was opened.
+
+On old benchmark head `668722733cf68c90361b70d6dbde65241dfa0fe8`, all
+six deterministic crossing-callback cases demonstrated the unsafe
+outcome. An empty, multiple-account or non-paper reply completed after
+the initial missing check and before fallback dispatch in both actual
+benchmark startup and final audit. In each case the fallback replaced
+the refusal with a synthetic paper account. The ordinary startup control
+passed on the old head.
+
+PR #1241 head `f9e091869f27231148d0aa7c6a3f44540468fd12` and tree
+`8fa63a25c17a3a4567cb1c6cc2f88129c44d796a` serialize fallback
+dispatch with the native callback and recheck completion under the native
+account lock. The wait remains bounded and runs outside the lock. Both
+benchmark paths now refuse all three crossing cases without dispatching a
+fallback. Controls cover one read for a genuinely missing callback and
+the existing ordinary startup refresh. The benchmark and connection
+manager suites passed 130 offline tests. An independent review cleared
+this exact head subject to required CI and separately passed all 107
+benchmark profile tests offline.
+
+Keep the existing benchmark launcher pin until acceptance is verified.
+No TWS connection, provider acquisition, observation, benchmark rerun or
+scheduler activation occurred. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+[PR #1241 exact head](https://github.com/NelzonMamani/ibkr-trading-system/commit/f9e091869f27231148d0aa7c6a3f44540468fd12)
+[Required CI](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/44556658409)
