@@ -2358,7 +2358,12 @@ class IbkrClient(EWrapper, EClient):
             # An explicit read is bounded and never clears a concurrently arriving reply.
             if not self._managed_accounts_event.is_set():
                 checkpoint()
-                self.reqManagedAccts()
+                # Serialize dispatch with managedAccounts so a completed
+                # callback can never be replaced by an unnecessary read.
+                with self._lock:
+                    if self._managed_accounts_event.is_set():
+                        return next(iter(self._managed_accounts), None)
+                    self.reqManagedAccts()
                 wait_event(self._managed_accounts_event, timeout)
             with self._lock:
                 if not self._managed_accounts_event.is_set():
