@@ -10,8 +10,8 @@
     }
 
     $rossFetchRepo = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
-    $rossFetchPin = 'b0ec1bf606a676fa5ca55847c3eba4278a582a1e'
-    $rossFetchTree = '0ba25fef228e496c22897f2873e18a6bf6123478'
+    $rossFetchPin = 'f53aa41d07ac6143503582d8d2980bd72fe1d90b'
+    $rossFetchTree = '8fa63a25c17a3a4567cb1c6cc2f88129c44d796a'
     $rossFetchUrl = 'https://github.com/NelzonMamani/ibkr-trading-system.git'
 
     function Assert-RossFetchLocalPath {
