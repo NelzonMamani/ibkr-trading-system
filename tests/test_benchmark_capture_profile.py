@@ -7,6 +7,7 @@ from types import SimpleNamespace as NS
 import json
 import io
 import os
+import sys
 
 import pytest
 from ibapi.client import EClient
@@ -15,6 +16,7 @@ from ibapi.contract import Contract, ContractDetails
 from scripts.certification import pr1040_real_readonly_runtime_observation_adapter as capture
 from scripts.certification import pr1090_terminal_observation_supervisor as supervisor
 from src.adapters.brokers.ibkr import ibkr_client as native_module
+from src.adapters.brokers.ibkr import ibkr_connection_manager as manager_module
 from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager, IbkrConnectionConfig
 from src.adapters.data import historical_data_provider as historical
 from src.ibkr import market_data_client as market_module
@@ -119,6 +121,8 @@ def component(native, monkeypatch, tmp_path):
             raise AcquisitionCancelled()
         self.historicalDataEnd(request_id,'raw-start','raw-end')
         if size=='1 day' and fault.kind=='changed_epoch':self._position_connection_epoch += 1
+        if size == '1 day' and fault.kind == 'changed_account':
+            self.managedAccounts('DU000000002')
     def quote(self,request_id,contract,*args):
         sent.append(('quote',contract.symbol))
         self.marketDataType(request_id,3 if fault.kind=='delayed' else 1)
@@ -299,11 +303,106 @@ def test_offline_input_ceiling_stops_second_asset_and_reports_incomplete_retenti
     assert refusal['bytes']>100 and len(refusal['sha256'])==64
 
 
-@pytest.mark.parametrize('account',['U000000001','DU000000001,DU000000002',''])
-def test_unknown_live_or_ambiguous_account_scope_refuses_before_data(component,account):
-    component.native.managedAccounts(account)
-    with pytest.raises(capture.BenchmarkCaptureRefused,match='CAPTURE_PAPER_ACCOUNT_SCOPE_UNVERIFIED'):run(component)
-    assert not component.sent
+def deliver_accounts_before_fallback(monkeypatch, client, accounts):
+    original_checkpoint = native_module.checkpoint
+    delivered = []
+
+    def checkpoint():
+        original_checkpoint()
+        if sys._getframe(1).f_code is native_module.IbkrClient.get_primary_account.__code__:
+            assert not delivered
+            native = client()
+            assert not native._managed_accounts_event.is_set()
+            native.managedAccounts(accounts)
+            delivered.append(True)
+
+    monkeypatch.setattr(native_module, 'checkpoint', checkpoint)
+    return delivered
+
+
+@pytest.mark.parametrize(('bootstrap', 'reply', 'failure', 'crossing'), [
+    ('DU000000001', None, None, False),
+    (None, 'DU000000001', None, False),
+    (None, None, 'CALLBACK_MISSING', False),
+    ('', 'DU000000001', 'CALLBACK_EMPTY', False),
+    ('U000000001', 'DU000000001', 'ACCOUNT_NOT_PAPER', False),
+    ('DU000000001,DU000000002', 'DU000000001', 'MULTIPLE_ACCOUNTS', False),
+    ('', 'DU000000001', 'CALLBACK_EMPTY', True),
+    ('U000000001', 'DU000000001', 'ACCOUNT_NOT_PAPER', True),
+    ('DU000000001,DU000000002', 'DU000000001', 'MULTIPLE_ACCOUNTS', True),
+])
+def test_capture_startup_preserves_completed_paper_account_facts(
+    component, monkeypatch, bootstrap, reply, failure, crossing,
+):
+    native = component.native
+    native._managed_accounts.clear()
+    native._managed_accounts_event.clear()
+    reads = []
+
+    if crossing:
+        delivered = deliver_accounts_before_fallback(monkeypatch, lambda: native, bootstrap)
+
+    def connect():
+        if bootstrap is not None and not crossing:
+            native.managedAccounts(bootstrap)
+
+    def request_accounts():
+        reads.append(native.client_id)
+        if reply is not None:
+            native.managedAccounts(reply)
+
+    # Use the actual manager's post-connect initialization; only the transport is synthetic.
+    monkeypatch.delattr(component.manager, '_connect_locked')
+    monkeypatch.setattr(manager_module, 'IbkrClient', lambda **kwargs: native)
+    monkeypatch.setattr(native, 'connect', connect)
+    monkeypatch.setattr(native, 'reqManagedAccts', request_accounts)
+
+    if failure is None:
+        result = run(component)
+        assert result['capture_completed']
+        assert [asset['symbol'] for asset in result['assets']] == ['SPY', 'QQQ']
+    else:
+        with pytest.raises(capture.BenchmarkCaptureRefused, match='CAPTURE_PAPER_ACCOUNT_SCOPE_UNVERIFIED'):
+            run(component)
+        assert not component.sent
+        assert not (component.private / 'original-account-scope.json').exists()
+    assert reads == ([71] if bootstrap is None else [])
+    if crossing:
+        assert delivered == [True]
+
+    public = (component.shared / 'benchmark-capture-summary.json').read_text()
+    assert json.loads(public).get('account_scope_status') == failure
+    assert 'U000000001' not in public and 'DU000000002' not in public
+
+
+def test_ordinary_startup_still_refreshes_managed_accounts(component, monkeypatch):
+    native = component.native
+    requests = []
+
+    def request_accounts():
+        assert not native._managed_accounts_event.is_set()
+        assert native._managed_accounts == []
+        requests.append(native.client_id)
+        native.managedAccounts('DU000000001')
+
+    monkeypatch.delattr(component.manager, '_connect_locked')
+    monkeypatch.setattr(manager_module, 'IbkrClient', lambda **kwargs: native)
+    monkeypatch.setattr(native, 'connect', lambda: native.managedAccounts('U000000001'))
+    monkeypatch.setattr(native, 'reqManagedAccts', request_accounts)
+
+    assert component.manager.get_client() is native
+    assert requests == [71]
+    assert native._managed_accounts == ['DU000000001']
+
+
+def test_capture_records_account_change_without_exposing_ids(component):
+    component.fault.kind = 'changed_account'
+    with pytest.raises(capture.BenchmarkCaptureRefused, match='CAPTURE_PAPER_ACCOUNT_SCOPE_UNVERIFIED'):
+        run(component)
+    assert not any(packet[1] == 'QQQ' for packet in component.sent)
+    public = (component.shared / 'benchmark-capture-summary.json').read_text()
+    assert json.loads(public)['account_scope_status'] == 'ACCOUNT_SCOPE_CHANGED'
+    assert 'DU000000001' not in public and 'DU000000002' not in public
 
 
 @pytest.mark.parametrize('SDK_id',[True,72,None])
@@ -533,6 +632,20 @@ def test_post_audit_wrong_empty_multiple_or_other_paper_account_never_queries(na
     assert not result['query_completed'] and result['disconnected']
     assert f.packets.count('16')==0 and f.packets.count('17')==0
     assert not f.instances[0]._thread.is_alive()
+
+
+@pytest.mark.parametrize('account', ['', 'DU000000001,DU000000002', 'U000000001'])
+def test_post_audit_preserves_invalid_callback_before_fallback(native_profile_audit, monkeypatch, account):
+    audit = native_profile_audit
+    audit.state.bootstrap = False
+    delivered = deliver_accounts_before_fallback(monkeypatch, lambda: audit.instances[0], account)
+
+    result = audit.invoke()
+
+    assert delivered == [True]
+    assert not result['query_completed'] and result['disconnected']
+    assert '17' not in audit.packets and '16' not in audit.packets
+    assert not audit.instances[0]._thread.is_alive()
 
 
 @pytest.mark.parametrize('case',['changed_before_query','SDK_id','changed_during_query','changed_after_wait','epoch','query_exception','connect_exception'])

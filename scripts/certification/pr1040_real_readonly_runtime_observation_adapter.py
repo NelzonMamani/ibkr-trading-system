@@ -2087,6 +2087,12 @@ class BenchmarkCaptureRefused(PR1040AdapterError):
     pass
 
 
+class _BenchmarkAccountScopeRefused(BenchmarkCaptureRefused):
+    def __init__(self, status: str):
+        super().__init__("CAPTURE_PAPER_ACCOUNT_SCOPE_UNVERIFIED")
+        self.status = status
+
+
 class _BoundedPrivateText:
     def __init__(self, handle, *, limit=BENCHMARK_LOG_LIMIT):
         self.handle, self.limit, self.used, self.exceeded = handle, limit, 0, False
@@ -2196,10 +2202,16 @@ def _benchmark_scope(manager, client, epoch, generation, *, window_fingerprint=N
     with client._lock:
         accounts = tuple(client._managed_accounts)
         account_end = client._managed_accounts_event.is_set()
-    if (not account_end or len(accounts) != 1 or not isinstance(accounts[0], str)
-            or re.fullmatch(r"DU[0-9]+", accounts[0]) is None
-            or (expected_accounts is not None and accounts != expected_accounts)):
-        raise BenchmarkCaptureRefused("CAPTURE_PAPER_ACCOUNT_SCOPE_UNVERIFIED")
+    if not account_end:
+        raise _BenchmarkAccountScopeRefused("CALLBACK_MISSING")
+    if not accounts:
+        raise _BenchmarkAccountScopeRefused("CALLBACK_EMPTY")
+    if len(accounts) > 1:
+        raise _BenchmarkAccountScopeRefused("MULTIPLE_ACCOUNTS")
+    if not isinstance(accounts[0], str) or re.fullmatch(r"DU[0-9]+", accounts[0]) is None:
+        raise _BenchmarkAccountScopeRefused("ACCOUNT_NOT_PAPER")
+    if expected_accounts is not None and accounts != expected_accounts:
+        raise _BenchmarkAccountScopeRefused("ACCOUNT_SCOPE_CHANGED")
     window = covered_opening_window(datetime.now(timezone.utc))
     if window is None or window.phase != "RTH_OPEN":
         raise BenchmarkCaptureRefused("CAPTURE_CALENDAR_UNKNOWN")
@@ -2259,7 +2271,7 @@ def collect_benchmark_capture(*, manager, private_directory, shared_directory, _
             if os.environ.get("READONLY_BENCHMARK_CAPTURE") == BENCHMARK_PROFILE:
                 from scripts.certification.pr1090_terminal_observation_supervisor import benchmark_conflict_check
                 benchmark_conflict_check(shared_directory.parent.parent)
-            manager.pin_readonly_client_id(71)
+            manager.pin_readonly_client_id(71, preserve_completed_accounts=True)
             client = manager.get_client()
             if _retain_original_client is not None:
                 _retain_original_client(client)  # Cleanup reference only, not admission authority.
@@ -2413,6 +2425,8 @@ def collect_benchmark_capture(*, manager, private_directory, shared_directory, _
         summary["capture_completed"] = False
         summary["retention_complete"] = False
         summary["reason"] = _benchmark_reason(exc)
+        if isinstance(exc, _BenchmarkAccountScopeRefused):
+            summary["account_scope_status"] = exc.status
         if isinstance(exc, BenchmarkCaptureRefused) and str(exc) in {"PRIVATE_SIZE_LIMIT", "OFFLINE_BYTES_INVALID"}:
             summary["retention_complete"] = False
         raise

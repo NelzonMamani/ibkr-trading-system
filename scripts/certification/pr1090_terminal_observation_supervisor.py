@@ -274,8 +274,7 @@ def final_broker_audit(*, observer_factory=None, expected_profile=None, capture_
             # A completed empty/foreign/multiple bootstrap is not refreshed to
             # obtain a favorable result. Missing bootstrap permits ONE existing
             # bounded managed-account read and no polling/query fallback.
-            if not client._managed_accounts_event.is_set():
-                client.get_primary_account(timeout_seconds=10)
+            client.get_primary_account(timeout_seconds=10, preserve_completed=True)
             _capture_audit_scope(client, expected_accounts, epoch)
         client._open_orders_event.clear()
         client._open_orders_snapshot = {}

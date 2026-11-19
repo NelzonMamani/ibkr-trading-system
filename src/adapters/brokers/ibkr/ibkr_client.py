@@ -2346,14 +2346,33 @@ class IbkrClient(EWrapper, EClient):
             self._raise_if_request_id_conflicted(req_id)
             return dict(self._account_summary_rows.get(req_id, {}))
 
-    def get_primary_account(self, timeout_seconds: Optional[int] = None) -> Optional[str]:
+    def get_primary_account(
+        self, timeout_seconds: Optional[int] = None, *, preserve_completed: bool = False
+    ) -> Optional[str]:
         if not self.is_connected():
             raise RuntimeError("IBKR client is not connected.")
+
+        timeout = timeout_seconds or self.snapshot_timeout_seconds
+        if preserve_completed:
+            # Keep the native bootstrap result, including empty or ambiguous replies.
+            # An explicit read is bounded and never clears a concurrently arriving reply.
+            if not self._managed_accounts_event.is_set():
+                checkpoint()
+                # Serialize dispatch with managedAccounts so a completed
+                # callback can never be replaced by an unnecessary read.
+                with self._lock:
+                    if self._managed_accounts_event.is_set():
+                        return next(iter(self._managed_accounts), None)
+                    self.reqManagedAccts()
+                wait_event(self._managed_accounts_event, timeout)
+            with self._lock:
+                if not self._managed_accounts_event.is_set():
+                    return None
+                return next(iter(self._managed_accounts), None)
 
         self._managed_accounts_event.clear()
         self._managed_accounts = []
         self.reqManagedAccts()
-        timeout = timeout_seconds or self.snapshot_timeout_seconds
         self._managed_accounts_event.wait(timeout=timeout)
         return self._managed_accounts[0] if self._managed_accounts else None
 
