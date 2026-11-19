@@ -21753,3 +21753,45 @@ establishing an implementation defect or a safe change to the current
 freshness rules. No positive Focus or intent progression was observed.
 The separate opening SPY/QQQ benchmark remains outstanding.
 PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+### PR #1241 review and November 19 issuer-news trace limits
+
+Reviewed exact PR head `668722733cf68c90361b70d6dbde65241dfa0fe8`, tree
+`d52e30d74b89fc46a7fd2553182599b886a2e3`, against main
+`a87ed0c097c57151e6dfd68aa7447600c78ac3f5`. The benchmark capture and
+connection-manager suites passed 123 tests offline. The standard fixtures
+verify retention of a completed bootstrap, one bounded fallback when
+missing, refusal of empty, multiple, non-paper and subsequently changed
+scopes, and the ordinary startup path. Public benchmark summaries publish
+bounded status codes and private-file byte/hash metadata. Account values
+remain in private scope receipts.
+
+**Review blocker.** One additional controlled test drove the actual
+benchmark capture and manager through synthetic SDK callbacks. The missing
+check in `IbkrClient.get_primary_account(preserve_completed=True)` passed,
+an empty callback completed before `reqManagedAccts` was dispatched, and the
+fallback reply replaced that refusal with a paper account. The capture
+completed and issued synthetic market-data requests. The same
+check-to-dispatch gap applies to the benchmark final audit's helper call.
+Resolve the dispatch and callback ordering in the native account owner,
+then rerun the deterministic crossing-callback control before accepting
+the PR or changing the benchmark launcher pin.
+[PR #1241](https://github.com/NelzonMamani/ibkr-trading-system/pull/1241)
+[Required CI](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/44553555300)
+
+The retained PRE receipt at `e1912e2ebcebbaf8e13850a7531dcc89d4804641`
+records HTTP 200 on the latest issuer queries for INHD and LGHL.
+All 13 INHD entries and all five LGHL entries examined were outside
+the lookback. The RSS fetcher checks the publication window before
+ticker/company matching. Those retrieved entries therefore gave matching,
+deduplication and catalyst qualification no input. Other source rows
+recorded transport failures, so this is incomplete coverage. The receipt
+cannot establish whether timely items were available on failed or
+unexamined sources, or what their issuer or catalyst decisions would be.
+
+The raw November 19 PRE ZIP and the opening RTH ZIP were unavailable in
+this workspace. An item-level trace and a comparison with opening RTH
+require those archives. The PRE aggregates do not reproduce an issuer
+matcher or catalyst defect. No issuer-news code change or draft PR was
+made. No TWS connection, provider retrieval, or benchmark rerun occurred.
+PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
