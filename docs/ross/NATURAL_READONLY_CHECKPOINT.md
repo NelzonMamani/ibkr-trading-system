@@ -21870,3 +21870,62 @@ scheduler activation occurred. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
 
 [PR #1241 exact head](https://github.com/NelzonMamani/ibkr-trading-system/commit/f9e091869f27231148d0aa7c6a3f44540468fd12)
 [Required CI](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/44556658409)
+
+## November 20 controlled ORB PAPER readiness
+
+Reviewed accepted main `f53aa41d07ac6143503582d8d2980bd72fe1d90b`,
+tree `8fa63a25c17a3a4567cb1c6cc2f88129c44d796a`. PR #1183's
+accepted synthetic native acknowledgement, later fill, actual Core
+reconciliation and confirmed selected stop remain the baseline.
+Current-main synthetic ORB exit tests also verified one-time stop-fill
+accounting, flat reconciliation, realized price P&L and released exposure.
+
+Direct CRC and log checks of November 18 RTH `ro-3cef3cf1`, November 19
+PRE `ro-50210bda` and November 19 opening RTH `ro-cff44778` found
+215, five and 39 completed final evaluations respectively, all with
+empty Focus and zero intents. Ross recorded nine, 15 and six
+missing-catalyst Focus refusals respectively. PRE additionally logged 16
+missing-price and one stale-data Focus refusal. The RTH replay confirmed
+all 15 paired catalyst refusals using logged gate inputs and absent
+canonical catalyst. PRE's Focus summaries lack the exact scanner or
+discovery RVOL input for a same-input replay. The retained opening RTH
+path stops before the ORB detector and confirmed execution trigger.
+Positive joined offline tests separately exercise a completed opening
+range, ready trigger, raw intent and subsequent admission guards. No
+natural trigger or eligible entry is established.
+
+The three archives each report CMND 0.1, DFSC 0.8889, ENVB 8, FGI 1 and
+PBM 7 against zero system positions. There were 215, six and 40 cyclic
+position-truth vetoes, respectively. Replaying each retained set through
+the real position and recovery owners, with a synthetic scoped snapshot,
+reproduced five critical `BROKER_ONLY_POSITION` mismatches, both
+position-truth vetoes, five manual flags and zero automatic actions.
+A zero-open-orders audit cannot establish ownership. PAPER startup has
+its own lifecycle, broker position/order and protection checks plus
+native-journal quarantine.
+
+Next evidence request is a private existing five-position PAPER
+account/export and matching local lifecycle/order/fill ledger slice.
+Bind each position's account alias, contract ID and security identity,
+signed quantity and as-of clock to the broker executions or account
+transactions supporting that quantity. For claimed Ross ownership,
+join broker execution and order/permanent IDs and order reference to the
+local run/mode, native journal, decision and lifecycle plus subsequent
+reductions or corrections. A missing ledger match leaves the veto in
+force. For a separately authorized attempt, require healthy scoped
+recovery/positions/orders, natural Focus and ORB trigger, and one
+risk-approved share under the supervised PAPER owner. Verify entry
+acknowledgement separately from the confirmed fill, then a broker-
+confirmed owned one-share protective stop and a confirmed owned exit.
+Reconcile flat tested position, residual orders, registry, ledger,
+reservations and gross/net realized P&L with fees. Stop on uncertainty.
+
+Offline results were 88 focused tests, two ORB exit controls, four
+startup recovery tests and one archive replay covering 15 RTH Focus
+refusals and all three position sets. No reproducible admission defect,
+new code PR or CI run. No broad observation, benchmark, broker or
+provider connection, order submission enablement or position change.
+PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+[PR #1183 proof](https://github.com/NelzonMamani/ibkr-trading-system/pull/1183)
+[Accepted baseline](https://github.com/NelzonMamani/ibkr-trading-system/commit/f53aa41d07ac6143503582d8d2980bd72fe1d90b)
