@@ -21929,3 +21929,46 @@ PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
 
 [PR #1183 proof](https://github.com/NelzonMamani/ibkr-trading-system/pull/1183)
 [Accepted baseline](https://github.com/NelzonMamani/ibkr-trading-system/commit/f53aa41d07ac6143503582d8d2980bd72fe1d90b)
+
+## November 20 five-position PAPER ownership evidence
+
+The user reports `ro-7cbc9554` repeated the five broker-only positions
+on every cycle. The November 20 archive was unavailable in the workspace.
+The earlier November 18 RTH and November 19 PRE/opening RTH archives
+independently show each of the five balances on 215, six and 40 cycles
+respectively against zero system positions.
+
+| Account alias | Symbol | Signed broker quantity | Ownership |
+| --- | --- | ---: | --- |
+| PAPER-A | CMND | +0.1 | Unresolved |
+| PAPER-A | DFSC | +0.8889 | Unresolved |
+| PAPER-A | ENVB | +8 | Unresolved |
+| PAPER-A | FGI | +1 | Unresolved |
+| PAPER-A | PBM | +7 | Unresolved |
+
+The alias describes the reported scope and does not prove account identity.
+The accessible observations contain no broker transaction chain or
+ownership ledger. Three distinct workspace database images were inspected
+read-only. No matching symbols were found in their available trade,
+execution or lifecycle tables. That result does not establish an absence
+in the operative laptop PAPER ledger. PR #1183 proves the synthetic ORB
+lifecycle, not provenance of any of these holdings. On accepted main
+`f53aa41d07ac6143503582d8d2980bd72fe1d90b`, all 48 position-truth
+initialization and recovery tests passed. No reconciliation defect reproduced.
+
+The missing evidence is the laptop's existing PAPER Activity Statement
+or equivalent and the local PAPER fill, order and committed lifecycle
+rows. For each contract use coverage from the last evidenced zero balance
+or the originating open lot through the November 20 snapshot. Include
+contract ID, signed quantity and the trade, transfer, action or correction
+rows that bridge that balance. For claimed Ross ownership, join broker
+execution ID and order reference to the local PAPER fill, native order
+state and lifecycle ID. DFSC's earlier recorded quantity of 8 is a lead
+for the transaction check; continuity requires broker contract evidence.
+Perform the join and retain raw records and real account IDs on the
+laptop. Return only the aliased evidence summary. Missing local matches
+remain unresolved.
+
+No adoption, flattening, exclusion, broker connection, observation,
+benchmark, source change or order enablement. All five vetoes remain.
+PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
