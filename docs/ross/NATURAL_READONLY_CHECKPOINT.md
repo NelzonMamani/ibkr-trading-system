@@ -21972,3 +21972,67 @@ remain unresolved.
 No adoption, flattening, exclusion, broker connection, observation,
 benchmark, source change or order enablement. All five vetoes remain.
 PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+## November 21 offline PAPER ownership reconciliation
+
+Verified `Ross_PAPER_History.csv` SHA-256
+`31e7902a2cdc584ddd7b879231c9657478090e53ee465cda2b3eb79c25d72a4e`.
+Aliases use Open Positions row order. References below are one-based CSV
+lines. Only sanitized findings were added to this record.
+
+Each of the five November 20 Open Positions rows (lines 2–6) matched
+the normalized symbol and signed quantity of a historical
+`BROKER_ONLY_POSITION` row with zero system quantity in
+`terminal/stdout.log` for each of `ro-3cef3cf1`, `ro-50210bda` and
+`ro-cff44778`. Each alias had 215, six and 40 matching rows respectively.
+This is a per-position match rather than a match on position count.
+The runtime mismatch receipts do not carry broker account or contract
+IDs. The historical veto correspondence is supported at symbol and exact
+quantity level. Independent historical account and contract binding
+remain unavailable. The November 20 runtime archive was unavailable.
+
+| Alias | Direct broker evidence | Ownership verdict |
+| --- | --- | --- |
+| P01 | Position line 2 and corporate-action lines 9–10. The October 2 1-for-8 split links the predecessor removal and successor credit by same-account Action ID. The successor contract and quantity match the current row at reported precision. | Corporate-action continuity documented. Original acquisition and system attribution unresolved. |
+| P02 | Position line 3 and corporate-action lines 11–12. The November 13 1-for-9 split links predecessor removal and successor credit by same-account Action ID. The predecessor magnitude matches the earlier reported magnitude, and the successor matches the current row at reported precision. | Quantity change explained by the broker action pair. Original acquisition and system attribution unresolved. |
+| P03 | Position line 4. No acquisition or action chain in the input. | Unresolved. |
+| P04 | Position line 5. No acquisition or action chain in the input. | Unresolved. |
+| P05 | Position line 6. No acquisition or action chain in the input. | Unresolved. |
+
+The corporate-action effective times are distinct from the report dates.
+The Trades header (line 7) and Transfers header (line 13) have zero data
+rows. All five originating order, transaction and open-time fields are
+blank. The export does not declare its exact period. Empty sections
+therefore do not establish absence of acquisition. No alias has supported
+system-order attribution or independently documented original acquisition
+without system attribution. An API-order flag alone would not identify a
+Ross system order.
+
+Reused the position-truth identity and mismatch contract, native IBKR
+position, execution and order callback fields, and durable lifecycle and
+native order journal schemas. The retained observation archives contain
+sanitized position vetoes and no attributable acquisition callbacks or
+order records for these aliases. Searched available workspace record files
+and the three distinct SQLite images under the checkout's `data` and
+`src/data` paths. Opened the images read-only and immutable with no
+adjacent WAL or rollback journal. Checks for the current and predecessor
+identities found no matching trade, execution or lifecycle rows and no
+native PAPER state row. The laptop's operative PAPER database and its
+historical copies remain unavailable. PR #1183's synthetic lifecycle is
+not an ownership record for these positions.
+
+One next action is to obtain the same PAPER account's expanded, explicitly
+period-labelled Activity Flex Query with Open Positions, Trades,
+Transfers and Corporate Actions through November 20, 2026. Start at the
+last documented zero balance before the earliest originating lot, or
+PAPER account inception if that date is unavailable. The P01 and P02
+predecessor acquisitions must be covered before October 2 and November
+13 respectively. Retain the originals privately. If broker execution
+IDs and order references are recovered, join them to the operative laptop
+PAPER fill, native-order state and committed lifecycle rows, or retain an
+explicit unresolved result. An independently evidenced external
+acquisition can be recorded separately if its provenance is established.
+
+No tests or CI were run for this evidence review. No broker or provider
+connection, observation, order or position action, recovery clearing,
+ownership-veto change or order enablement. PAPER_READY=NO.
