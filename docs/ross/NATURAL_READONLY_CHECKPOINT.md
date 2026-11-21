@@ -22036,3 +22036,49 @@ acquisition can be recorded separately if its provenance is established.
 No tests or CI were run for this evidence review. No broker or provider
 connection, observation, order or position action, recovery clearing,
 ownership-veto change or order enablement. PAPER_READY=NO.
+
+### Period-labelled report delta and laptop ledger collection
+
+The operator reports that the replacement
+`Ross_PAPER_History_20260525_20261120.csv.csv` declares May 25 through
+November 20, 2026 in its BOF and that all four section counts validate.
+Reported SHA-256 is
+`195bbf42d305a029618412c65933190faa8734ef9add6b634275857054bf236c`.
+The replacement bytes were unavailable in this workspace, so this delta
+is operator-reported. The reported period closes the prior coverage
+metadata gap. May 25 is reported as the earliest selectable date. The
+position and action records reportedly match the previous export, with
+zero execution or transfer rows. The cause of absent acquisitions and
+all five ownership determinations remain unresolved. The prior
+three-database investigation was reused.
+
+The retained startup logs for `ro-3cef3cf1`, `ro-50210bda` and
+`ro-cff44778` demonstrate per-run `state/runtime.sqlite3` paths under
+the observation roots in READ_ONLY mode. They do not identify operative
+PAPER storage. Candidate discovery reads the laptop checkout's
+`PERSISTENCE_SQLITE_PATH` registry default and legacy filename, process,
+user and machine environment values, saved startup-path lines and local
+historical database copies. A candidate is not deemed operative from
+its filename or presence. Startup mode and persisted PAPER evidence
+are reported separately.
+
+Prepared the complete PowerShell collection block
+`ROSS_PAPER_LEDGER_COLLECTION.ps1`, SHA-256
+`e4a36b5fca64d47dcdae12c827cf5ffedc4295b821500f1f5af55ca9241369bb`.
+It keeps source paths, snapshot hashes and standalone database copies
+in a fresh local private directory. It excludes writers while reading
+the original database and sidecars, refuses conflicting handles,
+unpaired nonempty WAL and nonempty rollback journals, and builds and
+checks a standalone SQLite backup from staging. It never opens the
+original through SQLite or instantiates runtime storage owners. The
+private join inputs are `PRIVATE_MANIFEST.json`, its referenced
+`Dnnn.sqlite3` snapshots and the local broker CSV. Only
+`SHAREABLE_SUMMARY.json` is intended for sharing.
+
+PowerShell 7 parsing and five focused Linux checks passed, covering WAL
+commit retention with unchanged source hashes, standalone backup,
+unpaired WAL refusal, rollback-journal refusal and path provenance.
+Native Windows file-sharing behavior and actual PowerShell 5.1 laptop
+execution remain unverified. The collector has not run on the laptop.
+No broker connection, runtime launch, source database change, order
+enablement, recovery clearing or veto change. PAPER_READY=NO.
