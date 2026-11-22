@@ -21364,3 +21364,28 @@ Use the block locally only after contemporaneous verification of the existing
 TWS PAPER Read-Only setup and client 71 reservation. No operational enrollment
 or cloud launch occurred. P01–P05 remain unresolved and all five vetoes remain.
 PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+### Exact integration outcome and Windows budget blocker (2026-11-22)
+
+Accepted main remains `548aa0f3c3a1e8aa81ddaeaa1cce07cc483dcc45`,
+tree `2f8ac1437bdc1afa0dc50aa9aebfb5306fb70d43`. Its parents are
+`f53aa41d07ac6143503582d8d2980bd72fe1d90b` and
+`10e6df33ad779883373abab6b99c03b25e4d00ba`. The accepted PR #1242 tree equals
+the reviewed head tree and its automatic main CI passed in run 45006439841.
+
+| PR | Independently reviewed head / tree | Required CI and integration |
+| --- | --- | --- |
+| #1243 | `3b8731d9c0337c8b31c0f159492cbb9e181c7a9b` / `8cfde9479f999b349bcd11b4c89b64e19f0d2f37` | Run 45006954043 passed Linux and controlled Windows. Full Windows reached the 60-minute job limit twice. The first attempt logged 8,328 passed and two skips before KeyboardInterrupt. The targeted retry logged 7,540 passed and one skip before KeyboardInterrupt. Both Windows aggregates failed. Open and unmerged. |
+| #1244 | `8f6bea3f1b96e8922016b9e962e25d88aea1cf87` / `d4b5faa5ff451af1fa852196ac356ffcb35194fe` | Run 45009311903 passed all required jobs, including 8,560 Windows tests passed and two skipped. Draft and unmerged behind #1243. |
+| #1245 | `aab7bd20a223ddb4e703347e8ad9f99f0715ddc8` / `fee20fc73e7f692b2655fe14a48a8a8efd5403c7` | Run 45011680209 passed all required jobs. Draft and unmerged behind #1244. |
+
+No required check or branch protection was changed. The two interrupted
+results remain in the Actions history. This receipt lives on the continuation
+branch to preserve the evidence without starting an unchanged full-suite run.
+
+P03's active producer still lacks qualified contemporaneous index structure
+and official finite schedule coverage. Its existing UNKNOWN veto is correct.
+P02's ATR calibration and the five unowned-in-runtime PAPER positions remain
+separate unresolved facts. The one next local action is the pinned ordinary-RTH
+READ_ONLY observation above. Controlled PAPER is not admissible on the current
+account. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
