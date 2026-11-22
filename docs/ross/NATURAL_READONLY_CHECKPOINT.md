@@ -21334,3 +21334,33 @@ local PAPER/Read-Only TWS verification, exact client71 admission, a fresh
 private root and the full 1260-second envelope before exchange close.
 Keep preparation, natural selection/intent and PAPER broker acceptance
 separate. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+### Native position-query integrity and November 23 local handoff (2026-11-22)
+
+Automatic main CI for the accepted PR #1242 merge
+`548aa0f3c3a1e8aa81ddaeaa1cce07cc483dcc45` passed Linux, controlled Windows,
+the full Windows suite and its aggregate in run 45006439841. The merge tree
+remains `2f8ac1437bdc1afa0dc50aa9aebfb5306fb70d43`.
+
+A later callback for the same request/account/contract/symbol could overwrite
+a contradictory quantity before matching End. In inert native callback tests,
+both a nonzero-to-zero repeat and a zero-to-fractional repeat were returned as
+COMPLETE. The owned query now fails on contradictory quantity or cost,
+including a failed query later receiving End. Identical repetitions can still
+complete. The existing canonical reconciliation blocks entries on failed
+acquisition. The focused test run passed 167 cases across the native query,
+position truth and request authority owners. Independent scoped review cleared
+the query guard. The read changes grant no order or enrollment authority.
+
+The independently checked ordinary RTH release is
+`e1496a80d8bfd51edb610965ddfcc91aff531e6b`,
+`docs/ross/ROSS_ORDINARY_RTH_READ_ONLY_20261123.ps1`, SHA-256
+`3964e2fc4281325d1e26c0f61f1c670c5fc6f5ff8561a8eb6d45551c51bce778`.
+It binds the accepted PR #1242 merge, its tree, the maintained preparation
+blob and the reviewed calendar. Eight focused ordinary-RTH calendar cases
+passed. On 23 November the reviewed session is 14:30 to 21:00 London time.
+The 1260-second envelope must be admitted strictly before 20:39 London.
+Use the block locally only after contemporaneous verification of the existing
+TWS PAPER Read-Only setup and client 71 reservation. No operational enrollment
+or cloud launch occurred. P01–P05 remain unresolved and all five vetoes remain.
+PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.

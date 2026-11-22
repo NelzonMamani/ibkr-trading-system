@@ -2157,6 +2157,13 @@ class IbkrClient(EWrapper, EClient):
                 context["event"].set()
                 return
             key = (account,getattr(contract,"conId",0),symbol)
+            previous = context["rows"].get(key)
+            if previous is not None and (previous.position != pos or previous.avgCost != avgCost):
+                # A later row can represent inventory changing during the read.
+                # Neither value can certify one coherent initial snapshot.
+                context["status"] = "FAILED"
+                context["event"].set()
+                return
             context["rows"][key] = SimpleNamespace(
                 account=account, contract=contract, symbol=symbol, position=pos, avgCost=avgCost)
             if getattr(self,"_p02_local_ingress",None) is not None:
