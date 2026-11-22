@@ -20895,3 +20895,341 @@ RTH enables neither the PRE route, the reviewed opening window, nor benchmark
 capture. An endpoint at the actual close refuses. All existing ownership,
 PAPER/Read-Only confirmation, single-use, cleanup and privacy protections
 remain in force. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+## November 21 offline PAPER ownership reconciliation
+
+Verified `Ross_PAPER_History.csv` SHA-256
+`31e7902a2cdc584ddd7b879231c9657478090e53ee465cda2b3eb79c25d72a4e`.
+Aliases use Open Positions row order. References below are one-based CSV
+lines. Only sanitized findings were added to this record.
+
+Each of the five November 20 Open Positions rows (lines 2–6) matched
+the normalized symbol and signed quantity of a historical
+`BROKER_ONLY_POSITION` row with zero system quantity in
+`terminal/stdout.log` for each of `ro-3cef3cf1`, `ro-50210bda` and
+`ro-cff44778`. Each alias had 215, six and 40 matching rows respectively.
+This is a per-position match rather than a match on position count.
+The runtime mismatch receipts do not carry broker account or contract
+IDs. The historical veto correspondence is supported at symbol and exact
+quantity level. Independent historical account and contract binding
+remain unavailable. The November 20 runtime archive was unavailable.
+
+| Alias | Direct broker evidence | Ownership verdict |
+| --- | --- | --- |
+| P01 | Position line 2 and corporate-action lines 9–10. The October 2 1-for-8 split links the predecessor removal and successor credit by same-account Action ID. The successor contract and quantity match the current row at reported precision. | Corporate-action continuity documented. Original acquisition and system attribution unresolved. |
+| P02 | Position line 3 and corporate-action lines 11–12. The November 13 1-for-9 split links predecessor removal and successor credit by same-account Action ID. The predecessor magnitude matches the earlier reported magnitude, and the successor matches the current row at reported precision. | Quantity change explained by the broker action pair. Original acquisition and system attribution unresolved. |
+| P03 | Position line 4. No acquisition or action chain in the input. | Unresolved. |
+| P04 | Position line 5. No acquisition or action chain in the input. | Unresolved. |
+| P05 | Position line 6. No acquisition or action chain in the input. | Unresolved. |
+
+The corporate-action effective times are distinct from the report dates.
+The Trades header (line 7) and Transfers header (line 13) have zero data
+rows. All five originating order, transaction and open-time fields are
+blank. The export does not declare its exact period. Empty sections
+therefore do not establish absence of acquisition. No alias has supported
+system-order attribution or independently documented original acquisition
+without system attribution. An API-order flag alone would not identify a
+Ross system order.
+
+Reused the position-truth identity and mismatch contract, native IBKR
+position, execution and order callback fields, and durable lifecycle and
+native order journal schemas. The retained observation archives contain
+sanitized position vetoes and no attributable acquisition callbacks or
+order records for these aliases. Searched available workspace record files
+and the three distinct SQLite images under the checkout's `data` and
+`src/data` paths. Opened the images read-only and immutable with no
+adjacent WAL or rollback journal. Checks for the current and predecessor
+identities found no matching trade, execution or lifecycle rows and no
+native PAPER state row. The laptop's operative PAPER database and its
+historical copies remain unavailable. PR #1183's synthetic lifecycle is
+not an ownership record for these positions.
+
+One next action is to obtain the same PAPER account's expanded, explicitly
+period-labelled Activity Flex Query with Open Positions, Trades,
+Transfers and Corporate Actions through November 20, 2026. Start at the
+last documented zero balance before the earliest originating lot, or
+PAPER account inception if that date is unavailable. The P01 and P02
+predecessor acquisitions must be covered before October 2 and November
+13 respectively. Retain the originals privately. If broker execution
+IDs and order references are recovered, join them to the operative laptop
+PAPER fill, native-order state and committed lifecycle rows, or retain an
+explicit unresolved result. An independently evidenced external
+acquisition can be recorded separately if its provenance is established.
+
+No tests or CI were run for this evidence review. No broker or provider
+connection, observation, order or position action, recovery clearing,
+ownership-veto change or order enablement. PAPER_READY=NO.
+
+### Period-labelled report delta and laptop ledger collection
+
+The operator reports that the replacement
+`Ross_PAPER_History_20260525_20261120.csv.csv` declares May 25 through
+November 20, 2026 in its BOF and that all four section counts validate.
+Reported SHA-256 is
+`195bbf42d305a029618412c65933190faa8734ef9add6b634275857054bf236c`.
+The replacement bytes were unavailable in this workspace, so this delta
+is operator-reported. The reported period closes the prior coverage
+metadata gap. May 25 is reported as the earliest selectable date. The
+position and action records reportedly match the previous export, with
+zero execution or transfer rows. The cause of absent acquisitions and
+all five ownership determinations remain unresolved. The prior
+three-database investigation was reused.
+
+The retained startup logs for `ro-3cef3cf1`, `ro-50210bda` and
+`ro-cff44778` demonstrate per-run `state/runtime.sqlite3` paths under
+the observation roots in READ_ONLY mode. They do not identify operative
+PAPER storage. Candidate discovery reads the laptop checkout's
+`PERSISTENCE_SQLITE_PATH` registry default and legacy filename, process,
+user and machine environment values, saved startup-path lines and local
+historical database copies. A candidate is not deemed operative from
+its filename or presence. Startup mode and persisted PAPER evidence
+are reported separately.
+
+Prepared the complete PowerShell collection block
+`ROSS_PAPER_LEDGER_COLLECTION.ps1`, SHA-256
+`e4a36b5fca64d47dcdae12c827cf5ffedc4295b821500f1f5af55ca9241369bb`.
+It keeps source paths, snapshot hashes and standalone database copies
+in a fresh local private directory. It excludes writers while reading
+the original database and sidecars, refuses conflicting handles,
+unpaired nonempty WAL and nonempty rollback journals, and builds and
+checks a standalone SQLite backup from staging. It never opens the
+original through SQLite or instantiates runtime storage owners. The
+private join inputs are `PRIVATE_MANIFEST.json`, its referenced
+`Dnnn.sqlite3` snapshots and the local broker CSV. Only
+`SHAREABLE_SUMMARY.json` is intended for sharing.
+
+PowerShell 7 parsing and five focused Linux checks passed, covering WAL
+commit retention with unchanged source hashes, standalone backup,
+unpaired WAL refusal, rollback-journal refusal and path provenance.
+Native Windows file-sharing behavior and actual PowerShell 5.1 laptop
+execution remain unverified. The collector has not run on the laptop.
+No broker connection, runtime launch, source database change, order
+enablement, recovery clearing or veto change. PAPER_READY=NO.
+
+### Laptop-local PAPER ledger collection and join preparation (2026-11-22)
+
+The supplied Windows PowerShell 5.1 collection transcript reports 48 verified
+database snapshots and a broker CSV SHA256 match. D002 has 787 rows marked PAPER
+in each of the two run-mode columns. Its historical startup-path provenance is
+READ_ONLY and its native PAPER state row count is zero. The other snapshots
+report zero PAPER runs where the relevant columns exist. Ten discovery gaps
+remain and the operative PAPER path is unverified.
+
+The offline ownership join is prepared for coordinator review. It verifies the
+broker report and each snapshot hash, inspects D002 first, and reads subsequent
+distinct SQLite images without storage initialization. Its shareable output
+uses the five original Open Positions row aliases. It reports broker
+acquisitions, support for Ross attribution, action continuity and unresolved
+open-lot ownership separately. A PAPER run label, simulated fill, API-order
+flag, or symbol and quantity coincidence supplies no ownership evidence.
+
+Three offline synthetic tests passed. They cover duplicate images, duplicate or
+conflicting executions, older schema columns, exact callback and order
+references, native lifecycle links, predecessor and successor action legs,
+simulated results, the broker hash gate, and the shareable output projection.
+The laptop collector's exact private manifest fields and report headers were
+unavailable for compatibility checks. The source references for the P01/P02
+contract pairs were unavailable for review. The script accepts a local
+`PRIVATE_CONTRACT_BINDINGS.json` with one entry per reviewed alias. Each entry
+requires a `document_reference` and `predecessor` and `successor` pairs of
+account ID and contract ID. Keep those values on the laptop. Missing bindings,
+missing action identifiers or unpaired legs leave explicit gaps.
+
+The laptop join has not run, and ownership remains unresolved. No broker,
+position, recovery, or ownership-veto operation was performed. PAPER_READY=NO.
+PAPER_READINESS_GATE=FAIL.
+
+### Flex compatibility and journal-only acquisition repair (2026-11-22)
+
+The preceding two November 21 sections are restored verbatim from
+`366e4f08ea0783c9df771ad8aeed5f6452f0d27d`, including the reconciliation from
+`71e59249ad6e45007c978a4c1fba5978ffe43fa3`. The collector's original
+preparation status is historical. The later Windows PowerShell 5.1 transcript
+above records completed collection.
+
+Coordinator format details supersede the preparation limits above. The
+period-labelled report uses the BOF, BOS, EOS and EOF Flex envelope. The
+reviewed parser failed on a sanitized reproduction because it expected
+section-name-prefixed records. The repair checks the envelope, per-section
+headers, widths, declared counts and period. It accepts the collector's
+verified and refused entries, checks standalone snapshot hashes, examines
+D002 first and deduplicates other verified images. D002's 787 PAPER run
+records describe run metadata.
+
+The repaired join can surface account- and contract-bound callback and
+committed native lifecycle candidates when Trades is empty. It deduplicates
+execution identities and reports retained-source and PAPER run provenance
+with the candidate verdict. Simulated source and run markers exclude those
+records from attribution. Candidates with missing source or run provenance
+remain qualified evidence. Broker-report acquisition and open-position
+ownership have separate verdicts.
+
+The reviewed mappings are derived locally from the P01 and P02 Open Positions
+rows and their same-account reverse-split action pairs. Effective timestamps
+stay separate from report dates. Each link requires distinct contract and
+transaction identities, signed legs, the reviewed ratio and successor
+quantity agreement at reported precision. Ambiguous or inconsistent pairs
+leave an explicit gap. No manual account or contract transcription is needed.
+
+Seven focused synthetic checks passed on Linux Python 3.13, including the
+reported five-position, zero-trade, four-action, zero-transfer envelope,
+framing and schema controls, deduplication, older journal coverage,
+journal-only acquisitions, simulated-source rejection and invalid action
+pairs. The laptop inputs remained local and the laptop join has not run.
+The operative PAPER path and all five ownership verdicts remain unresolved.
+All five ownership vetoes remain in force. PAPER_READY=NO.
+PAPER_READINESS_GATE=FAIL.
+
+
+### Coordinator account-wrapper compatibility correction (2026-11-22)
+
+Coordinator review of exact source `690f9d1eec2baa23fb28c8e51325a044df5bb080`
+reproduced a remaining failure against the uploaded period-labelled CSV at
+SHA-256 `195bbf42d305a029618412c65933190faa8734ef9add6b634275857054bf236c`.
+The actual export contains a BOA record before the first BOS and a matching
+EOA before EOF. The preceding coordinator format summary and sanitized
+fixture omitted these account wrappers. The old head refused at its first
+BOS check. Removing only those wrappers in a controlled input projection
+allowed its remaining section and split checks to pass.
+
+The bounded correction accepts either the existing unwrapped envelope or
+one paired BOA/EOA envelope. Both wrapper records must carry the same
+account as BOF, with exactly two fields. Missing, extra, duplicated,
+misordered and account-mismatched wrappers refuse. Per-section headers,
+widths, counts, period, snapshot and broker hash gates remain unchanged.
+No account or security values from the private report are published.
+
+Nine focused synthetic test methods passed locally, including the existing
+seven checks and positive/negative wrapper controls. Separately, the
+original uploaded CSV parsed with its BOA/EOA wrappers and retained the
+May 25–November 20 period, five positions, zero trades, four action rows
+and zero transfers. Its two split pairs validated. A complete run used
+that original broker CSV with a disposable synthetic SQLite snapshot and
+the exact collector manifest shape. It wrote the aliased output, retained
+all five unresolved ownership verdicts and left both input hashes unchanged.
+The shareable result contained no account or current contract IDs. This
+is not a run against the laptop's 48 actual snapshots.
+
+Corrected script SHA-256:
+`5b78ab0f85427d5875d1ae99ea7551d18d3b614f59dc52329df286264aa87f6d`.
+The existing November 21 reconciliation and collection sections are each
+present exactly once. No full-suite CI, runtime or broker connection,
+source database write, position action, recovery clearing or main merge
+was performed. Next action is one laptop-local join against the already
+collected snapshots. Operative PAPER storage and all five ownership
+verdicts remain unresolved. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### First laptop-local ownership join completed (2026-11-22)
+
+The operator supplied a Windows PowerShell transcript of the reviewed
+`76fe61a4c7a45d1d83fabe2c8456950c2743e4c9` launcher, whose script hash
+gate is `5b78ab0f85427d5875d1ae99ea7551d18d3b614f59dc52329df286264aa87f6d`.
+The launcher printed the shareable JSON and the new output-file location,
+and returned to the terminal without the nonzero-exit refusal. Original
+financial records and the private manifest remain on the laptop.
+The retained pasted transcript SHA-256 is
+`daa1377d7e72eb27320a2077a5d809a3deb76542a9bd269bc921395a29129a31`;
+this is a transcript digest, not an independently checked result-file hash.
+
+All 48 snapshot references were handled: 22 distinct images were inspected
+and 26 references deduplicated. No snapshot inspection refusal was reported.
+D002's earlier 787 PAPER run records remain metadata: the join reports zero
+execution_results, events, trade_lifecycle_events and position_lifecycle_transitions
+there. Two distinct older images report 470 and 128 event rows respectively.
+The supported journal extraction produced zero qualifying account- and
+contract-bound acquisition candidates for each of P01 through P05. This
+is a scoped extraction result, not proof that no acquisition ever occurred
+or that every possible historical storage representation was covered.
+
+P01 and P02 each retain paired_broker_action_legs_supported. All five
+broker acquisition, Ross attribution and current open-position ownership
+verdicts remain unresolved. The report contains zero Trades rows for its
+explicit May 25–November 20 period. Operative PAPER storage is unverified.
+Ten collector discovery gaps remain; their private source details were
+not in the shareable transcript. No broker, position, recovery or
+ownership-veto action followed. PAPER_READY=NO.
+
+Next bounded evidence step is to inspect only the existing private
+manifest's discovery-gap categories through an aliased shareable projection.
+Do not recollect the 48 snapshots or repeat the completed join unchanged.
+Archived, inaccessible or missing-source gaps, if any, require targeted
+follow-up from their actual categories. Preserve the private records.
+
+
+### Discovery-path disposition and fractional clean-start finding (2026-11-22)
+
+The uploaded SHAREABLE_JOIN.json was read directly and matched the previously
+supplied terminal result semantically. Its file SHA-256 is
+`e6738aefb798b839ad0bd781f6002a1a1e23255b5ccfcd3567340e166037b688`.
+All five ownership verdicts and zero qualifying acquisition candidates remain
+as recorded above.
+
+The operator's manifest-only projection classified all ten discovery-gap
+records as missing_or_inaccessible. A subsequent read of file metadata
+reported ObjectNotFound for G01 through G10. G01 is a checkout legacy-filename
+candidate, G02 a READ_ONLY startup reference, and G03–G10 logged-configuration
+references. No record was labelled a demonstrated PAPER startup path. These
+are ten gap records, not evidence of ten distinct missing databases. No
+archived-database gap was reported by this projection. The unavailable paths
+supply no acquisition evidence and no ownership clearance. The bounded
+available-report, collected-snapshot and recorded-missing-path investigation
+is complete; operative historical PAPER storage remains unverified.
+
+Read-only source inspection at accepted main
+`f53aa41d07ac6143503582d8d2980bd72fe1d90b` found a separate clean-start
+truth defect in src/execution/clean_start_session.py. _non_flat_positions
+uses int(position), and the flatten loop also coerces quantity to int.
+In an offline source-function reproduction, an inert broker substitute
+reported two nonzero fractional positions. The accepted helper retained
+zero, and enforce_clean_start_session returned status COMPLETE,
+ready_for_trading=True and remaining_positions=0, without order mutations.
+Only AST-selected functions from accepted source were executed with inert
+client/translator substitutes; no broker, production runtime or operator
+configuration was used. This proves the local clean-start false-flat
+result, not bypass of the complete system's other ownership protections.
+
+Next bounded engineering task is to repair this existing owner's nonzero
+quantity accounting and refuse unsupported fractional cleanup safely before
+mutations. Preserve supported integer behavior, known/unknown snapshot
+semantics, default-off FORCE_CLEAN_START, ownership/risk protections and
+all five real vetoes. Do not add fractional order authority, activate clean
+start, adopt/exclude holdings or weaken reconciliation. A later explicit
+legacy-holdings handling decision remains separate from truthful flatness.
+No production fix, broker action, state clearing or main merge occurred in
+this investigation. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### Fractional clean-start flatness repair (2026-11-22)
+
+Continued from `3b0e4ea7676b32d7b4818c2bc63d4dd30edd2600`.
+The clean-start source at that checkpoint matches accepted main
+`f53aa41d07ac6143503582d8d2980bd72fe1d90b`. Four controls added to the
+existing clean-start tests failed on that source. Fractional-only snapshots
+returned COMPLETE with zero remaining positions. The mixed snapshot
+cancelled an open order and attempted whole-share submissions, including
+a truncated close for its fractional position. Both receipts used inert
+transport.
+
+Repair commit `3f8477253ce8548e755a85f6a7f87b53df69d2de` keeps broker
+quantities exact for initial and confirmation snapshots. Any initial
+fractional position returns the existing FAILED result and block outcome,
+with the observed remaining position and order counts and
+UNSUPPORTED_FRACTIONAL_POSITION. The whole snapshot is checked before the
+first cancellation or submission. Whole-share routing still uses the
+existing translator. A fractional residual in confirmation remains nonzero
+and times out if it persists. Unavailable or invalid snapshots reach the
+existing caller exception block.
+
+Focused clean-start and orchestrator shutdown checks passed on Linux
+with the offline socket guard (21 passed). They cover both fractional signs,
+mixed positions, tiny nonzero decimals, no preflight mutations, genuine zero,
+signed whole-share orders, residual exposure and unavailable snapshots.
+The draft is based on the ownership checkpoint branch so its proposed
+changes are limited to the clean-start owner, its tests and this receipt.
+The repository PR workflow supplies the required CI checks for the draft head.
+
+The change addresses clean-start snapshot truth and unsupported fractional
+cleanup. The ownership investigation remains recorded above, all five vetoes
+remain in force, and FORCE_CLEAN_START remains default-off. No live broker
+validation, holdings changes, recovery clearing, ownership adoption or main
+merge occurred. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.

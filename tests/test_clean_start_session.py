@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from types import SimpleNamespace
+
+import pytest
 
 from src.execution.clean_start_session import enforce_clean_start_session
 
@@ -77,8 +80,8 @@ def test_clean_start_cancels_broker_open_orders(monkeypatch):
 def test_clean_start_submits_opposite_market_orders_for_positions(monkeypatch):
     monkeypatch.setattr("src.execution.clean_start_session.IbkrOrderTranslator", _FakeTranslator)
     positions = [
-        SimpleNamespace(symbol="AAPL", position=100),
-        SimpleNamespace(symbol="TSLA", position=-50),
+        SimpleNamespace(symbol="AAPL", position=Decimal("100.00")),
+        SimpleNamespace(symbol="TSLA", position=-50.0),
     ]
     client = _FakeIbkrClient(open_orders=[], positions=positions)
     result = enforce_clean_start_session(enabled=True, ibkr_client=client, timeout_seconds=1, sleep_fn=lambda _: None)
@@ -154,3 +157,89 @@ def test_clean_start_orders_are_tagged_as_cleanup(monkeypatch):
     assert order.strategy_name == "CLEAN_START"
     assert order.trader_type == "BROKER_CLEANUP"
     assert str(order.client_order_id).startswith("CLEAN_START_")
+
+
+@pytest.mark.parametrize(
+    ("quantities", "open_orders"),
+    [
+        ((Decimal("0.125"),), []),
+        ((-0.25,), []),
+        ((Decimal("1e-1000"),), []),
+        ((Decimal("0.125"), Decimal("-0.25")), []),
+        ((10, Decimal("-1.25")), [SimpleNamespace(orderId=19)]),
+    ],
+)
+def test_clean_start_refuses_fractional_positions_before_mutations(monkeypatch, quantities, open_orders):
+    monkeypatch.setattr("src.execution.clean_start_session.IbkrOrderTranslator", _FakeTranslator)
+    positions = [SimpleNamespace(symbol=f"FIX{index}", position=quantity)
+                 for index, quantity in enumerate(quantities)]
+    client = _FakeIbkrClient(open_orders=open_orders, positions=positions)
+    result = enforce_clean_start_session(
+        enabled=True, ibkr_client=client, timeout_seconds=1, sleep_fn=lambda _: None,
+    )
+    assert (result.status, result.ready_for_trading, result.remaining_positions) == (
+        "FAILED", False, len(quantities),
+    )
+    assert result.reason == "UNSUPPORTED_FRACTIONAL_POSITION"
+    assert result.remaining_open_orders == len(open_orders)
+    assert client.cancelled_order_ids == []
+    assert client.submitted_orders == []
+
+
+def test_clean_start_completes_with_genuine_zero_positions(monkeypatch):
+    monkeypatch.setattr("src.execution.clean_start_session.IbkrOrderTranslator", _FakeTranslator)
+    client = _FakeIbkrClient(positions=[
+        SimpleNamespace(symbol="FIX0", position=Decimal("-0.000")),
+        SimpleNamespace(symbol="FIX1", position=0.0),
+    ])
+    result = enforce_clean_start_session(enabled=True, ibkr_client=client)
+    assert (result.status, result.ready_for_trading, result.remaining_positions) == ("COMPLETE", True, 0)
+    assert client.cancelled_order_ids == []
+    assert client.submitted_orders == []
+
+
+def test_clean_start_counts_fractional_residual_in_confirmation(monkeypatch):
+    monkeypatch.setattr("src.execution.clean_start_session.IbkrOrderTranslator", _FakeTranslator)
+
+    class _ResidualClient(_FakeIbkrClient):
+        def positions(self):
+            if self.submitted_orders:
+                return [SimpleNamespace(symbol="FIX", position=Decimal("0.125"))]
+            return super().positions()
+
+    client = _ResidualClient(positions=[SimpleNamespace(symbol="FIX", position=1)])
+    ticks = iter([0.0, 0.1, 1.2])
+    result = enforce_clean_start_session(
+        enabled=True, ibkr_client=client, timeout_seconds=1,
+        sleep_fn=lambda _: None, monotonic_fn=lambda: next(ticks),
+    )
+    assert (result.status, result.ready_for_trading, result.remaining_positions) == ("FAILED", False, 1)
+    assert result.reason == "TIMEOUT"
+    assert len(client.submitted_orders) == 1
+
+
+@pytest.mark.parametrize(("method", "snapshot", "error"), [
+    ("positions", None, TypeError),
+    ("positions", [SimpleNamespace(symbol="FIX", position=Decimal("NaN"))], ValueError),
+    ("openOrders", None, TypeError),
+])
+def test_clean_start_unavailable_snapshot_uses_existing_exception_path(monkeypatch, method, snapshot, error):
+    client = _FakeIbkrClient(open_orders=[SimpleNamespace(orderId=19)])
+    monkeypatch.setattr(client, method, lambda: snapshot)
+    with pytest.raises(error):
+        enforce_clean_start_session(enabled=True, ibkr_client=client)
+    assert client.cancelled_order_ids == []
+    assert client.submitted_orders == []
+
+
+def test_clean_start_position_error_propagates_before_mutations(monkeypatch):
+    client = _FakeIbkrClient(open_orders=[SimpleNamespace(orderId=19)])
+
+    def unavailable():
+        raise RuntimeError("Broker position truth unavailable")
+
+    monkeypatch.setattr(client, "positions", unavailable)
+    with pytest.raises(RuntimeError, match="Broker position truth unavailable"):
+        enforce_clean_start_session(enabled=True, ibkr_client=client)
+    assert client.cancelled_order_ids == []
+    assert client.submitted_orders == []
