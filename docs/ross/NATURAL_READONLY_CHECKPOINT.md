@@ -21233,3 +21233,134 @@ cleanup. The ownership investigation remains recorded above, all five vetoes
 remain in force, and FORCE_CLEAN_START remains default-off. No live broker
 validation, holdings changes, recovery clearing, ownership adoption or main
 merge occurred. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+
+### Accepted fractional repair and complete order-query cleanup (2026-11-22)
+
+The operator reaffirmed standing authorization to carry implementation,
+scoped review, CI and merges through to completion without repeated routine
+permission requests. Continue from this checkpoint and reuse completed
+evidence; do not repeat the finished ownership collection or join unchanged.
+
+PR #1242 was merged into main as
+`548aa0f3c3a1e8aa81ddaeaa1cce07cc483dcc45`. Its parents are accepted main
+`f53aa41d07ac6143503582d8d2980bd72fe1d90b` and reviewed head
+`10e6df33ad779883373abab6b99c03b25e4d00ba`. The merge tree is
+`2f8ac1437bdc1afa0dc50aa9aebfb5306fb70d43`, identical to the reviewed
+tree and the successful pull-request CI candidate. Required Linux and Windows
+checks passed in run 44969095123. Automatic push CI is run 45006439841;
+it was still in progress when this receipt was prepared. The main integration
+also retains the previously reviewed offline join and ownership receipts.
+
+Follow-up inspection found that the same cleanup owner called
+`IbkrClient.openOrders()` without its existing `require_complete=True`
+option. The native adapter's default can return partial or cached rows after
+timeout or disconnection. With inert native request/wait primitives, the
+unrepaired caller returned COMPLETE and ready_for_trading=True despite an
+incomplete query, disconnected query, or previously unresolved completion.
+This is a local cleanup defect; it does not prove bypass of other system gates.
+
+The cleanup helper now requests strict completion on every read: initial
+preflight, after cancellations, each flatness confirmation and the final
+timeout snapshot. The existing native query owner provides serialization,
+completion and unresolved-query refusal; no second snapshot owner was added.
+Failures propagate to the existing orchestrator exception block, which sets
+_clean_start_ready_for_trading=False and stops the run loop. An incomplete
+initial order query permits no cancellation or submission. A failure after
+cancellation prevents flatten submission; a failure during confirmation cannot
+return a ready result or trigger another close attempt.
+
+Seven new regression cases failed against accepted main before the caller
+change. With the change, 28 focused clean-start and orchestrator-shutdown
+cases passed on Linux Python 3.12 with the repository offline socket guard.
+The new cases cover all four read phases and exercise the actual native
+openOrders method with inert transport for timeout, disconnection and
+unresolved completion. Existing whole-share, fractional refusal, genuine zero,
+unavailable snapshot and shutdown cases still pass. git diff --check passed.
+
+This follow-up remains subject to its own pull-request CI. FORCE_CLEAN_START
+remains default-off. No broker connection, position action, order enablement,
+legacy-holding exclusion or ownership adoption was performed. All five
+ownership vetoes remain in force. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### Ordinary Ross PAPER authority and broker-truth repair (2026-11-22)
+
+The follow-up clean-start candidate in PR #1243, head
+`3b8731d9c0337c8b31c0f159492cbb9e181c7a9b`, tree
+`8cfde9479f999b349bcd11b4c89b64e19f0d2f37`, passed a scoped independent
+review of all four strict-query read phases and the existing Core refusal.
+Its native query completes the current client's open-order request.
+Account-wide order identity and effects remain separate evidence.
+
+| Ordinary PAPER owner | Implemented and evidenced scope | Remaining acceptance |
+| --- | --- | --- |
+| Scanner and Ross selection | The Core manager consumes completed scanner and data facts. Ross applies source-bound publication and catalyst policy, TopN50, Watchlist15 and Focus5, setup geometry and occurrence-bound trigger before canonical intent. | A natural positive qualifying progression and ordinary PAPER acceptance are still unverified. Prior negative READ_ONLY results retain their scope. |
+| Position truth and recovery | Core collects scoped native position truth and compares it with the owned registry. Existing startup recovery, order intent persistence and restart quarantine retain authority. | P01 through P05 remain unresolved and vetoed. P01 and P02 have reported action continuity only. P03, P04 and P05 have no qualifying acquisition evidence. No historical position is assigned to Ross or an external owner. |
+| Risk and native write | Existing risk and capital reservation owners precede native dispatch. Native acknowledgement grants no filled ownership. Later callbacks precede committed exactly-once accounting and structural stop confirmation. | Ordinary capital paths lack the account-bound current evidence needed for legacy-inclusive admission. Live transport acceptance remains unverified. |
+| Bounded subset and exit | One-share standalone MICRO is the candidate for the first bounded ordinary release. The accepted inert Core proofs cover acknowledgement, later entry fill, independently confirmed protection, supported final protective fill and duplicate suppression. | These are synthetic control receipts. Optional management, multi-share behavior outside approved controlled enrollment, and new adds, trailing and resumption retain their vetoes. |
+
+The proposed inventory preservation policy remains admission-closed.
+Published position reports and the completed ownership investigation cannot
+supply fresh account-wide order truth, per-contract market values with verified
+currency, or account-bound equity and buying power. The existing capital
+projection primarily counts owned trades. A baseline exemption without those
+facts would understate account risk. Default reconciliation continues to block
+all five unresolved positions. No preservation enrollment or baseline was
+created. No laptop operation or ownership-veto change occurred.
+
+Three shared defects were reproduced with inert transport. Missing, lossy,
+or identity-ambiguous broker rows could look complete. The ordinary lifecycle
+overlay could infer and persist a closed trade from the legacy adapter's empty
+or integer-coerced result. The legacy capital-summary API could return
+complete-looking tags on timeout and accept updates after End. The repairs
+refuse lossy or ambiguous position snapshots, keep operational lifecycle
+accounting with the canonical owners, and require in-deadline matching End
+before returning the legacy summary. The legacy summary remains completion
+evidence only, without account/currency-qualified capital attribution.
+Operational cycles retain canonical signed-quantity reconciliation and
+lifecycle portfolio/risk summaries. The retired overlay's separate average-cost
+and structure drift findings no longer run in those cycles.
+
+The final focused Linux run passed 500 tests, including existing joined PMH,
+lifecycle, position truth, recovery and IBKR adapter tests. Independent scoped
+review checked the final deadline correction and the overlay's explicit skip
+receipt. Required final-head CI and actual merge identity are tracked on the
+corresponding pull requests.
+
+The next authorized local action is one natural ordinary-RTH READ_ONLY
+observation on 23 November 2026, using the maintained Windows PowerShell 5.1
+caller, accepted immutable source and reviewed November calendar. It requires
+local PAPER/Read-Only TWS verification, exact client71 admission, a fresh
+private root and the full 1260-second envelope before exchange close.
+Keep preparation, natural selection/intent and PAPER broker acceptance
+separate. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+### Native position-query integrity and November 23 local handoff (2026-11-22)
+
+Automatic main CI for the accepted PR #1242 merge
+`548aa0f3c3a1e8aa81ddaeaa1cce07cc483dcc45` passed Linux, controlled Windows,
+the full Windows suite and its aggregate in run 45006439841. The merge tree
+remains `2f8ac1437bdc1afa0dc50aa9aebfb5306fb70d43`.
+
+A later callback for the same request/account/contract/symbol could overwrite
+a contradictory quantity before matching End. In inert native callback tests,
+both a nonzero-to-zero repeat and a zero-to-fractional repeat were returned as
+COMPLETE. The owned query now fails on contradictory quantity or cost,
+including a failed query later receiving End. Identical repetitions can still
+complete. The existing canonical reconciliation blocks entries on failed
+acquisition. The focused test run passed 167 cases across the native query,
+position truth and request authority owners. Independent scoped review cleared
+the query guard. The read changes grant no order or enrollment authority.
+
+The independently checked ordinary RTH release is
+`e1496a80d8bfd51edb610965ddfcc91aff531e6b`,
+`docs/ross/ROSS_ORDINARY_RTH_READ_ONLY_20261123.ps1`, SHA-256
+`3964e2fc4281325d1e26c0f61f1c670c5fc6f5ff8561a8eb6d45551c51bce778`.
+It binds the accepted PR #1242 merge, its tree, the maintained preparation
+blob and the reviewed calendar. Eight focused ordinary-RTH calendar cases
+passed. On 23 November the reviewed session is 14:30 to 21:00 London time.
+The 1260-second envelope must be admitted strictly before 20:39 London.
+Use the block locally only after contemporaneous verification of the existing
+TWS PAPER Read-Only setup and client 71 reservation. No operational enrollment
+or cloud launch occurred. P01–P05 remain unresolved and all five vetoes remain.
+PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.

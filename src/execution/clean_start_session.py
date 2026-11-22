@@ -21,7 +21,8 @@ class CleanStartResult:
 
 
 def _safe_open_orders(ibkr_client: Any) -> list[object]:
-    return list(ibkr_client.openOrders())
+    # Partial or cached rows cannot authorize cleanup or certify flatness.
+    return list(ibkr_client.openOrders(require_complete=True))
 
 
 def _safe_positions(ibkr_client: Any) -> list[object]:

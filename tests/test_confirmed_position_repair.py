@@ -613,3 +613,29 @@ def test_colliding_market_snapshot_cannot_supply_cached_quote_authority(client,m
     monkeypatch.setattr(EClient,'reqMktData',lambda self,req,*args:_discovered_order(client,'openOrder',req))
     monkeypatch.setattr(EClient,'cancelMktData',lambda *args:None)
     with pytest.raises(RuntimeError,match='ownership is ambiguous'):client.get_market_snapshot('AAPL')
+
+
+@pytest.mark.parametrize(('first', 'second', 'second_cost', 'status'), [
+    (1, 0, 10, 'FAILED'),
+    (0, 0.125, 10, 'FAILED'),
+    (1, 1, 11, 'FAILED'),
+    (-0.25, -0.25, 10, 'COMPLETE'),
+])
+def test_position_snapshot_cannot_overwrite_conflicting_native_rows(
+        client, first, second, second_cost, status):
+
+    def response(req, account, model):
+        contract = NS(symbol='FIX', conId=1)
+        client.positionMulti(req, account, model, contract, first, 10)
+        client.positionMulti(req, account, model, contract, second, second_cost)
+        client.positionMultiEnd(req)
+
+    client.reqPositionsMulti = response
+    rows = collect(client)
+    assert rows.status == status
+    if status == 'FAILED':
+        snapshot, assessment = verdict(rows)
+        assert snapshot.snapshot_status == 'UNKNOWN'
+        assert assessment.block_new_entries
+    else:
+        assert rows['FIX'].quantity == first

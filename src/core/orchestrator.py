@@ -987,24 +987,29 @@ class CoreOrchestrator:
         )
 
     def _run_lifecycle_authority_overlay(self) -> None:
-        provider = getattr(self.execution_engine, "provider", None)
-        broker = getattr(provider, "broker", None)
-        connection_manager = getattr(broker, "connection_manager", None)
-        if connection_manager is not None and hasattr(connection_manager, "get_client"):
+        findings = []
+        # Broker-backed cycles already use canonical position truth. The
+        # legacy teaching adapter can collapse unavailable or fractional
+        # positions into an empty snapshot, which cannot account for an exit.
+        if self.run_mode == RunMode.SIM:
+            provider = getattr(self.execution_engine, "provider", None)
+            broker = getattr(provider, "broker", None)
+            connection_manager = getattr(broker, "connection_manager", None)
+            if connection_manager is not None and hasattr(connection_manager, "get_client"):
+                try:
+                    self._broker_position_adapter._broker_client = connection_manager.get_client()
+                except Exception as exc:
+                    print(f"[LIFECYCLE][BROKER_SNAPSHOT][DEGRADED] reason=client_resolution_failed error={exc}")
             try:
-                self._broker_position_adapter._broker_client = connection_manager.get_client()
+                snapshot = self._broker_position_adapter.fetch_broker_positions()
             except Exception as exc:
-                print(f"[LIFECYCLE][BROKER_SNAPSHOT][DEGRADED] reason=client_resolution_failed error={exc}")
-        try:
-            snapshot = self._broker_position_adapter.fetch_broker_positions()
-        except Exception as exc:
-            print(f"[LIFECYCLE][ERROR] stage=broker_snapshot_fetch error={exc}")
-            snapshot = []
-        try:
-            findings = self.trade_lifecycle_engine.reconcile_with_broker_snapshot(snapshot)
-        except Exception as exc:
-            print(f"[LIFECYCLE][ERROR] stage=broker_reconcile error={exc}")
-            findings = []
+                print(f"[LIFECYCLE][ERROR] stage=broker_snapshot_fetch error={exc}")
+                snapshot = []
+            try:
+                findings = self.trade_lifecycle_engine.reconcile_with_broker_snapshot(snapshot)
+            except Exception as exc:
+                print(f"[LIFECYCLE][ERROR] stage=broker_reconcile error={exc}")
+                findings = []
         try:
             portfolio_state = self.trade_lifecycle_engine.build_portfolio_state()
         except Exception as exc:
@@ -1032,7 +1037,10 @@ class CoreOrchestrator:
                 f"too_many_open_positions={risk_signals.too_many_open_positions} "
                 f"drift_detected={risk_signals.drift_detected}"
             )
-        print(f"[LIFECYCLE][BROKER_RECONCILE][SUMMARY] findings={len(findings)}")
+        if self.run_mode == RunMode.SIM:
+            print(f"[LIFECYCLE][BROKER_RECONCILE][SUMMARY] findings={len(findings)}")
+        else:
+            print("[LIFECYCLE][BROKER_RECONCILE][SKIP] reason=canonical_position_truth")
 
     def _should_enforce_ibkr_runtime(self) -> bool:
         """

@@ -922,3 +922,66 @@ def test_strict_account_currency_rechecks_scope_after_cleanup_signal_before_canc
     assert facts.cancels == [], 'A retired request cannot retain cancellation permission across scope loss'
     assert not result.cancellation_attempted and result.cleanup_complete
     _assert_currency_retired(client, result.request_id)
+
+
+def test_legacy_account_summary_rejects_complete_looking_rows_without_end(account_currency_client):
+    facts = account_currency_client
+    client = facts.client
+
+    def rows(req_id):
+        for tag in ("AvailableFunds", "NetLiquidation", "BuyingPower"):
+            client.accountSummary(req_id, "SYNTHETIC_TEST", tag, "100", "BASE")
+
+    facts.on_request = rows
+    with pytest.raises(RuntimeError, match="ACCOUNT_SUMMARY_INCOMPLETE"):
+        client.get_account_summary(timeout_seconds=0.001)
+    req_id = facts.requests[-1][0]
+    assert facts.cancels == [req_id]
+    _assert_currency_retired(client, req_id)
+
+
+def test_legacy_account_summary_freezes_at_matching_end_and_retires(account_currency_client):
+    facts = account_currency_client
+    client = facts.client
+
+    def rows(req_id):
+        client.accountSummary(req_id, "SYNTHETIC_TEST", "AvailableFunds", "100", "BASE")
+        client.accountSummaryEnd(req_id)
+        client.accountSummary(req_id, "SYNTHETIC_TEST", "AvailableFunds", "999", "BASE")
+
+    facts.on_request = rows
+    assert client.get_account_summary() == {"AvailableFunds": "100"}
+    req_id = facts.requests[-1][0]
+    _assert_currency_retired(client, req_id)
+    client.accountSummary(req_id, "SYNTHETIC_TEST", "AvailableFunds", "777", "BASE")
+    _assert_currency_retired(client, req_id)
+
+
+def test_legacy_account_summary_does_not_accept_end_after_timeout(account_currency_client, monkeypatch):
+    from src.adapters.brokers.ibkr import ibkr_client as native_module
+
+    facts = account_currency_client
+    client = facts.client
+
+    def wait_timed_out(event, timeout):
+        req_id = facts.requests[-1][0]
+        client.accountSummaryEnd(req_id)
+        return False
+
+    monkeypatch.setattr(native_module, "wait_event", wait_timed_out)
+    with pytest.raises(RuntimeError, match="ACCOUNT_SUMMARY_INCOMPLETE"):
+        client.get_account_summary()
+    _assert_currency_retired(client, facts.requests[-1][0])
+
+
+def test_legacy_account_summary_deadline_includes_native_dispatch(account_currency_client):
+    facts = account_currency_client
+
+    def slow_send(req_id):
+        facts.clock.monotonic += 2
+        facts.client.accountSummaryEnd(req_id)
+
+    facts.on_request = slow_send
+    with pytest.raises(RuntimeError, match="ACCOUNT_SUMMARY_INCOMPLETE"):
+        facts.client.get_account_summary(timeout_seconds=1)
+    _assert_currency_retired(facts.client, facts.requests[-1][0])

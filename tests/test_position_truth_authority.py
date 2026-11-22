@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -154,3 +155,48 @@ def test_dummy_client_without_positions_surfaces_in_paper(capsys) -> None:
         config=PositionTruthConfig(broker_required=False, run_mode=RunMode.SIM),
     )
     assert sim_positions == {}
+
+
+@pytest.mark.parametrize("quantity", [
+    None, False, "", Decimal("1e-1000"), Decimal("1.00000000000000000001"),
+])
+def test_unavailable_or_lossy_broker_quantity_blocks_new_entries(quantity):
+    as_of = _now()
+    broker = collect_broker_position_snapshot(
+        _BrokerClient([SimpleNamespace(symbol="AAA", position=quantity)]),
+        as_of=as_of,
+        config=PositionTruthConfig(broker_required=True, run_mode=RunMode.PAPER),
+    )
+    snapshot, verdict = reconcile_position_truth(broker, {}, as_of=as_of, live_broker_mode=True)
+    assert snapshot.snapshot_status == "UNKNOWN"
+    assert verdict.block_new_entries
+
+
+@pytest.mark.parametrize("rows", [
+    [SimpleNamespace(symbol="AAA", position=0, con_id=11),
+     SimpleNamespace(symbol="AAA", position=1, con_id=22)],
+    [SimpleNamespace(symbol="AAA", position=1, con_id=11),
+     SimpleNamespace(symbol="BBB", position=1, con_id=11)],
+])
+def test_ambiguous_broker_security_rows_block_new_entries(rows):
+    as_of = _now()
+    broker = collect_broker_position_snapshot(
+        _BrokerClient(rows), as_of=as_of,
+        config=PositionTruthConfig(broker_required=True, run_mode=RunMode.PAPER),
+    )
+    snapshot, verdict = reconcile_position_truth(broker, {}, as_of=as_of, live_broker_mode=True)
+    assert snapshot.snapshot_status == "UNKNOWN"
+    assert verdict.block_new_entries
+
+
+def test_ordinary_fractional_broker_quantity_remains_a_broker_only_veto():
+    as_of = _now()
+    broker = collect_broker_position_snapshot(
+        _BrokerClient([SimpleNamespace(symbol="AAA", position=Decimal("-0.125"), con_id=11)]),
+        as_of=as_of,
+        config=PositionTruthConfig(broker_required=True, run_mode=RunMode.PAPER),
+    )
+    snapshot, verdict = reconcile_position_truth(broker, {}, as_of=as_of, live_broker_mode=True)
+    assert snapshot.mismatches[0].mismatch_type == "BROKER_ONLY_POSITION"
+    assert snapshot.mismatches[0].broker_quantity == -0.125
+    assert verdict.block_new_entries

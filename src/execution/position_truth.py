@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 import math
 
@@ -130,6 +131,25 @@ def _resolve_position_quantity(row: Any) -> float:
     return quantity
 
 
+def _broker_position_quantity(row: Any) -> float:
+    raw = _read_value(row, "position")
+    if raw is None:
+        raw = _read_value(row, "quantity")
+    if isinstance(raw, bool):
+        raise ValueError("Invalid broker position quantity")
+    if isinstance(raw, float):
+        if not math.isfinite(raw):
+            raise ValueError("Nonfinite broker position quantity")
+        return raw
+    exact = Decimal(raw)
+    quantity = float(exact)
+    # The existing reconciliation and risk projection use float quantities.
+    # Refuse a snapshot that cannot preserve its reported decimal quantity.
+    if not math.isfinite(quantity) or Decimal(str(quantity)) != exact:
+        raise ValueError("Broker position quantity cannot be represented")
+    return quantity
+
+
 class BrokerPositionCollection(dict):
     def __init__(self, *, status="UNAVAILABLE", completed_at=None):
         super().__init__()
@@ -157,13 +177,21 @@ def collect_broker_position_snapshot(ibkr_client: Any, *, as_of: datetime,
         if not result.account or not 0 <= age <= get_ibkr_snapshot_max_age_seconds():
             collection.status = "STALE_OR_UNSCOPED"
             return collection
+        seen_symbols: set[str] = set()
+        seen_contracts: set[int] = set()
         for row in result.rows:
             if _read_value(row, "account") != result.account:
                 raise ValueError("Wrong position account")
             symbol = _normalize_symbol(_read_value(row, "symbol", ""))
-            if not symbol or symbol in collection:
+            if not symbol or symbol in seen_symbols:
                 raise ValueError("Missing or ambiguous position security")
-            quantity = _resolve_position_quantity(row)
+            seen_symbols.add(symbol)
+            con_id = _read_value(row, "con_id", _read_value(_read_value(row, "contract"), "conId"))
+            if type(con_id) is int and con_id > 0:
+                if con_id in seen_contracts:
+                    raise ValueError("Ambiguous position contract")
+                seen_contracts.add(con_id)
+            quantity = _broker_position_quantity(row)
             if quantity == 0:
                 continue
             collection[symbol] = NormalizedBrokerPosition(
@@ -172,7 +200,7 @@ def collect_broker_position_snapshot(ibkr_client: Any, *, as_of: datetime,
                 market_price=_optional_float(_read_value(row, "marketPrice")),
                 market_value=_optional_float(_read_value(row, "marketValue")),
                 source="ibkr.positions", as_of=result.completed_at,
-                con_id=_read_value(row, "con_id", _read_value(_read_value(row, "contract"), "conId")))
+                con_id=con_id)
         collection.account = result.account
     except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
         raise

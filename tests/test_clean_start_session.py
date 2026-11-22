@@ -35,7 +35,7 @@ class _FakeIbkrClient:
         self.open_orders_calls = 0
         self.positions_calls = 0
 
-    def openOrders(self):
+    def openOrders(self, *, require_complete=False):
         self.open_orders_calls += 1
         return list(self._open_orders)
 
@@ -225,7 +225,7 @@ def test_clean_start_counts_fractional_residual_in_confirmation(monkeypatch):
 ])
 def test_clean_start_unavailable_snapshot_uses_existing_exception_path(monkeypatch, method, snapshot, error):
     client = _FakeIbkrClient(open_orders=[SimpleNamespace(orderId=19)])
-    monkeypatch.setattr(client, method, lambda: snapshot)
+    monkeypatch.setattr(client, method, lambda **kwargs: snapshot)
     with pytest.raises(error):
         enforce_clean_start_session(enabled=True, ibkr_client=client)
     assert client.cancelled_order_ids == []
@@ -241,5 +241,58 @@ def test_clean_start_position_error_propagates_before_mutations(monkeypatch):
     monkeypatch.setattr(client, "positions", unavailable)
     with pytest.raises(RuntimeError, match="Broker position truth unavailable"):
         enforce_clean_start_session(enabled=True, ibkr_client=client)
+    assert client.cancelled_order_ids == []
+    assert client.submitted_orders == []
+
+
+@pytest.mark.parametrize("failure_call", [1, 2, 3, 4])
+def test_clean_start_requires_complete_orders_at_every_phase(monkeypatch, failure_call):
+    monkeypatch.setattr("src.execution.clean_start_session.IbkrOrderTranslator", _FakeTranslator)
+
+    class _IncompleteOrdersClient(_FakeIbkrClient):
+        def openOrders(self, *, require_complete=False):
+            rows = super().openOrders(require_complete=require_complete)
+            if self.open_orders_calls == failure_call:
+                if require_complete:
+                    raise RuntimeError("OPEN_ORDERS_INCOMPLETE")
+                return []  # A timed-out legacy query can return empty partial rows.
+            return rows
+
+    client = _IncompleteOrdersClient(
+        open_orders=[SimpleNamespace(orderId=19)],
+        positions=[SimpleNamespace(symbol="FIX", position=1)],
+        clear_positions_on_submit=False,
+    )
+    ticks = iter([0.0, 0.1, 1.2])
+    with pytest.raises(RuntimeError, match="OPEN_ORDERS_INCOMPLETE"):
+        enforce_clean_start_session(
+            enabled=True, ibkr_client=client, timeout_seconds=1,
+            sleep_fn=lambda _: None, monotonic_fn=lambda: next(ticks),
+        )
+    assert client.open_orders_calls == failure_call
+    assert len(client.cancelled_order_ids) == (0 if failure_call == 1 else 1)
+    assert len(client.submitted_orders) == (0 if failure_call <= 2 else 1)
+
+
+@pytest.mark.parametrize("state", ["INCOMPLETE", "DISCONNECTED", "COMPLETION_UNRESOLVED"])
+def test_clean_start_native_order_query_failure_blocks_preflight(monkeypatch, state):
+    import threading
+
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+
+    client = _FakeIbkrClient(positions=[SimpleNamespace(symbol="FIX", position=1)])
+    client.snapshot_timeout_seconds = 1
+    client._open_orders_query_lock = threading.Lock()
+    client._open_orders_unresolved = state == "COMPLETION_UNRESOLVED"
+    client._open_orders_snapshot = {}
+    client._open_orders_event = SimpleNamespace(clear=lambda: None, wait=lambda **kwargs: False)
+    client.is_connected = lambda: state != "DISCONNECTED"
+    client.reqOpenOrders = lambda: None
+    # Exercise the production adapter method with inert request/wait primitives.
+    monkeypatch.setattr(client, "openOrders", IbkrClient.openOrders.__get__(client))
+
+    with pytest.raises(RuntimeError, match=f"OPEN_ORDERS_{state}"):
+        enforce_clean_start_session(enabled=True, ibkr_client=client)
+    assert client.positions_calls == 0
     assert client.cancelled_order_ids == []
     assert client.submitted_orders == []
