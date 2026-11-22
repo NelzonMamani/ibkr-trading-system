@@ -308,7 +308,7 @@ def source_bound_native_snapshot(native, monkeypatch):
         raise AssertionError("Synthetic snapshot controls must not connect")
 
     monkeypatch.setattr(EClient, "connect", forbidden_connect)
-    facts = SimpleNamespace(qualifications=[], requests=[], before_quote=None)
+    facts = SimpleNamespace(qualifications=[], requests=[], before_quote=None, defer_end=False)
 
     def qualify(self, req_id, requested):
         supplied = Contract()
@@ -329,7 +329,7 @@ def source_bound_native_snapshot(native, monkeypatch):
                                self._position_connection_epoch, req_id))
         if facts.before_quote is not None:
             facts.before_quote(requested.symbol)
-        native_ticks(self, req_id, returned=1)
+        native_ticks(self, req_id, returned=1, ended=not facts.defer_end)
         if requested.symbol == "MSFT":
             for kind, value in ((66, 8.0), (67, 8.1), (68, 8.05), (75, 7.8)):
                 self.tickPrice(req_id, kind, value, None)
@@ -779,3 +779,78 @@ def test_replacement_reused_request_id_cannot_receive_old_quote_time_provenance(
     assert other['identity']['symbol']=='MSFT' and other['con_id']==456
     assert 'MD_TIMESTAMP_FUTURE' not in other.get('time_assessments',{})
     assert_native_quote_cleanup(facts.native,replacement)
+
+
+@pytest.mark.parametrize(("fault", "status"), [
+    ("none", "COMPLETE"), ("late_price", "COMPLETE"), ("wrong_end", "MARK_UNQUALIFIED"),
+    ("wrong_contract", "MARK_UNQUALIFIED"), ("foreign_currency", "POSITIONS_UNQUALIFIED"),
+    ("drift", "POSITIONS_OR_SCOPE_CHANGED"), ("reconnect", "EVIDENCE_UNAVAILABLE"),
+    ("partial", "POSITIONS_UNQUALIFIED"),
+])
+def test_held_contract_marks_use_real_native_reads(source_bound_native_snapshot, monkeypatch, fault, status):
+    from decimal import Decimal
+    from src.market_data import market_data_snapshot_manager as snapshots
+
+    facts = source_bound_native_snapshot
+    client = facts.native
+    facts.defer_end = True
+    monkeypatch.setattr(snapshots, "datetime", native_module.datetime)
+    monkeypatch.setattr(client, "is_connected", lambda: True)
+    client.managedAccounts("SYNTHETIC_TEST")
+    client._position_transport_available = True
+    facts.wrapper.snapshot_timeout_seconds = .01
+    queries = []
+    waits = []
+
+    def capital(req, group, tags):
+        assert group == "All"
+        if tags == "$LEDGER":
+            client.accountSummary(req, "SYNTHETIC_TEST", "CashBalance", "100", "USD")
+        else:
+            for tag in tags.split(","):
+                client.accountSummary(req, "SYNTHETIC_TEST", tag, "100", "USD")
+        client.accountSummaryEnd(req)
+
+    def positions(req, account, model):
+        queries.append(req)
+        contract = Contract()
+        contract.conId = 987 if fault == "wrong_contract" else 123
+        contract.symbol, contract.secType = "AEMD", "STK"
+        contract.currency = "EUR" if fault == "foreign_currency" else "USD"
+        quantity = Decimal("-0.250") if fault != "drift" or len(queries) == 1 else Decimal("-0.5")
+        client.positionMulti(req, account, model, contract, quantity, 9999)
+        if fault != "partial":
+            client.positionMultiEnd(req)
+
+    def wait(timeout):
+        import time
+
+        if fault == "wrong_end" and waits:
+            time.sleep(timeout)
+            return
+        req = facts.requests[-1][-1]
+        waits.append(req)
+        if fault == "reconnect":
+            client._position_connection_epoch += 1
+        client.tickSnapshotEnd(req + 1 if fault == "wrong_end" else req)
+        if fault == "late_price":
+            client.tickPrice(req, 4, 99.0, None)
+
+    monkeypatch.setattr(client, "reqAccountSummary", capital)
+    monkeypatch.setattr(client, "cancelAccountSummary", lambda req: None)
+    monkeypatch.setattr(client, "reqPositionsMulti", positions)
+    monkeypatch.setattr(client, "cancelPositionsMulti", lambda req: None)
+    monkeypatch.setattr(client, "waitOnUpdate", wait)
+    client.snapshot_timeout_seconds = .02
+    result = facts.manager.value_held_contracts(client, expected_account="SYNTHETIC_TEST")
+    assert result.status == status
+    if status == "COMPLETE":
+        assert len(queries) == 2 and len(waits) == 1
+        mark, = result.marks
+        assert mark.signed_quantity == Decimal("-0.25")
+        assert mark.gross_value == mark.price / 4
+        assert mark.price == Decimal("5.05") and mark.currency == "USD" and mark.con_id == 123
+        assert mark.market_timestamp <= mark.completed_at
+    else:
+        assert not result.marks
+    assert_native_quote_cleanup(client)

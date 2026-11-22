@@ -732,9 +732,12 @@ class MarketDataClient:
         return result
 
     def snapshot_stock(self, contract_or_symbol, *, refresh: bool = False,
-                       expected_client=None, expected_connection_epoch=None, single_attempt=False) -> MarketDataSnapshot:
-        if type(single_attempt) is not bool:
-            raise ValueError("single_attempt must be boolean")
+                       expected_client=None, expected_connection_epoch=None, single_attempt=False,
+                       require_complete=False) -> MarketDataSnapshot:
+        if type(single_attempt) is not bool or type(require_complete) is not bool:
+            raise ValueError("Snapshot completion and attempt options must be boolean")
+        if require_complete and not single_attempt:
+            raise ValueError("Required snapshot completion requires a bound single attempt")
         if single_attempt and (expected_client is None or expected_connection_epoch is None
                                or self.market_data_type != "LIVE"):
             raise RuntimeError("SINGLE_ATTEMPT_REQUIRES_BOUND_LIVE_SOURCE")
@@ -781,8 +784,11 @@ class MarketDataClient:
             if strict:
                 self._snapshot_request_client(client, expected_connection_epoch)
             return snapshot
+        options = {"single_attempt": True} if single_attempt else {}
+        if require_complete:
+            options["require_complete"] = True
         snapshot = (self._snapshot_stock_uncached(contract_or_symbol, expected_client=client,
-                    expected_connection_epoch=expected_connection_epoch, **({"single_attempt": True} if single_attempt else {})) if strict else
+                    expected_connection_epoch=expected_connection_epoch, **options) if strict else
                     self._snapshot_stock_uncached(contract_or_symbol))
         checkpoint()
         if strict:
@@ -809,7 +815,8 @@ class MarketDataClient:
         return snapshot
 
     def _snapshot_stock_uncached(self, contract_or_symbol, *, expected_client=None,
-                                 expected_connection_epoch=None, single_attempt=False) -> MarketDataSnapshot:
+                                 expected_connection_epoch=None, single_attempt=False,
+                                 require_complete=False) -> MarketDataSnapshot:
         if type(single_attempt) is not bool:
             raise ValueError("single_attempt must be boolean")
         if single_attempt and (expected_client is None or expected_connection_epoch is None or self.market_data_type != "LIVE"):
@@ -884,20 +891,25 @@ class MarketDataClient:
                 if strict:
                     raise RuntimeError("SNAPSHOT_CLIENT_SCOPE_CHANGED")
                 break
-            ticker = ib.reqMktData(contract, genericTickList="", snapshot=True, regulatorySnapshot=False)
+            dispatch_started_at = time.monotonic() if require_complete else None
+            freeze = {"freeze_on_snapshot_end": True} if require_complete else {}
+            ticker = ib.reqMktData(contract, genericTickList="", snapshot=True, regulatorySnapshot=False, **freeze)
             _prepare_snapshot_ticker(ib, ticker, requested_type, tracked, request_started_at)
-            started_at = time.monotonic()
+            started_at = dispatch_started_at if require_complete else time.monotonic()
             snapshot_complete = False
             completion_reason = "timeout"
             attempt_finished = False
             try:
                 while True:
                     checkpoint()
+                    if require_complete and time.monotonic() - started_at >= self.snapshot_timeout_seconds:
+                        break
                     if self._ticker_snapshot_complete(ticker):
                         snapshot_complete = True
                         completion_reason = "snapshot_end"
                         break
-                    if self._ticker_has_required_snapshot(ticker) and _returned_market_data_type(ticker) != "UNKNOWN":
+                    if (not require_complete and self._ticker_has_required_snapshot(ticker)
+                            and _returned_market_data_type(ticker) != "UNKNOWN"):
                         completion_reason = "required_fields"
                         break
                     remaining = self.snapshot_timeout_seconds - (time.monotonic() - started_at)
@@ -969,7 +981,7 @@ class MarketDataClient:
                 if tracked is not None and self._ticker_snapshot_complete(ticker):
                     ib.wrapper.endTicker(ticker, "mktData")
                 else:
-                    ib.cancelMktData(contract)
+                    ib.cancelMktData(ticker.reqId if require_complete else contract)
             if not missing_fields and returned_type != "UNKNOWN":
                 break
             print(
