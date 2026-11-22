@@ -21489,3 +21489,38 @@ with tree fee20fc73e7f692b2655fe14a48a8a8efd5403c7. The older Windows
 timeouts remain historical failures. This batch carries the continuation
 checkpoint from 9c2280d2671ebe757a5a87bee2f823e5722c1293 once.
 PAPER_READY=NO.
+
+### Held-contract market value source and remaining order-scope refusal
+
+The existing market-data snapshot owner now has a strict single-attempt
+mode which waits for matching native End, freezes callbacks at the first
+owned End, and retires the exact request ID. The ordinary scanner and
+benchmark quote profiles retain their existing behavior. The snapshot
+manager can collect all-or-nothing USD stock marks for the actual scoped
+account using fresh capital evidence and matching position reads before
+and after valuation. It verifies exact conId, signed quantity, source
+identity, LIVE type, actual last-trade time, End and existing freshness.
+Gross market exposure uses absolute signed quantity times price. A missing
+or unsupported mark refuses the entire observation. Cost basis is unused.
+Native inert fixtures exercised wrong End, wrong conId, reconnect, partial
+positions, cross-currency refusal, exposure drift, and late quote rejection
+alongside existing market-data and benchmark tests.
+
+Matching observed snapshots are not an atomic broker transaction. The
+current owner does not prove the absence of an intervening position change.
+FX conversion, non-stock marks and actual laptop quote timing are unverified.
+Strict requests parallelize through the existing quote batch owner. Existing
+time budgets stay in force. The historical IBKR snapshot specification
+describes End around eleven seconds after dispatch
+(https://interactivebrokers.github.io/tws-api/md_request.html). The default
+five-second request timeout can therefore refuse before normal End.
+
+The supported SDK exposes reqAllOpenOrders as an unbound observation of
+TWS-visible orders. The native openOrderEnd has no request ID. This checkout
+does not have a verified fence for startup-origin order download, legacy
+overlapping sends or final-write changes by other clients. The current-client
+order stream and orderId-keyed cache do not prove account-wide identity.
+No account-wide completion or preservation enrollment is granted from those
+sources. See https://www.interactivebrokers.com/docs/tws-api/doc/order-management/open-orders
+and https://www.interactivebrokers.com/docs/tws-api/protobuf/api-settings-config.
+PAPER_READY=NO.

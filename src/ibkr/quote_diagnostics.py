@@ -22,7 +22,7 @@ class QuoteDiagnostics:
     TICK_TYPES = frozenset((0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 45, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 88))
     MAX_COUNT = 2**31 - 1
     KINDS = {'marketDataType', 'tickPrice', 'tickSize', 'tickString', 'tickSnapshotEnd', 'error'}
-    REASONS = {'accepted', 'unknown_request', 'inactive', 'wrong_owner', 'conflicted',
+    REASONS = {'accepted', 'unknown_request', 'inactive', 'wrong_owner', 'conflicted', 'snapshot_already_complete',
                'missing_ticker', 'unsupported_tick', 'invalid_value'}
 
     def __init__(self, client_id):

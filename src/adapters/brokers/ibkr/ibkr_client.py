@@ -2806,6 +2806,12 @@ class IbkrClient(EWrapper, EClient):
             reason = "wrong_owner"
         elif ticker is None:
             reason = "missing_ticker"
+        elif getattr(ticker, "freeze_on_snapshot_end", False) and ticker.snapshotEnd:
+            reason = "snapshot_already_complete"
+        elif getattr(ticker, "freeze_on_snapshot_end", False) and tick_type in {
+                66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 88}:
+            ticker.strictSnapshotNonLive = True
+            reason = "unsupported_tick"
         elif not supported:
             reason = "unsupported_tick"
         elif not valid:
@@ -2837,6 +2843,9 @@ class IbkrClient(EWrapper, EClient):
                 if "regulatorySnapshot" in kwargs
                 else (args[3] if len(args) > 3 else False)
             )
+            freeze = kwargs.pop("freeze_on_snapshot_end", False)
+            if type(freeze) is not bool or (freeze and not snapshot):
+                raise ValueError("Snapshot completion freeze requires a snapshot")
             if kwargs:
                 raise TypeError(f"Unexpected reqMktData kwargs: {sorted(kwargs.keys())}")
 
@@ -2845,6 +2854,7 @@ class IbkrClient(EWrapper, EClient):
             self._market_data[req_id] = {"bid": None, "ask": None, "last": None, "volume": None}
             ticker = self._build_ticker(contract)
             ticker.reqId = req_id
+            ticker.freeze_on_snapshot_end = freeze
             self._ticker_by_req_id[req_id] = ticker
             self._req_id_by_contract_key[self._contract_key(contract)] = req_id
             self._register_request(req_id, "MARKET_DATA", contract)
@@ -3298,6 +3308,8 @@ class IbkrClient(EWrapper, EClient):
             ticker = self._quote_callback_ticker(reqId, "marketDataType", returned_type=marketDataType)
             if ticker is None:
                 return
+            if getattr(ticker, "freeze_on_snapshot_end", False) and marketDataType != 1:
+                ticker.strictSnapshotNonLive = True
             ticker.marketDataType = marketDataType if marketDataType in {1, 2, 3, 4} else None
             ticker.marketDataTypeConfirmed = ticker.marketDataType is not None
             ticker.marketDataTypeReceivedAt = datetime.now(timezone.utc)

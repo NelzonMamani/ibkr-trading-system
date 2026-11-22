@@ -308,7 +308,7 @@ def source_bound_native_snapshot(native, monkeypatch):
         raise AssertionError("Synthetic snapshot controls must not connect")
 
     monkeypatch.setattr(EClient, "connect", forbidden_connect)
-    facts = SimpleNamespace(qualifications=[], requests=[], before_quote=None)
+    facts = SimpleNamespace(qualifications=[], requests=[], before_quote=None, defer_end=False)
 
     def qualify(self, req_id, requested):
         supplied = Contract()
@@ -329,9 +329,16 @@ def source_bound_native_snapshot(native, monkeypatch):
                                self._position_connection_epoch, req_id))
         if facts.before_quote is not None:
             facts.before_quote(requested.symbol)
-        native_ticks(self, req_id, returned=1)
+        if facts.defer_end:
+            self.marketDataType(req_id, 1)
+            for kind, value in ((1, 5.0), (2, 5.1), (4, 5.05), (9, 4.8)):
+                self.tickPrice(req_id, kind, value, None)
+            self.tickSize(req_id, 8, 0)
+        else:
+            native_ticks(self, req_id, returned=1)
         if requested.symbol == "MSFT":
-            for kind, value in ((66, 8.0), (67, 8.1), (68, 8.05), (75, 7.8)):
+            kinds = (1, 2, 4, 9) if facts.defer_end else (66, 67, 68, 75)
+            for kind, value in zip(kinds, (8.0, 8.1, 8.05, 7.8)):
                 self.tickPrice(req_id, kind, value, None)
         self.tickString(req_id, 45, str(Clock.now().timestamp()))
 
@@ -779,3 +786,105 @@ def test_replacement_reused_request_id_cannot_receive_old_quote_time_provenance(
     assert other['identity']['symbol']=='MSFT' and other['con_id']==456
     assert 'MD_TIMESTAMP_FUTURE' not in other.get('time_assessments',{})
     assert_native_quote_cleanup(facts.native,replacement)
+
+
+@pytest.mark.parametrize(("fault", "status"), [
+    ("none", "COMPLETE"), ("late_price", "COMPLETE"), ("two_contracts", "COMPLETE"),
+    ("wrong_end", "MARK_UNQUALIFIED"), ("delayed_tick", "MARK_UNQUALIFIED"),
+    ("wrong_contract", "MARK_UNQUALIFIED"), ("foreign_currency", "POSITIONS_UNQUALIFIED"),
+    ("drift", "POSITIONS_OR_SCOPE_CHANGED"), ("reconnect", "EVIDENCE_UNAVAILABLE"),
+    ("partial", "POSITIONS_UNQUALIFIED"),
+])
+def test_held_contract_marks_use_real_native_reads(source_bound_native_snapshot, monkeypatch, fault, status):
+    from decimal import Decimal
+    from threading import Barrier
+    from src.market_data import market_data_snapshot_manager as snapshots
+
+    facts = source_bound_native_snapshot
+    client = facts.native
+    facts.defer_end = True
+    monkeypatch.setattr(snapshots, "datetime", native_module.datetime)
+    monkeypatch.setattr(client, "is_connected", lambda: True)
+    client.managedAccounts("SYNTHETIC_TEST")
+    client._position_transport_available = True
+    facts.wrapper.snapshot_timeout_seconds = .01 if fault == "wrong_end" else 1
+    both_quotes_sent = Barrier(2) if fault == "two_contracts" else None
+    queries = []
+    waits = []
+
+    def capital(req, group, tags):
+        assert group == "All"
+        if tags == "$LEDGER":
+            client.accountSummary(req, "SYNTHETIC_TEST", "CashBalance", "100", "USD")
+        else:
+            for tag in tags.split(","):
+                client.accountSummary(req, "SYNTHETIC_TEST", tag, "100", "USD")
+        client.accountSummaryEnd(req)
+
+    def positions(req, account, model):
+        queries.append(req)
+        contract = Contract()
+        contract.conId = 987 if fault == "wrong_contract" else 123
+        contract.symbol, contract.secType = "AEMD", "STK"
+        contract.currency = "EUR" if fault == "foreign_currency" else "USD"
+        quantity = Decimal("-0.250") if fault != "drift" or len(queries) == 1 else Decimal("-0.5")
+        client.positionMulti(req, account, model, contract, quantity, 9999)
+        if fault == "two_contracts":
+            other = Contract()
+            other.conId, other.symbol, other.secType, other.currency = 456, "MSFT", "STK", "USD"
+            client.positionMulti(req, account, model, other, Decimal("2"), 9999)
+        if fault != "partial":
+            client.positionMultiEnd(req)
+
+    def wait(timeout):
+        import time
+
+        if both_quotes_sent is not None:
+            both_quotes_sent.wait(timeout=.5)
+            for receipt in facts.requests:
+                client.tickSnapshotEnd(receipt[-1])
+            return
+        if fault == "wrong_end" and waits:
+            time.sleep(timeout)
+            return
+        req = facts.requests[-1][-1]
+        waits.append(req)
+        if fault == "reconnect":
+            client._position_connection_epoch += 1
+        if fault == "delayed_tick":
+            client.marketDataType(req, 3)
+            client.tickPrice(req, 68, 99.0, None)
+            client.marketDataType(req, 1)
+        client.tickSnapshotEnd(req + 1 if fault == "wrong_end" else req)
+        if fault == "late_price":
+            client.tickPrice(req, 4, 99.0, None)
+
+    monkeypatch.setattr(client, "reqAccountSummary", capital)
+    monkeypatch.setattr(client, "cancelAccountSummary", lambda req: None)
+    monkeypatch.setattr(client, "reqPositionsMulti", positions)
+    monkeypatch.setattr(client, "cancelPositionsMulti", lambda req: None)
+    monkeypatch.setattr(client, "waitOnUpdate", wait)
+    client.snapshot_timeout_seconds = .02
+    result = facts.manager.value_held_contracts(client, expected_account="SYNTHETIC_TEST")
+    assert result.status == status
+    if status == "COMPLETE":
+        assert len(queries) == 2
+        if fault == "two_contracts":
+            assert len(result.marks) == len(facts.requests) == 2
+            other = result.marks[1]
+            assert (other.con_id, other.price, other.gross_value) == (456, Decimal("8.05"), Decimal("16.10"))
+            assert {mark.request_id for mark in result.marks} == {request[-1] for request in facts.requests}
+            for mark in result.marks:
+                receipt = client._quote_trace.requests[mark.request_id]
+                assert receipt["con_id"] == mark.con_id
+                assert receipt["timestamp_input"]["decoded_utc"] == mark.market_timestamp.isoformat()
+        else:
+            assert len(waits) == len(result.marks) == 1
+        mark = result.marks[0]
+        assert mark.signed_quantity == Decimal("-0.25")
+        assert mark.gross_value == mark.price / 4
+        assert mark.price == Decimal("5.05") and mark.currency == "USD" and mark.con_id == 123
+        assert mark.market_timestamp <= mark.completed_at
+    else:
+        assert not result.marks
+    assert_native_quote_cleanup(client)
