@@ -21364,3 +21364,128 @@ Use the block locally only after contemporaneous verification of the existing
 TWS PAPER Read-Only setup and client 71 reservation. No operational enrollment
 or cloud launch occurred. P01–P05 remain unresolved and all five vetoes remain.
 PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+### Exact integration outcome and Windows budget blocker (2026-11-22)
+
+Accepted main remains `548aa0f3c3a1e8aa81ddaeaa1cce07cc483dcc45`,
+tree `2f8ac1437bdc1afa0dc50aa9aebfb5306fb70d43`. Its parents are
+`f53aa41d07ac6143503582d8d2980bd72fe1d90b` and
+`10e6df33ad779883373abab6b99c03b25e4d00ba`. The accepted PR #1242 tree equals
+the reviewed head tree and its automatic main CI passed in run 45006439841.
+
+| PR | Independently reviewed head / tree | Required CI and integration |
+| --- | --- | --- |
+| #1243 | `3b8731d9c0337c8b31c0f159492cbb9e181c7a9b` / `8cfde9479f999b349bcd11b4c89b64e19f0d2f37` | Run 45006954043 passed Linux and controlled Windows. Full Windows reached the 60-minute job limit twice. The first attempt logged 8,328 passed and two skips before KeyboardInterrupt. The targeted retry logged 7,540 passed and one skip before KeyboardInterrupt. Both Windows aggregates failed. Open and unmerged. |
+| #1244 | `8f6bea3f1b96e8922016b9e962e25d88aea1cf87` / `d4b5faa5ff451af1fa852196ac356ffcb35194fe` | Run 45009311903 passed all required jobs, including 8,560 Windows tests passed and two skipped. Draft and unmerged behind #1243. |
+| #1245 | `aab7bd20a223ddb4e703347e8ad9f99f0715ddc8` / `fee20fc73e7f692b2655fe14a48a8a8efd5403c7` | Run 45011680209 passed all required jobs. Draft and unmerged behind #1244. |
+
+No required check or branch protection was changed. The two interrupted
+results remain in the Actions history. This receipt lives on the continuation
+branch to preserve the evidence without starting an unchanged full-suite run.
+
+P03's active producer still lacks qualified contemporaneous index structure
+and official finite schedule coverage. Its existing UNKNOWN veto is correct.
+P02's ATR calibration and the five unowned-in-runtime PAPER positions remain
+separate unresolved facts. The one next local action is the pinned ordinary-RTH
+READ_ONLY observation above. Controlled PAPER is not admissible on the current
+account. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+
+### Coordinator cumulative integration and concrete next implementation (2026-11-22)
+
+Coordinator directly inspected PRs #1243, #1244 and #1245, their cumulative
+source/test diff, actual native source owners, final workflow jobs and checkout
+logs. Required run 45011680209 completed SUCCESS on head
+`aab7bd20a223ddb4e703347e8ad9f99f0715ddc8`. All five required jobs passed.
+Actual Linux, full Windows and controlled Windows logs identify checkout
+`64e23ad4c44753ac9b8dc3a3e23e702854bdb1c1`, ordered parents
+`8f6bea3f1b96e8922016b9e962e25d88aea1cf87` then that head, with tree
+`fee20fc73e7f692b2655fe14a48a8a8efd5403c7`. Linux reports 8563 passed,
+3 skipped and 39 subtests passed; Windows reports 8564 passed, 2 skipped and
+39 subtests passed. These overlap component/focused suites, not additive proof.
+
+Main was a direct ancestor of this unchanged cumulative head. PR #1245 was
+retargeted to main, its description updated to the full ten-file scope, and
+marked ready. Its new candidate `81ffa559f452b22eb61ad825b2e24222b31bebba`
+had parents old main `548aa0f3c3a1e8aa81ddaeaa1cce07cc483dcc45` then
+the cumulative head and exactly the successful tested tree. Coordinator focused
+verification on the unchanged cumulative source passed 486 tests on Linux
+Python 3.12 with tests/offline socket guard; git diff --check and worktree
+cleanliness passed. No full-suite manual rerun was started.
+
+Expected-head merge of #1245 produced accepted main
+`57fee79ef6bf650214a9b53cf7ae5c79a3df4422`. Actual main, ordered parents
+(old main then cumulative head) and tree were re-read and match the verified
+candidate. GitHub automatically marked #1243 merged. #1244 was closed as
+incorporated through #1245, with its original review/test evidence retained;
+no code was discarded and no second integration was needed. Their PR bodies
+record the acceptance and proof limits. PR #1243's two Windows timeout attempts
+remain failed/interrupted; their latency cause remains unlocalized. Passing
+combined descendant CI does not repair or relabel those attempts. No workflow,
+required check or time limit was relaxed.
+
+Automatic main CI is run 45026847032; it is still in progress at this receipt.
+Do not assert post-merge CI success until its required jobs are verified.
+This continuation receipt uses the same existing checkpoint and continuation
+branch, with no documentation-only PR or unchanged full-suite retry.
+
+The next substantive implementation is the missing source-bound, read-only
+account evidence required by the authorized PAPER inventory-preservation mode:
+complete account-wide open-order identity/effects (current-client openOrders
+is insufficient), current per-contract valuations with explicit currency and
+measurement/source time, and account/currency-bound equity, available funds
+and buying power. Extend existing canonical native request/connection/context
+owners, preserve finite deadlines, matching completion, retirement, original
+identities and invalidation, and verify native SDK/documented scope. Do not
+build another broker-truth service or treat account_currency_snapshot or the
+legacy tag-only summary as qualified capital. Missing facts are a reason for
+honest refusal, not a reason to leave source acquisition unimplemented.
+
+Implement and test those producers offline first, then integrate the explicit
+default-off PAPER preservation contract with full-account risk and final-write
+enforcement only where its prerequisites are genuinely supported. Baseline
+securities/orders stay untouched and historically unresolved. Stale/partial,
+wrong account/currency, conflicting identities, drift, unknown orders, restart
+or ambiguous capital restores the global block. No automatic enrollment or
+baseline refresh, ownership adoption, exclusion from account risk or recovery
+clearing. No broker-connected operation is authorized by this receipt alone.
+
+The existing e1496a80 ordinary-RTH caller remains pinned to the PREVIOUS
+accepted main548aa/tree2f8ac. It has not run on the laptop and is not silently
+repinned here. After new main CI is verified, prepare and review its existing
+release fields against the newly accepted source, unchanged preparation owner
+and finite calendar before presenting a replacement. Do not run both callers
+or repeat an observation solely for a passing outcome. A natural READ_ONLY
+observation tests selection/intent separately; it cannot close the inventory-
+preservation implementation or supply historic ownership.
+
+P01/P02 retain corporate-action continuity only; P01-P05 ownership remains
+unresolved and all five default vetoes remain. No source database, holdings,
+orders, broker setting or recovery state changed. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
+
+### Native account capital source evidence
+
+The existing strict account-summary request owner now supports consecutive
+request-scoped currency and capital reads with a common deadline. It requires
+the same expected account, native client, connection epoch and managed-account
+generation. The capital result freezes concrete-currency NetLiquidation,
+AvailableFunds and BuyingPower as immutable decimal callback facts with
+receipt times. An ambiguous BASE response, conflicting or missing tags,
+changing account scope, incomplete request or unconfirmed local cleanup
+refuses evidence. The legacy summary remains separate.
+
+Source references are the installed ibapi 9.81.1.post1 request/cancel encoders
+and IBKR's account summary specification
+(https://www.interactivebrokers.com/docs/tws-api/doc/accounts/summary).
+Matching End establishes initial delivery only. Receipt timestamps are not
+server-side valuation timestamps. Cancellation return does not acknowledge
+broker-side subscription termination. This result supplies source evidence
+without risk or admission authority.
+
+The required Windows and Linux combined PR #1245 run 45011680209 passed.
+The accepted main commit is 57fee79ef6bf650214a9b53cf7ae5c79a3df4422
+with tree fee20fc73e7f692b2655fe14a48a8a8efd5403c7. The older Windows
+timeouts remain historical failures. This batch carries the continuation
+checkpoint from 9c2280d2671ebe757a5a87bee2f823e5722c1293 once.
+PAPER_READY=NO.
