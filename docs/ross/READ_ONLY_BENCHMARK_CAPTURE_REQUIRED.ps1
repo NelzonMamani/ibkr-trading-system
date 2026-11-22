@@ -5,6 +5,10 @@
 # If policy blocks a maintained script, STOP; do not change permissions/policy.
 # Release editing only: repin Commit AND Tree together after reviewed harness integration
 # and required CI/main verification. Never substitute an arbitrary HEAD.
+# Explicit switch confirms the printed local prerequisites for THIS invocation.
+# Native admission, calendar, source, read-only and cleanup checks still apply.
+param([switch]$OperatorFactsVerified)
+
 & {
     Set-StrictMode -Version 2.0
     $ErrorActionPreference = 'Stop'
@@ -370,12 +374,19 @@ if __name__ == '__main__':
         Write-Host 'SPY then QQQ only; no extra securities, retries, calibration, P03 clearance or P02 admission. Do not run this alongside the frozen Ross observer.'
         Write-Host 'Keep this attempt exclusive until all cleanup finishes. Automated checks refuse known conflicts; do not start either capture or Ross observation while this block is running.'
         Write-Host '5. This attempt explicitly selects the reviewed finite calendar and its narrower actual RTH_OPEN540-second envelope; no calendar/host/account/client fact is inferred from an old run.'
-        $attestation = Read-Host 'After checking the operator facts above, type exactly CONFIRM PAPER READONLY CLIENT71 RESERVED BENCHMARK CAPTURE (anything else refuses launch)'
-        if ($attestation -cne 'CONFIRM PAPER READONLY CLIENT71 RESERVED BENCHMARK CAPTURE') { throw 'Required local prerequisites were not verified; observation was not launched.' }
+        $attestationMethod = 'INTERACTIVE_TYPED_PHRASE'
+        if ($OperatorFactsVerified.IsPresent) {
+            $attestationMethod = 'EXPLICIT_INVOCATION_SWITCH'
+            Write-Host 'Local facts explicitly attested by invocation. All native and machine admission checks remain required.'
+        } else {
+            $attestation = Read-Host 'After checking the operator facts above, type exactly CONFIRM PAPER READONLY CLIENT71 RESERVED BENCHMARK CAPTURE (anything else refuses launch)'
+            if ($attestation -cne 'CONFIRM PAPER READONLY CLIENT71 RESERVED BENCHMARK CAPTURE') { throw 'Required local prerequisites were not verified; observation was not launched.' }
+        }
         $attestationPath = Join-Path $resolvedRunRoot 'local-operator-attestations.json'
         [ordered]@{
             scope = 'OPERATOR_ATTESTED_LOCAL_FACTS_AND_RESERVATION_NOT_NATIVE_ADMISSION'
             attested_utc = [datetime]::UtcNow.ToString('o')
+            attestation_method = $attestationMethod
             source_commit = $release.Commit
             reviewed_calendar_opt_in = $true
             capture_profile = $release.Profile
