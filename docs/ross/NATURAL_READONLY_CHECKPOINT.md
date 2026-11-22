@@ -21155,3 +21155,46 @@ manifest's discovery-gap categories through an aliased shareable projection.
 Do not recollect the 48 snapshots or repeat the completed join unchanged.
 Archived, inaccessible or missing-source gaps, if any, require targeted
 follow-up from their actual categories. Preserve the private records.
+
+
+### Discovery-path disposition and fractional clean-start finding (2026-11-22)
+
+The uploaded SHAREABLE_JOIN.json was read directly and matched the previously
+supplied terminal result semantically. Its file SHA-256 is
+`e6738aefb798b839ad0bd781f6002a1a1e23255b5ccfcd3567340e166037b688`.
+All five ownership verdicts and zero qualifying acquisition candidates remain
+as recorded above.
+
+The operator's manifest-only projection classified all ten discovery-gap
+records as missing_or_inaccessible. A subsequent read of file metadata
+reported ObjectNotFound for G01 through G10. G01 is a checkout legacy-filename
+candidate, G02 a READ_ONLY startup reference, and G03–G10 logged-configuration
+references. No record was labelled a demonstrated PAPER startup path. These
+are ten gap records, not evidence of ten distinct missing databases. No
+archived-database gap was reported by this projection. The unavailable paths
+supply no acquisition evidence and no ownership clearance. The bounded
+available-report, collected-snapshot and recorded-missing-path investigation
+is complete; operative historical PAPER storage remains unverified.
+
+Read-only source inspection at accepted main
+`f53aa41d07ac6143503582d8d2980bd72fe1d90b` found a separate clean-start
+truth defect in src/execution/clean_start_session.py. _non_flat_positions
+uses int(position), and the flatten loop also coerces quantity to int.
+In an offline source-function reproduction, an inert broker substitute
+reported two nonzero fractional positions. The accepted helper retained
+zero, and enforce_clean_start_session returned status COMPLETE,
+ready_for_trading=True and remaining_positions=0, without order mutations.
+Only AST-selected functions from accepted source were executed with inert
+client/translator substitutes; no broker, production runtime or operator
+configuration was used. This proves the local clean-start false-flat
+result, not bypass of the complete system's other ownership protections.
+
+Next bounded engineering task is to repair this existing owner's nonzero
+quantity accounting and refuse unsupported fractional cleanup safely before
+mutations. Preserve supported integer behavior, known/unknown snapshot
+semantics, default-off FORCE_CLEAN_START, ownership/risk protections and
+all five real vetoes. Do not add fractional order authority, activate clean
+start, adopt/exclude holdings or weaken reconciliation. A later explicit
+legacy-holdings handling decision remains separate from truthful flatness.
+No production fix, broker action, state clearing or main merge occurred in
+this investigation. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
