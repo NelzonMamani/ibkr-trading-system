@@ -1060,26 +1060,26 @@ def test_scoped_account_capital_uses_the_existing_native_summary_owner(account_c
 
 @pytest.mark.parametrize("fault", ["ledger_retirement", "combined_deadline"])
 def test_account_capital_never_dispatches_without_valid_ledger_dependency(account_currency_client, monkeypatch, fault):
-    from src.adapters.brokers.ibkr import ibkr_client as native_module
-
     facts = account_currency_client
     client = facts.client
     facts.on_request = lambda req: _currency_rows(client, req, "EUR")
     if fault == "ledger_retirement":
-        wait = native_module.wait_event
-
-        def lose_context(event, timeout):
-            signaled = wait(event, timeout)
+        def lose_context():
             request = facts.requests[-1][0]
             client._request_context_by_req_id.pop(request)
-            return signaled
+            return None
 
-        monkeypatch.setattr(native_module, "wait_event", lose_context)
+        monkeypatch.setattr(client, "_local_request_cleanup_revision", lose_context)
     else:
         def slow_cancel(req):
             facts.clock.monotonic += 2
         facts.on_cancel = slow_cancel
     result = client.account_capital_snapshot(expected_account="SYNTHETIC_TEST", timeout_seconds=1)
-    assert result.status in {"OWNERSHIP_LOST", "CLEANUP_UNCONFIRMED"} if fault == "ledger_retirement" else result.status == "TIMEOUT"
+    if fault == "ledger_retirement":
+        assert result.status == "CLEANUP_UNCONFIRMED"
+        assert result.currency_evidence.status == "COMPLETE"
+        assert not result.currency_evidence.cancellation_attempted
+    else:
+        assert result.status == "TIMEOUT"
     assert [tags for _, _, tags in facts.requests] == ["$LEDGER"]
     assert not result.facts
