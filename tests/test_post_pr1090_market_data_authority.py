@@ -898,6 +898,7 @@ def test_held_contract_marks_use_real_native_reads(source_bound_native_snapshot,
     ("no_end", "MARK_UNQUALIFIED"),
     ("stale_market", "MARK_UNQUALIFIED"),
     ("closing_read_expires", "EVIDENCE_WINDOW_EXPIRED"),
+    ("capital_clock_steps_back", "EVIDENCE_CHRONOLOGY_INVALID"),
     ("outer_deadline", None),
 ])
 def test_completed_holdings_timing_with_five_native_quotes(
@@ -915,12 +916,12 @@ def test_completed_holdings_timing_with_five_native_quotes(
     client._position_transport_available = True
     monkeypatch.setattr(client, "is_connected", lambda: True)
     origin = datetime(2026, 11, 11, 13, 1, tzinfo=timezone.utc)
-    virtual = SimpleNamespace(seconds=0.0)
+    virtual = SimpleNamespace(seconds=0.0, wall_adjustment=0.0)
 
     class Clock(datetime):
         @classmethod
         def now(cls, tz=None):
-            return cls.fromtimestamp(origin.timestamp() + virtual.seconds, timezone.utc)
+            return cls.fromtimestamp(origin.timestamp() + virtual.seconds + virtual.wall_adjustment, timezone.utc)
 
     for module in (native_module, md, snapshots):
         monkeypatch.setattr(module, "datetime", Clock)
@@ -935,6 +936,7 @@ def test_completed_holdings_timing_with_five_native_quotes(
         phases.append(("positions", virtual.seconds))
         if len(phases) > 1 and case == "closing_read_expires":
             virtual.seconds = 15.1
+        virtual.wall_adjustment = 0
         for symbol, con_id in facts.contract_ids.items():
             row = Contract()
             row.symbol, row.conId, row.secType, row.currency = symbol, con_id, "STK", "USD"
@@ -943,6 +945,8 @@ def test_completed_holdings_timing_with_five_native_quotes(
 
     def capital(req, group, tags):
         phases.append((tags, virtual.seconds))
+        if case == "capital_clock_steps_back":
+            virtual.wall_adjustment = -2
         for tag in ("CashBalance",) if tags == "$LEDGER" else tags.split(","):
             client.accountSummary(req, "SYNTHETIC_TEST", tag, "100", "USD")
         client.accountSummaryEnd(req)

@@ -221,8 +221,12 @@ class MarketDataSnapshotManager:
                         or not fresh(before.completed_at, now) or after.completed_at < before.completed_at
                         or any(mark.completed_at > after.completed_at for mark in marks)):
                     return HeldContractValuation("POSITIONS_OR_SCOPE_CHANGED")
-                if not fresh(capital.completed_at, now) or not fresh(capital.currency_evidence.completed_at, now):
+                ledger_completed = capital.currency_evidence.completed_at
+                if not all(fresh(stamp, now) for stamp in (ledger_completed, capital.started_at, capital.completed_at)):
                     return HeldContractValuation("CAPITAL_SCOPE_UNAVAILABLE")
+                last_quote_end = max((mark.completed_at for mark in marks), default=before.completed_at)
+                if not last_quote_end <= ledger_completed <= capital.started_at <= capital.completed_at <= after.completed_at:
+                    return HeldContractValuation("EVIDENCE_CHRONOLOGY_INVALID")
                 if any(not fresh(mark.market_timestamp, now) or not fresh(mark.completed_at, now) for mark in marks):
                     return HeldContractValuation("MARK_STALE")
                 return HeldContractValuation("COMPLETE", before.completed_at, after.completed_at, client_id,
