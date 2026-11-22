@@ -21742,3 +21742,51 @@ preparation and observation-runner PowerShell files contain no Read-Host,
 credential or confirmation prompt. Native Windows execution/parser validation
 of this external wrapper change was not run here; no runtime or broker was
 launched. Production source and main are untouched. PAPER_READY=NO.
+
+
+### Single-paste SPY/QQQ benchmark capture handoff (2026-11-22)
+
+The operator retained the planned14:55London benchmark capture before a later,
+exclusive Ross observation and requested a single paste-and-Enter block with
+no typed confirmation phrase. This is a manual invocation, not task registration
+or scheduling. Both routes use exactclient71 and must not overlap.
+
+The maintained benchmark release0daceb0d was recovered from
+docs/pr1241-benchmark-launcher-20261119. It pins reviewed source
+f53aa41d07ac6143503582d8d2980bd72fe1d90b/tree
+8fa63a25c17a3a4567cb1c6cc2f88129c44d796a, whose automatic main
+run44596204048 was re-read as successful. The preparation and finite calendar
+bindings are preserved. This benchmark pin is separate from the Ross7a2070ab
+caller and from latest production98a5f90c.
+
+Release9453c450817f6d21ac965d518bc6911fac6b5ed9 retains the unchanged helper
+docs/ross/PREPARE_READ_ONLY_BENCHMARK_CAPTURE.ps1, SHA256
+63d778aa63def291733b4f8b0eb99deb13aa3e92ae7b026e233cc99868e1f4cd,
+and updates docs/ross/READ_ONLY_BENCHMARK_CAPTURE_REQUIRED.ps1, SHA256
+117c2ce8fde1704c248f7fb9306dafa37a6a1275faa0c654e22abb96e02bb747.
+
+The ONLY caller changes are explicit -OperatorFactsVerified, the conditional
+interactive/invocation attestation branch and attestation_method in the private
+receipt, matching the previously requested Ross caller UX. The default still
+requires its typed phrase. Passing the switch is the operator's confirmation
+of the same displayed local PAPER/read-only/listener/client reservation/no known
+concurrent operation/data-access/private-raw facts for this invocation. It is
+not machine proof or native-client availability. All automatic source/calendar/
+host/profile/exact-client/admission/cleanup/privacy gates remain unchanged.
+
+Both published scripts were re-read and match reviewed bytes. The pinned
+preparation and runner have no Read-Host/Get-Credential/ShouldContinue prompts.
+Native Windows execution/parser testing of this small external caller change
+was not performed here. The supplied local launcher hash-checks and native
+PS5.1-parses BOTH files before running either. No source pin, policy, existing
+working file, task, runtime, broker setting, order or recovery state was changed
+by publication. No capture ran here.
+
+For the planned November23 manual attempt, the outer launcher restricts start
+to09:55–strictly before10:21NewYork (14:55–15:21London). The maintained owner
+still independently requires its full180+360second envelope within the covered
+RTH_OPEN and at least16 completed minutes after actual open. Preparation may
+consume time; the outer check does not promise later admission. Run benchmark
+first and wait for complete owned cleanup before any later Ross observation.
+Raw benchmark records stay private; safe terminal/package evidence is reviewed
+separately. All five ownership vetoes remain. PAPER_READY=NO.
