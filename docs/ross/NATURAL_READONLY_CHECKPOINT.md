@@ -21118,3 +21118,40 @@ source database write, position action, recovery clearing or main merge
 was performed. Next action is one laptop-local join against the already
 collected snapshots. Operative PAPER storage and all five ownership
 verdicts remain unresolved. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### First laptop-local ownership join completed (2026-11-22)
+
+The operator supplied a Windows PowerShell transcript of the reviewed
+`76fe61a4c7a45d1d83fabe2c8456950c2743e4c9` launcher, whose script hash
+gate is `5b78ab0f85427d5875d1ae99ea7551d18d3b614f59dc52329df286264aa87f6d`.
+The launcher printed the shareable JSON and the new output-file location,
+and returned to the terminal without the nonzero-exit refusal. Original
+financial records and the private manifest remain on the laptop.
+The retained pasted transcript SHA-256 is
+`daa1377d7e72eb27320a2077a5d809a3deb76542a9bd269bc921395a29129a31`;
+this is a transcript digest, not an independently checked result-file hash.
+
+All 48 snapshot references were handled: 22 distinct images were inspected
+and 26 references deduplicated. No snapshot inspection refusal was reported.
+D002's earlier 787 PAPER run records remain metadata: the join reports zero
+execution_results, events, trade_lifecycle_events and position_lifecycle_transitions
+there. Two distinct older images report 470 and 128 event rows respectively.
+The supported journal extraction produced zero qualifying account- and
+contract-bound acquisition candidates for each of P01 through P05. This
+is a scoped extraction result, not proof that no acquisition ever occurred
+or that every possible historical storage representation was covered.
+
+P01 and P02 each retain paired_broker_action_legs_supported. All five
+broker acquisition, Ross attribution and current open-position ownership
+verdicts remain unresolved. The report contains zero Trades rows for its
+explicit May 25–November 20 period. Operative PAPER storage is unverified.
+Ten collector discovery gaps remain; their private source details were
+not in the shareable transcript. No broker, position, recovery or
+ownership-veto action followed. PAPER_READY=NO.
+
+Next bounded evidence step is to inspect only the existing private
+manifest's discovery-gap categories through an aliased shareable projection.
+Do not recollect the 48 snapshots or repeat the completed join unchanged.
+Archived, inaccessible or missing-source gaps, if any, require targeted
+follow-up from their actual categories. Preserve the private records.
