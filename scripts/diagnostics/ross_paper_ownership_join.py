@@ -218,8 +218,7 @@ def validate_manifest(manifest):
         if status == "refused" and isinstance(entry.get("gap"), str) and entry["gap"].strip():
             entries[alias] = entry
             continue
-        if (status != "verified" or not isinstance(entry.get("snapshot"), str)
-                or not re.fullmatch(r"D[0-9]{3}\.sqlite3", entry["snapshot"])
+        if (status != "verified" or entry.get("snapshot") != f"{alias}.sqlite3"
                 or not isinstance(entry.get("sha256"), str)
                 or not re.fullmatch(r"[a-fA-F0-9]{64}", entry["sha256"])
                 or any(key not in entry for key in (
