@@ -7,15 +7,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import copy_context
 from collections.abc import Mapping
 import math
-from typing import Iterable, Optional
+from typing import Iterable, Optional, TYPE_CHECKING
 
-from src.adapters.brokers.ibkr.ibkr_client import AccountCapitalResult
 from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
 from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded
 from src.domain.market_snapshot import MarketSnapshot
 from src.domain.quote_freshness import quote_time_rejection
 from src.ibkr.position_snapshot import BrokerPositionResult
 from src.ibkr.market_data_client import MarketDataClient, MarketDataSnapshot
+
+
+if TYPE_CHECKING:
+    from src.adapters.brokers.ibkr.ibkr_client import AccountCapitalResult
 
 
 @dataclass(frozen=True)
@@ -104,6 +107,8 @@ class MarketDataSnapshotManager:
 
     def value_held_contracts(self, client, *, expected_account: str) -> HeldContractValuation:
         """All-or-nothing same-currency gross marks; this does not enroll holdings."""
+        from src.adapters.brokers.ibkr.ibkr_client import AccountCapitalResult
+
         if self.market_data_client is None:
             return HeldContractValuation("QUOTE_SOURCE_UNAVAILABLE")
         try:
