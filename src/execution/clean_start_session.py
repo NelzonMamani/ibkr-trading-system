@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 import time
 from typing import Any, Callable
 from uuid import uuid4
@@ -20,15 +21,25 @@ class CleanStartResult:
 
 
 def _safe_open_orders(ibkr_client: Any) -> list[object]:
-    return list(ibkr_client.openOrders() or [])
+    return list(ibkr_client.openOrders())
 
 
 def _safe_positions(ibkr_client: Any) -> list[object]:
-    return list(ibkr_client.positions() or [])
+    return list(ibkr_client.positions())
 
 
-def _non_flat_positions(positions: list[object]) -> list[object]:
-    return [row for row in positions if int(getattr(row, "position", 0) or 0) != 0]
+def _non_flat_positions(positions: list[object]) -> list[tuple[object, Decimal]]:
+    non_flat = []
+    for row in positions:
+        raw_quantity = getattr(row, "position")
+        if isinstance(raw_quantity, bool):
+            raise ValueError("Broker position quantity is boolean")
+        quantity = Decimal.from_float(raw_quantity) if isinstance(raw_quantity, float) else Decimal(raw_quantity)
+        if not quantity.is_finite():
+            raise ValueError("Broker position quantity is not finite")
+        if quantity != 0:
+            non_flat.append((row, quantity))
+    return non_flat
 
 
 def enforce_clean_start_session(
@@ -68,6 +79,24 @@ def enforce_clean_start_session(
         f"broker_open_orders={len(open_orders)} broker_positions={len(non_flat_positions)}"
     )
 
+    # The cleanup translator accepts whole shares only. Check every position
+    # before either cancellation or submission, including mixed portfolios.
+    if any(quantity != quantity.to_integral_value() for _, quantity in non_flat_positions):
+        print(
+            "[CLEAN_START][FAILED] "
+            f"remaining_positions={len(non_flat_positions)} remaining_open_orders={len(open_orders)} "
+            "reason=UNSUPPORTED_FRACTIONAL_POSITION"
+        )
+        print("[CLEAN_START][BLOCK] reason=DIRTY_SESSION_AFTER_CLEAN_ATTEMPT")
+        return CleanStartResult(
+            enabled=True,
+            ready_for_trading=False,
+            remaining_positions=len(non_flat_positions),
+            remaining_open_orders=len(open_orders),
+            status="FAILED",
+            reason="UNSUPPORTED_FRACTIONAL_POSITION",
+        )
+
     # PHASE B — cancel all broker open orders
     for row in open_orders:
         order_id = int(getattr(row, "orderId", 0) or 0)
@@ -80,13 +109,12 @@ def enforce_clean_start_session(
 
     # PHASE C — flatten all positions
     translator = IbkrOrderTranslator(order_translation_enabled=True)
-    for row in non_flat_positions:
+    for row, quantity in non_flat_positions:
         symbol = str(getattr(row, "symbol", "") or "").upper().strip()
-        qty = int(getattr(row, "position", 0) or 0)
-        if not symbol or qty == 0:
+        if not symbol:
             continue
-        side = "SELL" if qty > 0 else "BUY"
-        quantity_to_close = abs(qty)
+        side = "SELL" if quantity > 0 else "BUY"
+        quantity_to_close = abs(int(quantity))
         print(
             "[CLEAN_START][FLATTEN_SUBMIT] "
             f"symbol={symbol} qty={quantity_to_close} side={side} order_type=MKT outsideRth=True"
