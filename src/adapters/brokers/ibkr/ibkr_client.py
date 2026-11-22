@@ -2248,6 +2248,8 @@ class IbkrClient(EWrapper, EClient):
             expected_account=expected_account, timeout_seconds=timeout, _deadline=deadline)
         if currency.status != "COMPLETE":
             return AccountCapitalResult(currency.status, expected_account, currency)
+        if not currency.cancellation_attempted or not currency.cleanup_complete:
+            return AccountCapitalResult("CLEANUP_UNCONFIRMED", expected_account, currency)
         return self._strict_account_summary(
             expected_account, timeout, capital_currency=currency, deadline=deadline)
 
