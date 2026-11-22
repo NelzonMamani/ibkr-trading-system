@@ -21233,3 +21233,52 @@ cleanup. The ownership investigation remains recorded above, all five vetoes
 remain in force, and FORCE_CLEAN_START remains default-off. No live broker
 validation, holdings changes, recovery clearing, ownership adoption or main
 merge occurred. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+
+### Accepted fractional repair and complete order-query cleanup (2026-11-22)
+
+The operator reaffirmed standing authorization to carry implementation,
+scoped review, CI and merges through to completion without repeated routine
+permission requests. Continue from this checkpoint and reuse completed
+evidence; do not repeat the finished ownership collection or join unchanged.
+
+PR #1242 was merged into main as
+`548aa0f3c3a1e8aa81ddaeaa1cce07cc483dcc45`. Its parents are accepted main
+`f53aa41d07ac6143503582d8d2980bd72fe1d90b` and reviewed head
+`10e6df33ad779883373abab6b99c03b25e4d00ba`. The merge tree is
+`2f8ac1437bdc1afa0dc50aa9aebfb5306fb70d43`, identical to the reviewed
+tree and the successful pull-request CI candidate. Required Linux and Windows
+checks passed in run 44969095123. Automatic push CI is run 45006439841;
+it was still in progress when this receipt was prepared. The main integration
+also retains the previously reviewed offline join and ownership receipts.
+
+Follow-up inspection found that the same cleanup owner called
+`IbkrClient.openOrders()` without its existing `require_complete=True`
+option. The native adapter's default can return partial or cached rows after
+timeout or disconnection. With inert native request/wait primitives, the
+unrepaired caller returned COMPLETE and ready_for_trading=True despite an
+incomplete query, disconnected query, or previously unresolved completion.
+This is a local cleanup defect; it does not prove bypass of other system gates.
+
+The cleanup helper now requests strict completion on every read: initial
+preflight, after cancellations, each flatness confirmation and the final
+timeout snapshot. The existing native query owner provides serialization,
+completion and unresolved-query refusal; no second snapshot owner was added.
+Failures propagate to the existing orchestrator exception block, which sets
+_clean_start_ready_for_trading=False and stops the run loop. An incomplete
+initial order query permits no cancellation or submission. A failure after
+cancellation prevents flatten submission; a failure during confirmation cannot
+return a ready result or trigger another close attempt.
+
+Seven new regression cases failed against accepted main before the caller
+change. With the change, 28 focused clean-start and orchestrator-shutdown
+cases passed on Linux Python 3.12 with the repository offline socket guard.
+The new cases cover all four read phases and exercise the actual native
+openOrders method with inert transport for timeout, disconnection and
+unresolved completion. Existing whole-share, fractional refusal, genuine zero,
+unavailable snapshot and shutdown cases still pass. git diff --check passed.
+
+This follow-up remains subject to its own pull-request CI. FORCE_CLEAN_START
+remains default-off. No broker connection, position action, order enablement,
+legacy-holding exclusion or ownership adoption was performed. All five
+ownership vetoes remain in force. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
