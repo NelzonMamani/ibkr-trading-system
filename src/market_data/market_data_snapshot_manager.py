@@ -7,10 +7,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import copy_context
 from collections.abc import Mapping
 import math
+import time
 from typing import Iterable, Optional, TYPE_CHECKING
 
 from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
-from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded
+from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, acquisition_deadline, checkpoint
 from src.domain.market_snapshot import MarketSnapshot
 from src.domain.quote_freshness import quote_time_rejection
 from src.ibkr.position_snapshot import BrokerPositionResult
@@ -111,37 +112,25 @@ class MarketDataSnapshotManager:
 
         if self.market_data_client is None:
             return HeldContractValuation("QUOTE_SOURCE_UNAVAILABLE")
-        try:
-            capital = client.account_capital_snapshot(expected_account=expected_account)
-        except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
-            raise
-        except (AttributeError, TypeError, RuntimeError, ValueError):
-            return HeldContractValuation("CAPITAL_SCOPE_UNAVAILABLE")
-        if (not isinstance(capital, AccountCapitalResult) or capital.status != "COMPLETE"
-                or capital.account != expected_account):
-            return HeldContractValuation("CAPITAL_SCOPE_UNAVAILABLE")
-        currency = capital.currency_evidence.currency
-        if currency != "USD":
-            return HeldContractValuation("UNSUPPORTED_CURRENCY")
+        currency = "USD"
+        max_age = get_ibkr_snapshot_max_age_seconds()
+
+        def scope():
+            with client._lock:
+                if (not client.is_connected() or client._stop_event.is_set()
+                        or not client._position_transport_available
+                        or tuple(client._managed_accounts) != (expected_account,)):
+                    return None
+                return (client.client_id, client._position_connection_epoch,
+                        getattr(client, "_managed_accounts_generation", 0))
 
         def fresh(stamp, now):
             return (isinstance(stamp, datetime) and stamp.tzinfo is not None
-                    and 0 <= (now - stamp).total_seconds() <= get_ibkr_snapshot_max_age_seconds())
-
-        def current(now):
-            with client._lock:
-                return (client.is_connected() and not client._stop_event.is_set()
-                        and client._position_transport_available
-                        and tuple(client._managed_accounts) == (capital.account,)
-                        and client.client_id == capital.client_id
-                        and client._position_connection_epoch == capital.connection_epoch
-                        and getattr(client, "_managed_accounts_generation", 0) == capital.account_scope_generation
-                        and fresh(capital.completed_at, now)
-                        and fresh(capital.currency_evidence.completed_at, now))
+                    and 0 <= (now - stamp).total_seconds() <= max_age)
 
         def rows(snapshot, now):
             if (not isinstance(snapshot, BrokerPositionResult) or snapshot.status != "COMPLETE"
-                    or snapshot.account != capital.account or not fresh(snapshot.completed_at, now)):
+                    or snapshot.account != expected_account or not fresh(snapshot.completed_at, now)):
                 return None
             positions = {}
             symbols = set()
@@ -150,7 +139,7 @@ class MarketDataSnapshotManager:
                 con_id = contract.conId
                 symbol = row.symbol
                 raw = row.position
-                if (row.account != capital.account or type(con_id) is not int or con_id <= 0
+                if (row.account != expected_account or type(con_id) is not int or con_id <= 0
                         or not isinstance(symbol, str) or not symbol or symbol != contract.symbol
                         or contract.secType != "STK" or contract.currency != currency
                         or con_id in positions or symbol in symbols or type(raw) not in (int, float, Decimal)):
@@ -163,57 +152,85 @@ class MarketDataSnapshotManager:
             return positions
 
         try:
-            if not current(datetime.now(timezone.utc)):
+            checkpoint()
+            initial_scope = scope()
+            if initial_scope is None:
                 return HeldContractValuation("CAPITAL_SCOPE_UNAVAILABLE")
+            client_id, epoch, generation = initial_scope
             before = client.position_snapshot()
-            positions = rows(before, datetime.now(timezone.utc))
+            monotonic_now = time.monotonic()
+            now = datetime.now(timezone.utc)
+            positions = rows(before, now)
             if positions is None:
                 return HeldContractValuation("POSITIONS_UNQUALIFIED")
-            if not current(datetime.now(timezone.utc)):
+            if scope() != initial_scope:
                 return HeldContractValuation("SCOPE_CHANGED")
-            quotes, qualities = self.batch_snapshots(
-                (symbol for symbol, quantity in positions.values() if quantity),
-                expected_client=client, expected_connection_epoch=capital.connection_epoch,
-                single_attempt=True, require_complete=True)
-            marks = []
-            for con_id, (symbol, quantity) in positions.items():
-                if not quantity:
-                    continue
-                quote = self.clean_snapshot(quotes, qualities, symbol)
-                if quote is None:
-                    return HeldContractValuation("MARK_UNQUALIFIED")
+            symbols = [symbol for symbol, quantity in positions.values() if quantity]
+            if len(symbols) > max(self.max_workers, 1):
+                return HeldContractValuation("COHORT_EXCEEDS_CAPACITY")
+            bracket_deadline = monotonic_now + max_age - (now - before.completed_at).total_seconds()
+            with acquisition_deadline(bracket_deadline):
+                quotes, qualities = self.batch_snapshots(
+                    symbols,
+                    expected_client=client, expected_connection_epoch=epoch,
+                    single_attempt=True, require_complete=True)
+                marks = []
+                for con_id, (symbol, quantity) in positions.items():
+                    if not quantity:
+                        continue
+                    quote = self.clean_snapshot(quotes, qualities, symbol)
+                    if quote is None:
+                        return HeldContractValuation("MARK_UNQUALIFIED")
+                    now = datetime.now(timezone.utc)
+                    completed = (datetime.fromisoformat(quote.snapshot_completed_at_utc)
+                                 if quote.snapshot_completed_at_utc else None)
+                    if (quote.con_id != con_id or type(quote.con_id) is not int
+                            or quote.client_id != client_id
+                            or quote.connection_epoch != epoch
+                            or type(quote.request_id) is not int or quote.request_id <= 0
+                            or quote.market_data_type_confirmed is not True
+                            or quote.returned_market_data_type != "LIVE" or quote.snapshot_complete is not True
+                            or quote.completion_reason != "snapshot_end" or quote.broker_errors
+                            or quote.field_availability.get("last") is not True
+                            or quote_time_rejection(quote.market_timestamp_utc, quote.timestamp_source, now=now)
+                            or not fresh(completed, now) or completed < before.completed_at
+                            or quote.market_timestamp_utc > completed):
+                        return HeldContractValuation("MARK_UNQUALIFIED")
+                    price = Decimal(str(quote.last))
+                    with localcontext() as context:
+                        context.prec = len(price.as_tuple().digits) + len(quantity.as_tuple().digits)
+                        gross = abs(quantity) * price
+                    if not gross.is_finite() or gross <= 0:
+                        return HeldContractValuation("MARK_UNQUALIFIED")
+                    marks.append(HeldContractMark(expected_account, con_id, symbol, currency, quantity, price, gross,
+                        quote.request_id, quote.market_timestamp_utc, completed, quote.source))
+                if scope() != initial_scope:
+                    return HeldContractValuation("POSITIONS_OR_SCOPE_CHANGED")
+                capital = client.account_capital_snapshot(expected_account=expected_account)
+                if (not isinstance(capital, AccountCapitalResult) or capital.status != "COMPLETE"
+                        or capital.account != expected_account
+                        or (capital.client_id, capital.connection_epoch, capital.account_scope_generation) != initial_scope):
+                    return HeldContractValuation("CAPITAL_SCOPE_UNAVAILABLE")
+                if capital.currency_evidence.currency != currency:
+                    return HeldContractValuation("UNSUPPORTED_CURRENCY")
+                if scope() != initial_scope:
+                    return HeldContractValuation("POSITIONS_OR_SCOPE_CHANGED")
+                after = client.position_snapshot()
                 now = datetime.now(timezone.utc)
-                completed = (datetime.fromisoformat(quote.snapshot_completed_at_utc)
-                             if quote.snapshot_completed_at_utc else None)
-                if (quote.con_id != con_id or type(quote.con_id) is not int
-                        or quote.client_id != capital.client_id
-                        or quote.connection_epoch != capital.connection_epoch
-                        or type(quote.request_id) is not int or quote.request_id <= 0
-                        or quote.market_data_type_confirmed is not True
-                        or quote.returned_market_data_type != "LIVE" or quote.snapshot_complete is not True
-                        or quote.completion_reason != "snapshot_end" or quote.broker_errors
-                        or quote.field_availability.get("last") is not True
-                        or quote_time_rejection(quote.market_timestamp_utc, quote.timestamp_source, now=now)
-                        or not fresh(completed, now)
-                        or quote.market_timestamp_utc > completed):
-                    return HeldContractValuation("MARK_UNQUALIFIED")
-                price = Decimal(str(quote.last))
-                with localcontext() as context:
-                    context.prec = len(price.as_tuple().digits) + len(quantity.as_tuple().digits)
-                    gross = abs(quantity) * price
-                if not gross.is_finite() or gross <= 0:
-                    return HeldContractValuation("MARK_UNQUALIFIED")
-                marks.append(HeldContractMark(capital.account, con_id, symbol, currency, quantity, price, gross,
-                    quote.request_id, quote.market_timestamp_utc, completed, quote.source))
-            after = client.position_snapshot()
-            now = datetime.now(timezone.utc)
-            if rows(after, now) != positions or not current(now) or not fresh(before.completed_at, now):
-                return HeldContractValuation("POSITIONS_OR_SCOPE_CHANGED")
-            if any(not fresh(mark.market_timestamp, now) or not fresh(mark.completed_at, now) for mark in marks):
-                return HeldContractValuation("MARK_STALE")
-            return HeldContractValuation("COMPLETE", before.completed_at, after.completed_at, capital.client_id,
-                capital.connection_epoch, capital.account_scope_generation, tuple(marks), capital)
-        except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+                if (rows(after, now) != positions or scope() != initial_scope
+                        or not fresh(before.completed_at, now) or after.completed_at < before.completed_at
+                        or any(mark.completed_at > after.completed_at for mark in marks)):
+                    return HeldContractValuation("POSITIONS_OR_SCOPE_CHANGED")
+                if not fresh(capital.completed_at, now) or not fresh(capital.currency_evidence.completed_at, now):
+                    return HeldContractValuation("CAPITAL_SCOPE_UNAVAILABLE")
+                if any(not fresh(mark.market_timestamp, now) or not fresh(mark.completed_at, now) for mark in marks):
+                    return HeldContractValuation("MARK_STALE")
+                return HeldContractValuation("COMPLETE", before.completed_at, after.completed_at, client_id,
+                    epoch, generation, tuple(marks), capital)
+        except AcquisitionDeadlineExceeded:
+            checkpoint()  # A shorter caller deadline remains control flow.
+            return HeldContractValuation("EVIDENCE_WINDOW_EXPIRED")
+        except AcquisitionCancelled:
             raise
         except (AttributeError, TypeError, RuntimeError, ValueError, OverflowError, InvalidOperation):
             return HeldContractValuation("EVIDENCE_UNAVAILABLE")
