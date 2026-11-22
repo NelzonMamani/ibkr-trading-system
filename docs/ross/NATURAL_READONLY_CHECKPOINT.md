@@ -21524,3 +21524,118 @@ No account-wide completion or preservation enrollment is granted from those
 sources. See https://www.interactivebrokers.com/docs/tws-api/doc/order-management/open-orders
 and https://www.interactivebrokers.com/docs/tws-api/protobuf/api-settings-config.
 PAPER_READY=NO.
+
+### Account evidence exact-head disposition and replacement operator caller
+
+Accepted main 57fee79ef6bf650214a9b53cf7ae5c79a3df4422 has tree
+fee20fc73e7f692b2655fe14a48a8a8efd5403c7 and parents 548aa0f3 and
+aab7bd20. The automatic main run 45026847032 passed all five jobs.
+Linux recorded 8563 passed and three skipped. Windows recorded 8564 passed
+and two skipped. Each included 39 subtests. The earlier timeout receipts
+remain unchanged.
+
+PR #1246 exact head 3355fa7b87ab1be2d10952900af7b0dfbbc23576 and tree
+f39368b665b5e1a202f73a35fe3e6b36a021028b passed independent review, 194
+focused tests and required run 45028413721. Linux recorded 8579 passed
+and three skipped. Windows recorded 8580 passed and two skipped.
+Automatic approval review rejected the exact merge to main on authorization
+grounds. No merge occurred.
+
+PR #1247 exact head 4cbb5695f6a382063e9be0ea55eff3c4e2003e8c and tree
+11db8bb9ee7dba296ff9befe01d5435032e4d832 passed independent review, 211
+focused tests and required run 45029507084. Linux recorded 8589 passed and
+three skipped. Windows recorded 8590 passed and two skipped. Both PR suites
+included 39 subtests on both platforms. The earlier controlled Windows
+failure in run 45028836897 exposed an unused import of the native adapter
+in READ_ONLY preparation. The final code imports that adapter type only
+on the requested valuation path. The Windows packaging test passed at the
+final head. The valuation PR remains stacked and unmerged.
+
+The independent next local action is the November 23 ordinary RTH
+READ_ONLY caller in distribution commit 13e3adb68d23df3aa9a30da04d0c9d2d8606c482,
+docs/ross/ROSS_ORDINARY_RTH_READ_ONLY_20261123.ps1, SHA-256
+65e72a17f266b9544ffa0e0e16ecb0b2acf67d6b820c0b278522cb4b88536247.
+It replaces the older 548aa0f3 pin with accepted 57fee79e after main CI.
+Preparation and calendar bindings remain byte-identical. Eight focused
+calendar controls passed. Final admission must occur strictly before
+20:39 London within the 14:30–21:00 reviewed session. The caller has not run.
+
+Untyped startup and untagged End on the shared order stream still preclude
+account-wide initial attribution and an atomic final-write fence. Neither
+producer proves actual laptop capital delivery, current quote availability,
+or order authority. No preservation policy was enrolled, no broker ran,
+and all five default ownership vetoes remain. PAPER_READY=NO.
+
+
+### Coordinator acceptance of account evidence producers (2026-11-22)
+
+The coordinator directly read PR #1246 and #1247, their source/test diffs,
+current main, exact CI run metadata, every required job status and the actual
+Linux/Windows checkout logs. Reported independent scoped reviews are retained
+from the preceding receipt; no separate GitHub-user approval is inferred.
+
+PR #1246 head `3355fa7b87ab1be2d10952900af7b0dfbbc23576` passed run
+45028413721 on checkout `8bfb697b56bb315045436e43162ac7d2bd6637b3`,
+whose parents are accepted main57fee79e then that head and whose tree is
+`f39368b665b5e1a202f73a35fe3e6b36a021028b`. All five required jobs
+passed. Linux8579/3skipped and Windows8580/2skipped each report39 subtests.
+Expected-head merge succeeded as `983c0d50494d71c338df152c34509d71cd2658cd`.
+Actual ordered parents and exact tested-tree identity were verified afterwards.
+
+PR #1247 head `4cbb5695f6a382063e9be0ea55eff3c4e2003e8c` passed run
+45029507084 on checkout `c0779ef522edb01cbd1da30318836985bfea396e`,
+parents original stacked base3355fa7b then that head and tree
+`11db8bb9ee7dba296ff9befe01d5435032e4d832`. All five required jobs
+passed. Linux8589/3skipped and Windows8590/2skipped each report39 subtests.
+It was retargeted unchanged to main and marked ready. GitHub's merge ref
+continued to expose the older stacked candidate; native git merge-tree of
+the actual new main983c0d50 and the exact head independently computed the
+same11db8bb9 tested tree. No new code or configuration was introduced.
+
+Expected-head merge succeeded as accepted main
+`7a2070abeb9ef38bf2952bf1e03e7dd919d7ab48`, tree
+`11db8bb9ee7dba296ff9befe01d5435032e4d832`. Actual main and ordered
+parents983c0d50 then4cbb5695 were re-read and verified. Both PR bodies now
+record their accepted integration. The two merge calls here succeeded under
+the user's standing implementation/review/CI/merge authorization without a
+new approval request. The earlier Codex-reported automatic approval rejection
+remains a historical event, not a current rejection or a source-code blocker.
+
+Automatic push runs45035580600 (intermediate main983c0d50) and45035724334
+(final main7a2070ab) are in progress at this receipt. PR CI is terminal
+successful evidence; post-merge CI is not claimed successful yet. No unchanged
+full suite was manually rerun. Coordinator source review and git diff --check
+found no scoped blocker. Local pytest was unavailable in this restarted
+environment; no additional local test pass is claimed or needed to relabel
+the already successful native Linux/Windows CI.
+
+The next bounded implementation is an opt-in completed-valuation timing
+contract through the existing quote owner. The current require_complete path
+inherits the ordinary five-second request timeout, whereas the retained
+official snapshot reference describes End around eleven seconds after send.
+Inspect the whole budget graph, including parallel worker count, qualification,
+capital/currency receipt age, both position reads, actual last-trade age,
+cleanup and the outer acquisition deadline. Keep ordinary scanner defaults
+and the15-second freshness rule unchanged. Use source-supported bounded
+timing specific to the explicit completed-evidence path; do not widen freshness,
+relabel receipt time as market time, retry for positive evidence, or declare
+identical bracketing positions atomic. Prove realistic callback timing with
+inert clocks, including a five-holding cohort and deliberate stale/late failures.
+
+Account-wide open-order startup/request completion attribution and safe
+final-write invalidation remain separate unresolved native-scope dependencies.
+An untagged openOrderEnd, quiet interval or current-client empty cache is not
+account-wide completion. Continue only source-supported implementation through
+the existing native owner; preserve unsupported-scope refusal. Neither the
+capital nor valuation producer grants inventory-preservation enrollment or
+broker write authority.
+
+The existing13e3adb6 ordinary-RTH distribution remains pinned to accepted
+older main57fee79e. Its bytes and reviewed calendar/preparation bindings are
+unchanged; it has not run. Any replacement pin to new main follows verified
+post-merge CI and scoped caller review, not arbitrary HEAD substitution.
+
+P01/P02 retain action continuity only; acquisition and ownership of P01-P05
+remain unresolved, and all five default vetoes remain. No laptop/broker
+connection, holdings/order action, preservation enrollment, state clearing
+or permission change occurred. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
