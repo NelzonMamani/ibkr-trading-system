@@ -21198,3 +21198,38 @@ start, adopt/exclude holdings or weaken reconciliation. A later explicit
 legacy-holdings handling decision remains separate from truthful flatness.
 No production fix, broker action, state clearing or main merge occurred in
 this investigation. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### Fractional clean-start flatness repair (2026-11-22)
+
+Continued from `3b0e4ea7676b32d7b4818c2bc63d4dd30edd2600`.
+The clean-start source at that checkpoint matches accepted main
+`f53aa41d07ac6143503582d8d2980bd72fe1d90b`. Four controls added to the
+existing clean-start tests failed on that source. Fractional-only snapshots
+returned COMPLETE with zero remaining positions. The mixed snapshot
+cancelled an open order and attempted whole-share submissions, including
+a truncated close for its fractional position. Both receipts used inert
+transport.
+
+Repair commit `3f8477253ce8548e755a85f6a7f87b53df69d2de` keeps broker
+quantities exact for initial and confirmation snapshots. Any initial
+fractional position returns the existing FAILED result and block outcome,
+with the observed remaining position and order counts and
+UNSUPPORTED_FRACTIONAL_POSITION. The whole snapshot is checked before the
+first cancellation or submission. Whole-share routing still uses the
+existing translator. A fractional residual in confirmation remains nonzero
+and times out if it persists. Unavailable or invalid snapshots reach the
+existing caller exception block.
+
+Focused clean-start and orchestrator shutdown checks passed on Linux
+with the offline socket guard (21 passed). They cover both fractional signs,
+mixed positions, tiny nonzero decimals, no preflight mutations, genuine zero,
+signed whole-share orders, residual exposure and unavailable snapshots.
+The draft is based on the ownership checkpoint branch so its proposed
+changes are limited to the clean-start owner, its tests and this receipt.
+The repository PR workflow supplies the required CI checks for the draft head.
+
+The change addresses clean-start snapshot truth and unsupported fractional
+cleanup. The ownership investigation remains recorded above, all five vetoes
+remain in force, and FORCE_CLEAN_START remains default-off. No live broker
+validation, holdings changes, recovery clearing, ownership adoption or main
+merge occurred. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
