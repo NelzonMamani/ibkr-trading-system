@@ -21712,3 +21712,33 @@ strictly before 20:39 London in the 14:30–21:00 reviewed session. Existing
 local Windows, TWS Read-Only and exact client 71 prerequisites apply. The
 launcher has not run. No broker operation, preservation enrollment,
 ownership classification or veto change occurred. PAPER_READY=NO.
+
+
+### Explicit invocation attestation without a typed phrase (2026-11-22)
+
+The operator requested a single paste-and-Enter launch without a second
+confirmation word or phrase. The existing external November23 caller now
+accepts the explicit -OperatorFactsVerified switch. Using this switch is the
+operator's affirmation, for this invocation, of the same printed local facts:
+intended PAPER login, Read-Only API and listener already configured, reserved
+client71, no known concurrent operation and existing data access. It is not
+machine proof of those facts and does not assert native client availability.
+
+Release commit79fbbc2fb41e168110b05b3bf56078ddf7f6f267 contains the existing
+docs/ross/ROSS_ORDINARY_RTH_READ_ONLY_20261123.ps1, SHA256
+a10439f1eca6e4685d0f7590340e5d895cc2515262fa4aeac7b0d6f606bebf88.
+Without the switch, the previous interactive phrase remains required.
+With it, no Read-Host prompt is reached. The private local attestation record
+adds attestation_method=EXPLICIT_INVOCATION_SWITCH instead of
+INTERACTIVE_TYPED_PHRASE.
+
+Coordinator source comparison confirmed the ONLY changes are the explicit
+switch declaration, the attestation branch and the recorded method. All
+production/source pins, preparation/calendar bindings, deadline, current-policy
+execution, fresh-root handling, exact native-client admission, machine
+preflight, read-only/mutation protections and owned cleanup are unchanged.
+Published bytes were re-read and match the reviewed source. The pinned
+preparation and observation-runner PowerShell files contain no Read-Host,
+credential or confirmation prompt. Native Windows execution/parser validation
+of this external wrapper change was not run here; no runtime or broker was
+launched. Production source and main are untouched. PAPER_READY=NO.
