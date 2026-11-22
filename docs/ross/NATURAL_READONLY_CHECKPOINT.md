@@ -21524,3 +21524,44 @@ No account-wide completion or preservation enrollment is granted from those
 sources. See https://www.interactivebrokers.com/docs/tws-api/doc/order-management/open-orders
 and https://www.interactivebrokers.com/docs/tws-api/protobuf/api-settings-config.
 PAPER_READY=NO.
+
+### Account evidence exact-head disposition and replacement operator caller
+
+Accepted main 57fee79ef6bf650214a9b53cf7ae5c79a3df4422 has tree
+fee20fc73e7f692b2655fe14a48a8a8efd5403c7 and parents 548aa0f3 and
+aab7bd20. The automatic main run 45026847032 passed all five jobs.
+Linux recorded 8563 passed and three skipped. Windows recorded 8564 passed
+and two skipped. Each included 39 subtests. The earlier timeout receipts
+remain unchanged.
+
+PR #1246 exact head 3355fa7b87ab1be2d10952900af7b0dfbbc23576 and tree
+f39368b665b5e1a202f73a35fe3e6b36a021028b passed independent review, 194
+focused tests and required run 45028413721. Linux recorded 8579 passed
+and three skipped. Windows recorded 8580 passed and two skipped.
+Automatic approval review rejected the exact merge to main on authorization
+grounds. No merge occurred.
+
+PR #1247 exact head 4cbb5695f6a382063e9be0ea55eff3c4e2003e8c and tree
+11db8bb9ee7dba296ff9befe01d5435032e4d832 passed independent review, 211
+focused tests and required run 45029507084. Linux recorded 8589 passed and
+three skipped. Windows recorded 8590 passed and two skipped. Both PR suites
+included 39 subtests on both platforms. The earlier controlled Windows
+failure in run 45028836897 exposed an unused import of the native adapter
+in READ_ONLY preparation. The final code imports that adapter type only
+on the requested valuation path. The Windows packaging test passed at the
+final head. The valuation PR remains stacked and unmerged.
+
+The independent next local action is the November 23 ordinary RTH
+READ_ONLY caller in distribution commit 13e3adb68d23df3aa9a30da04d0c9d2d8606c482,
+docs/ross/ROSS_ORDINARY_RTH_READ_ONLY_20261123.ps1, SHA-256
+65e72a17f266b9544ffa0e0e16ecb0b2acf67d6b820c0b278522cb4b88536247.
+It replaces the older 548aa0f3 pin with accepted 57fee79e after main CI.
+Preparation and calendar bindings remain byte-identical. Eight focused
+calendar controls passed. Final admission must occur strictly before
+20:39 London within the 14:30–21:00 reviewed session. The caller has not run.
+
+Untyped startup and untagged End on the shared order stream still preclude
+account-wide initial attribution and an atomic final-write fence. Neither
+producer proves actual laptop capital delivery, current quote availability,
+or order authority. No preservation policy was enrolled, no broker ran,
+and all five default ownership vetoes remain. PAPER_READY=NO.
