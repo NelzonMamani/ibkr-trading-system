@@ -308,14 +308,15 @@ def source_bound_native_snapshot(native, monkeypatch):
         raise AssertionError("Synthetic snapshot controls must not connect")
 
     monkeypatch.setattr(EClient, "connect", forbidden_connect)
-    facts = SimpleNamespace(qualifications=[], requests=[], before_quote=None, defer_end=False)
+    facts = SimpleNamespace(qualifications=[], requests=[], before_quote=None, defer_end=False,
+        contract_ids={"AEMD": 123, "MSFT": 456}, quote_timestamp=Clock.now)
 
     def qualify(self, req_id, requested):
         supplied = Contract()
         supplied.symbol = requested.symbol
         supplied.secType, supplied.exchange, supplied.currency = "STK", "SMART", "USD"
         supplied.primaryExchange = "NASDAQ"
-        supplied.conId = {"AEMD": 123, "MSFT": 456}[requested.symbol]
+        supplied.conId = facts.contract_ids[requested.symbol]
         supplied.tradingClass = supplied.localSymbol = requested.symbol
         detail = ContractDetails()
         detail.contract = supplied
@@ -340,7 +341,7 @@ def source_bound_native_snapshot(native, monkeypatch):
             kinds = (1, 2, 4, 9) if facts.defer_end else (66, 67, 68, 75)
             for kind, value in zip(kinds, (8.0, 8.1, 8.05, 7.8)):
                 self.tickPrice(req_id, kind, value, None)
-        self.tickString(req_id, 45, str(Clock.now().timestamp()))
+        self.tickString(req_id, 45, str(facts.quote_timestamp().timestamp()))
 
     monkeypatch.setattr(EClient, "reqContractDetails", qualify)
     monkeypatch.setattr(EClient, "reqMktData", quote)
@@ -807,7 +808,8 @@ def test_held_contract_marks_use_real_native_reads(source_bound_native_snapshot,
     monkeypatch.setattr(client, "is_connected", lambda: True)
     client.managedAccounts("SYNTHETIC_TEST")
     client._position_transport_available = True
-    facts.wrapper.snapshot_timeout_seconds = .01 if fault == "wrong_end" else 1
+    if fault == "wrong_end":
+        monkeypatch.setattr(md, "_COMPLETED_SNAPSHOT_TIMEOUT_SECONDS", .01)
     both_quotes_sent = Barrier(2) if fault == "two_contracts" else None
     queries = []
     waits = []
@@ -888,3 +890,98 @@ def test_held_contract_marks_use_real_native_reads(source_bound_native_snapshot,
     else:
         assert not result.marks
     assert_native_quote_cleanup(client)
+
+
+@pytest.mark.parametrize(("case", "status"), [
+    ("normal_end", "COMPLETE"),
+    ("late_end", "MARK_UNQUALIFIED"),
+    ("no_end", "MARK_UNQUALIFIED"),
+    ("stale_market", "MARK_UNQUALIFIED"),
+    ("closing_read_expires", "EVIDENCE_WINDOW_EXPIRED"),
+    ("capital_clock_steps_back", "EVIDENCE_CHRONOLOGY_INVALID"),
+    ("outer_deadline", None),
+])
+def test_completed_holdings_timing_with_five_native_quotes(
+        source_bound_native_snapshot, monkeypatch, case, status):
+    from src.core import acquisition
+    from src.market_data import market_data_snapshot_manager as snapshots
+
+    facts = source_bound_native_snapshot
+    client = facts.native
+    facts.defer_end = True
+    facts.contract_ids.update({"AAA": 301, "BBB": 302, "CCC": 303})
+    facts.wrapper.snapshot_timeout_seconds = 5
+    client.snapshot_timeout_seconds = 5
+    client.managedAccounts("SYNTHETIC_TEST")
+    client._position_transport_available = True
+    monkeypatch.setattr(client, "is_connected", lambda: True)
+    origin = datetime(2026, 11, 11, 13, 1, tzinfo=timezone.utc)
+    virtual = SimpleNamespace(seconds=0.0, wall_adjustment=0.0)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls.fromtimestamp(origin.timestamp() + virtual.seconds + virtual.wall_adjustment, timezone.utc)
+
+    for module in (native_module, md, snapshots):
+        monkeypatch.setattr(module, "datetime", Clock)
+    for module in (native_module, md, snapshots, acquisition):
+        monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: virtual.seconds))
+    offset = 5 if case == "stale_market" else 0
+    facts.quote_timestamp = lambda: origin - timedelta(seconds=offset)
+    cancelled, phases = [], []
+    monkeypatch.setattr(EClient, "cancelMktData", lambda _, req: cancelled.append(req))
+
+    def positions(req, account, model):
+        phases.append(("positions", virtual.seconds))
+        if len(phases) > 1 and case == "closing_read_expires":
+            virtual.seconds = 15.1
+        virtual.wall_adjustment = 0
+        for symbol, con_id in facts.contract_ids.items():
+            row = Contract()
+            row.symbol, row.conId, row.secType, row.currency = symbol, con_id, "STK", "USD"
+            client.positionMulti(req, account, model, row, -0.25, 999)
+        client.positionMultiEnd(req)
+
+    def capital(req, group, tags):
+        phases.append((tags, virtual.seconds))
+        if case == "capital_clock_steps_back":
+            virtual.wall_adjustment = -2
+        for tag in ("CashBalance",) if tags == "$LEDGER" else tags.split(","):
+            client.accountSummary(req, "SYNTHETIC_TEST", tag, "100", "USD")
+        client.accountSummaryEnd(req)
+        virtual.seconds += .25
+
+    def complete_cohort():
+        assert len(facts.requests) == 5
+        virtual.seconds = (6 if case == "outer_deadline" else
+                           12.25 if case in {"late_end", "no_end"} else 11)
+        if case not in {"outer_deadline", "no_end"}:
+            for _, _, _, _, req in facts.requests:
+                client.tickSnapshotEnd(req)
+
+    barrier = threading.Barrier(5, action=complete_cohort)
+    monkeypatch.setattr(client, "reqPositionsMulti", positions)
+    monkeypatch.setattr(client, "cancelPositionsMulti", lambda req: None)
+    monkeypatch.setattr(client, "reqAccountSummary", capital)
+    monkeypatch.setattr(client, "cancelAccountSummary", lambda req: None)
+    monkeypatch.setattr(client, "waitOnUpdate", lambda timeout: barrier.wait(timeout=8))
+
+    if case == "outer_deadline":
+        with pytest.raises(acquisition.AcquisitionDeadlineExceeded), acquisition.acquisition_deadline(6):
+            facts.manager.value_held_contracts(client, expected_account="SYNTHETIC_TEST")
+    else:
+        result = facts.manager.value_held_contracts(client, expected_account="SYNTHETIC_TEST")
+        assert result.status == status
+        if status == "COMPLETE":
+            assert len(result.marks) == 5
+            assert [stamp for _, stamp in phases] == [0, 11, 11.25, 11.5]
+            assert result.capital.currency_evidence.completed_at == origin + timedelta(seconds=11)
+            assert all(mark.market_timestamp == origin and
+                       mark.completed_at == origin + timedelta(seconds=11) for mark in result.marks)
+        else:
+            assert result.marks == ()
+    assert len(facts.qualifications) == len(facts.requests) == 5
+    assert set(cancelled) == ({row[-1] for row in facts.requests} if case in {"no_end", "outer_deadline"} else set())
+    assert_native_quote_cleanup(client)
+    assert not client._position_queries

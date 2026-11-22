@@ -40,6 +40,11 @@ if TYPE_CHECKING:
     from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager
 
 
+# IBKR documents tickSnapshotEnd at about 11 seconds from snapshot request.
+# Allow one polling/scheduling margin on this explicit route only.
+_COMPLETED_SNAPSHOT_TIMEOUT_SECONDS = 12.0
+
+
 @dataclass(frozen=True)
 class HistoricalRequestSpec:
     """Detached facts from the actual SDK dispatch, never inferred from bars."""
@@ -847,6 +852,8 @@ class MarketDataClient:
             contract = (self._canonicalize_history_contract(contract_or_symbol, expected_client=ib,
                         expected_connection_epoch=epoch) if strict else
                         self._canonicalize_history_contract(contract_or_symbol))
+        except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+            raise
         except Exception as exc:
             debug.update(
                 {"qualification_error": str(exc), "timeout_occurred": False, "waited_seconds": 0.0}
@@ -878,6 +885,8 @@ class MarketDataClient:
         snapshot_timestamp = None
         received_at = None
         required_fields = ("bid", "ask", "last", "close", "volume")
+        wait_seconds = (_COMPLETED_SNAPSHOT_TIMEOUT_SECONDS if require_complete
+                        else self.snapshot_timeout_seconds)
         for attempt_index, (requested_type, attempt_label) in enumerate(attempts, start=1):
             checkpoint()
             if not self._snapshot_scope_unchanged(ib, epoch, client_id, connected=connected):
@@ -897,15 +906,15 @@ class MarketDataClient:
             dispatch_started_at = time.monotonic() if require_complete else None
             freeze = {"freeze_on_snapshot_end": True} if require_complete else {}
             ticker = ib.reqMktData(contract, genericTickList="", snapshot=True, regulatorySnapshot=False, **freeze)
-            _prepare_snapshot_ticker(ib, ticker, requested_type, tracked, request_started_at)
             started_at = dispatch_started_at if require_complete else time.monotonic()
             snapshot_complete = False
             completion_reason = "timeout"
             attempt_finished = False
             try:
+                _prepare_snapshot_ticker(ib, ticker, requested_type, tracked, request_started_at)
                 while True:
                     checkpoint()
-                    if require_complete and time.monotonic() - started_at >= self.snapshot_timeout_seconds:
+                    if require_complete and time.monotonic() - started_at >= wait_seconds:
                         break
                     if self._ticker_snapshot_complete(ticker):
                         snapshot_complete = True
@@ -915,7 +924,7 @@ class MarketDataClient:
                             and _returned_market_data_type(ticker) != "UNKNOWN"):
                         completion_reason = "required_fields"
                         break
-                    remaining = self.snapshot_timeout_seconds - (time.monotonic() - started_at)
+                    remaining = wait_seconds - (time.monotonic() - started_at)
                     if remaining <= 0:
                         break
                     ib.waitOnUpdate(timeout=bounded_timeout(min(0.2, remaining)))
