@@ -329,9 +329,16 @@ def source_bound_native_snapshot(native, monkeypatch):
                                self._position_connection_epoch, req_id))
         if facts.before_quote is not None:
             facts.before_quote(requested.symbol)
-        native_ticks(self, req_id, returned=1, ended=not facts.defer_end)
+        if facts.defer_end:
+            self.marketDataType(req_id, 1)
+            for kind, value in ((1, 5.0), (2, 5.1), (4, 5.05), (9, 4.8)):
+                self.tickPrice(req_id, kind, value, None)
+            self.tickSize(req_id, 8, 0)
+        else:
+            native_ticks(self, req_id, returned=1)
         if requested.symbol == "MSFT":
-            for kind, value in ((66, 8.0), (67, 8.1), (68, 8.05), (75, 7.8)):
+            kinds = (1, 2, 4, 9) if facts.defer_end else (66, 67, 68, 75)
+            for kind, value in zip(kinds, (8.0, 8.1, 8.05, 7.8)):
                 self.tickPrice(req_id, kind, value, None)
         self.tickString(req_id, 45, str(Clock.now().timestamp()))
 
@@ -782,13 +789,15 @@ def test_replacement_reused_request_id_cannot_receive_old_quote_time_provenance(
 
 
 @pytest.mark.parametrize(("fault", "status"), [
-    ("none", "COMPLETE"), ("late_price", "COMPLETE"), ("wrong_end", "MARK_UNQUALIFIED"),
+    ("none", "COMPLETE"), ("late_price", "COMPLETE"), ("two_contracts", "COMPLETE"),
+    ("wrong_end", "MARK_UNQUALIFIED"), ("delayed_tick", "MARK_UNQUALIFIED"),
     ("wrong_contract", "MARK_UNQUALIFIED"), ("foreign_currency", "POSITIONS_UNQUALIFIED"),
     ("drift", "POSITIONS_OR_SCOPE_CHANGED"), ("reconnect", "EVIDENCE_UNAVAILABLE"),
     ("partial", "POSITIONS_UNQUALIFIED"),
 ])
 def test_held_contract_marks_use_real_native_reads(source_bound_native_snapshot, monkeypatch, fault, status):
     from decimal import Decimal
+    from threading import Barrier
     from src.market_data import market_data_snapshot_manager as snapshots
 
     facts = source_bound_native_snapshot
@@ -798,7 +807,8 @@ def test_held_contract_marks_use_real_native_reads(source_bound_native_snapshot,
     monkeypatch.setattr(client, "is_connected", lambda: True)
     client.managedAccounts("SYNTHETIC_TEST")
     client._position_transport_available = True
-    facts.wrapper.snapshot_timeout_seconds = .01
+    facts.wrapper.snapshot_timeout_seconds = .01 if fault == "wrong_end" else 1
+    both_quotes_sent = Barrier(2) if fault == "two_contracts" else None
     queries = []
     waits = []
 
@@ -819,12 +829,21 @@ def test_held_contract_marks_use_real_native_reads(source_bound_native_snapshot,
         contract.currency = "EUR" if fault == "foreign_currency" else "USD"
         quantity = Decimal("-0.250") if fault != "drift" or len(queries) == 1 else Decimal("-0.5")
         client.positionMulti(req, account, model, contract, quantity, 9999)
+        if fault == "two_contracts":
+            other = Contract()
+            other.conId, other.symbol, other.secType, other.currency = 456, "MSFT", "STK", "USD"
+            client.positionMulti(req, account, model, other, Decimal("2"), 9999)
         if fault != "partial":
             client.positionMultiEnd(req)
 
     def wait(timeout):
         import time
 
+        if both_quotes_sent is not None:
+            both_quotes_sent.wait(timeout=.5)
+            for receipt in facts.requests:
+                client.tickSnapshotEnd(receipt[-1])
+            return
         if fault == "wrong_end" and waits:
             time.sleep(timeout)
             return
@@ -832,6 +851,10 @@ def test_held_contract_marks_use_real_native_reads(source_bound_native_snapshot,
         waits.append(req)
         if fault == "reconnect":
             client._position_connection_epoch += 1
+        if fault == "delayed_tick":
+            client.marketDataType(req, 3)
+            client.tickPrice(req, 68, 99.0, None)
+            client.marketDataType(req, 1)
         client.tickSnapshotEnd(req + 1 if fault == "wrong_end" else req)
         if fault == "late_price":
             client.tickPrice(req, 4, 99.0, None)
@@ -845,8 +868,19 @@ def test_held_contract_marks_use_real_native_reads(source_bound_native_snapshot,
     result = facts.manager.value_held_contracts(client, expected_account="SYNTHETIC_TEST")
     assert result.status == status
     if status == "COMPLETE":
-        assert len(queries) == 2 and len(waits) == 1
-        mark, = result.marks
+        assert len(queries) == 2
+        if fault == "two_contracts":
+            assert len(result.marks) == len(facts.requests) == 2
+            other = result.marks[1]
+            assert (other.con_id, other.price, other.gross_value) == (456, Decimal("8.05"), Decimal("16.10"))
+            assert {mark.request_id for mark in result.marks} == {request[-1] for request in facts.requests}
+            for mark in result.marks:
+                receipt = client._quote_trace.requests[mark.request_id]
+                assert receipt["con_id"] == mark.con_id
+                assert receipt["timestamp_input"]["decoded_utc"] == mark.market_timestamp.isoformat()
+        else:
+            assert len(waits) == len(result.marks) == 1
+        mark = result.marks[0]
         assert mark.signed_quantity == Decimal("-0.25")
         assert mark.gross_value == mark.price / 4
         assert mark.price == Decimal("5.05") and mark.currency == "USD" and mark.con_id == 123

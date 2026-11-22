@@ -2808,6 +2808,10 @@ class IbkrClient(EWrapper, EClient):
             reason = "missing_ticker"
         elif getattr(ticker, "freeze_on_snapshot_end", False) and ticker.snapshotEnd:
             reason = "snapshot_already_complete"
+        elif getattr(ticker, "freeze_on_snapshot_end", False) and tick_type in {
+                66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 88}:
+            ticker.strictSnapshotNonLive = True
+            reason = "unsupported_tick"
         elif not supported:
             reason = "unsupported_tick"
         elif not valid:
@@ -3304,6 +3308,8 @@ class IbkrClient(EWrapper, EClient):
             ticker = self._quote_callback_ticker(reqId, "marketDataType", returned_type=marketDataType)
             if ticker is None:
                 return
+            if getattr(ticker, "freeze_on_snapshot_end", False) and marketDataType != 1:
+                ticker.strictSnapshotNonLive = True
             ticker.marketDataType = marketDataType if marketDataType in {1, 2, 3, 4} else None
             ticker.marketDataTypeConfirmed = ticker.marketDataType is not None
             ticker.marketDataTypeReceivedAt = datetime.now(timezone.utc)

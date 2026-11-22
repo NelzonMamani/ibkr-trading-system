@@ -798,15 +798,18 @@ class MarketDataClient:
                 snapshot.data_quality_flags.append("MD_SOURCE_SCOPE_CHANGED")
         assessed_at = datetime.now(timezone.utc)
         reason = quote_time_rejection(snapshot.timestamp_utc, getattr(snapshot, "timestamp_source", "UNKNOWN"), now=assessed_at)
+        timestamp_input = (next((attempt.get("timestamp_input") for attempt in snapshot.snapshot_attempts
+                                 if attempt.get("request_id") == snapshot.request_id), None)
+                           if require_complete else self.last_snapshot_debug.get("timestamp_input"))
         record_time_assessment(client, getattr(snapshot, 'request_id', None), timestamp=snapshot.timestamp_utc,
             source=getattr(snapshot, 'timestamp_source', 'UNKNOWN'), assessed_at=assessed_at, reason=reason,
-            assessor='MarketDataClient.snapshot_stock.return', timestamp_input=self.last_snapshot_debug.get('timestamp_input'),
+            assessor='MarketDataClient.snapshot_stock.return', timestamp_input=timestamp_input,
             completed_at=getattr(snapshot, 'request_completed_at_utc', None),
             attempts=getattr(snapshot, 'snapshot_attempts', ()), scope={key: getattr(snapshot, key, None)
                 for key in ('client_id', 'connection_epoch', 'con_id')})
         if reason and reason not in snapshot.data_quality_flags:
             snapshot.data_quality_flags.append(reason)
-        if cache is not None and cache_key() == key and not any(flag in snapshot.data_quality_flags for flag in (
+        if not require_complete and cache is not None and cache_key() == key and not any(flag in snapshot.data_quality_flags for flag in (
                 "MD_TIMEOUT", "CONTRACT_QUALIFY_FAILED", "MD_EMPTY", "MD_SOURCE_SCOPE_CHANGED")):
             # Never relabel a request with a post-acquisition native scope.
             # Initially unbound acquisitions have no prior client witness and
@@ -924,6 +927,8 @@ class MarketDataClient:
                 raw_fields = self._snapshot_debug_fields(observed)
                 returned_type = _returned_market_data_type(observed)
                 flags = _market_data_type_flags(returned_type)
+                if require_complete and getattr(observed, "strictSnapshotNonLive", False):
+                    flags.append("MD_NONLIVE_CALLBACK")
                 timestamp = _resolve_snapshot_timestamp(observed)
                 receipt = getattr(observed, "receivedAt", None) or getattr(observed, "time", None)
                 if not isinstance(receipt, datetime):

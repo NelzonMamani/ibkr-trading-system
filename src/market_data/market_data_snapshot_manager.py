@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from collections.abc import Mapping
 import math
 from typing import Iterable, Optional
@@ -64,9 +65,12 @@ class MarketDataSnapshotManager:
         self.max_workers = max_workers
 
     def get_snapshot(self, symbol: str, *, expected_client=None,
-                     expected_connection_epoch=None, single_attempt=False) -> tuple[MarketSnapshot, SnapshotQuality]:
-        if type(single_attempt) is not bool:
-            raise ValueError("single_attempt must be boolean")
+                     expected_connection_epoch=None, single_attempt=False,
+                     require_complete=False) -> tuple[MarketSnapshot, SnapshotQuality]:
+        if type(single_attempt) is not bool or type(require_complete) is not bool:
+            raise ValueError("Snapshot completion and attempt options must be boolean")
+        if require_complete and not single_attempt:
+            raise ValueError("Required snapshot completion requires a bound single attempt")
         if single_attempt and (expected_client is None or expected_connection_epoch is None):
             raise RuntimeError("Single-attempt snapshot requires original client scope")
         if self.market_data_client is None:
@@ -87,10 +91,13 @@ class MarketDataSnapshotManager:
             )
             self._log_quality(quality)
             return snapshot, quality
+        options = {"single_attempt": True} if single_attempt else {}
+        if require_complete:
+            options["require_complete"] = True
         raw = (self.market_data_client.snapshot_stock(symbol) if
             expected_client is None and expected_connection_epoch is None else
             self.market_data_client.snapshot_stock(symbol, expected_client=expected_client,
-                expected_connection_epoch=expected_connection_epoch, **({"single_attempt": True} if single_attempt else {})))
+                expected_connection_epoch=expected_connection_epoch, **options))
         snapshot, quality = self._translate_snapshot(raw)
         self._log_quality(quality)
         return snapshot, quality
@@ -157,21 +164,23 @@ class MarketDataSnapshotManager:
             positions = rows(before, datetime.now(timezone.utc))
             if positions is None:
                 return HeldContractValuation("POSITIONS_UNQUALIFIED")
+            if not current(datetime.now(timezone.utc)):
+                return HeldContractValuation("SCOPE_CHANGED")
+            quotes, qualities = self.batch_snapshots(
+                (symbol for symbol, quantity in positions.values() if quantity),
+                expected_client=client, expected_connection_epoch=capital.connection_epoch,
+                single_attempt=True, require_complete=True)
             marks = []
             for con_id, (symbol, quantity) in positions.items():
                 if not quantity:
                     continue
-                if not current(datetime.now(timezone.utc)):
-                    return HeldContractValuation("SCOPE_CHANGED")
-                raw = self.market_data_client.snapshot_stock(
-                    symbol, expected_client=client, expected_connection_epoch=capital.connection_epoch,
-                    single_attempt=True, require_complete=True)
-                quote, quality = self._translate_snapshot(raw)
+                quote = self.clean_snapshot(quotes, qualities, symbol)
+                if quote is None:
+                    return HeldContractValuation("MARK_UNQUALIFIED")
                 now = datetime.now(timezone.utc)
                 completed = (datetime.fromisoformat(quote.snapshot_completed_at_utc)
                              if quote.snapshot_completed_at_utc else None)
-                if (self.clean_snapshot({symbol: quote}, {symbol: quality}, symbol) is None
-                        or quote.con_id != con_id or type(quote.con_id) is not int
+                if (quote.con_id != con_id or type(quote.con_id) is not int
                         or quote.client_id != capital.client_id
                         or quote.connection_epoch != capital.connection_epoch
                         or type(quote.request_id) is not int or quote.request_id <= 0
@@ -208,6 +217,7 @@ class MarketDataSnapshotManager:
         self,
         symbols: Iterable[str],
         *, expected_client=None, expected_connection_epoch=None,
+        single_attempt=False, require_complete=False,
     ) -> tuple[dict[str, MarketSnapshot], dict[str, SnapshotQuality]]:
         resolved_symbols = [symbol for symbol in symbols if symbol]
         snapshots: dict[str, MarketSnapshot] = {}
@@ -217,16 +227,23 @@ class MarketDataSnapshotManager:
         max_workers = min(max(self.max_workers, 1), len(resolved_symbols))
         scope = ({} if expected_client is None and expected_connection_epoch is None else
                  {"expected_client": expected_client, "expected_connection_epoch": expected_connection_epoch})
+        if single_attempt:
+            scope["single_attempt"] = True
+        if require_complete:
+            scope["require_complete"] = True
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_map = {
-                executor.submit(self.get_snapshot, symbol, **scope): symbol
-                for symbol in resolved_symbols
-            }
+            future_map = {}
+            for symbol in resolved_symbols:
+                future = (executor.submit(copy_context().run, self.get_snapshot, symbol, **scope)
+                          if require_complete else executor.submit(self.get_snapshot, symbol, **scope))
+                future_map[future] = symbol
             for future in as_completed(future_map):
                 symbol = future_map[future]
                 try:
                     snapshot, quality = future.result()
                 except Exception as exc:
+                    if require_complete:
+                        raise
                     print(f"[SNAPSHOT][ERROR] symbol={symbol} error={exc}")
                     snapshot = MarketSnapshot(
                         symbol=symbol,

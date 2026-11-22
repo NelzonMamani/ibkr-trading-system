@@ -21509,7 +21509,11 @@ alongside existing market-data and benchmark tests.
 Matching observed snapshots are not an atomic broker transaction. The
 current owner does not prove the absence of an intervening position change.
 FX conversion, non-stock marks and actual laptop quote timing are unverified.
-Existing time budgets stay in force.
+Strict requests parallelize through the existing quote batch owner. Existing
+time budgets stay in force. The historical IBKR snapshot specification
+describes End around eleven seconds after dispatch
+(https://interactivebrokers.github.io/tws-api/md_request.html). The default
+five-second request timeout can therefore refuse before normal End.
 
 The supported SDK exposes reqAllOpenOrders as an unbound observation of
 TWS-visible orders. The native openOrderEnd has no request ID. This checkout
