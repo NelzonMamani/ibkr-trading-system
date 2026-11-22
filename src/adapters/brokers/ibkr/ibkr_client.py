@@ -2331,20 +2331,36 @@ class IbkrClient(EWrapper, EClient):
         if not self.is_connected():
             raise RuntimeError("IBKR client is not connected.")
 
+        timeout = self.snapshot_timeout_seconds if timeout_seconds is None else timeout_seconds
+        deadline = time.monotonic() + max(0, timeout)
         req_id = self._next_req_id()
         event = threading.Event()
-        self._account_summary_events[req_id] = event
-        self._account_summary_rows[req_id] = {}
-        self._register_request(req_id, "ACCOUNT_SUMMARY")
-
-        self.reqAccountSummary(req_id, "All", "AvailableFunds,NetLiquidation,BuyingPower")
-
-        timeout = timeout_seconds or self.snapshot_timeout_seconds
-        event.wait(timeout=timeout)
-        self.cancelAccountSummary(req_id)
+        with self._lock:
+            self._register_request(req_id, "ACCOUNT_SUMMARY")
+            context = self._request_context_by_req_id[req_id]
+            epoch = self._position_connection_epoch
+            context["account_summary_deadline"] = deadline
+            self._account_summary_events[req_id] = event
+            self._account_summary_rows[req_id] = {}
+        try:
+            self.reqAccountSummary(req_id, "All", "AvailableFunds,NetLiquidation,BuyingPower")
+            signaled = wait_event(event, max(0, deadline - time.monotonic()))
+        finally:
+            with self._lock:
+                owned = self._account_summary_events.pop(req_id, None) is event
+                rows = self._account_summary_rows.pop(req_id, {})
+                same_context = self._request_context_by_req_id.get(req_id) is context
+                if same_context and self._request_type_by_req_id.get(req_id) == "ACCOUNT_SUMMARY":
+                    self._request_type_by_req_id.pop(req_id)
+                if (owned and same_context and self.is_connected()
+                        and epoch == self._position_connection_epoch and not self._request_id_conflicted(req_id)):
+                    self.cancelAccountSummary(req_id)
         with self._lock:
             self._raise_if_request_id_conflicted(req_id)
-            return dict(self._account_summary_rows.get(req_id, {}))
+            if (not signaled or not owned or not same_context or context.get("account_summary_end_received") is not True
+                    or req_id in self._errors or not self.is_connected() or epoch != self._position_connection_epoch):
+                raise RuntimeError("ACCOUNT_SUMMARY_INCOMPLETE")
+            return rows
 
     def get_primary_account(
         self, timeout_seconds: Optional[int] = None, *, preserve_completed: bool = False
@@ -3297,9 +3313,11 @@ class IbkrClient(EWrapper, EClient):
                 return
             if context.get("request_type") != "ACCOUNT_SUMMARY":
                 return  # Unowned/evicted strict callbacks are not legacy rows.
+            event = self._account_summary_events.get(reqId)
+            if event is None or event.is_set():
+                return
             register_account(account)
-            rows = self._account_summary_rows.setdefault(reqId, {})
-            rows[tag] = value
+            self._account_summary_rows[reqId][tag] = value
 
     def accountSummaryEnd(self, reqId: int):  # type: ignore[override]
         with self._lock:
@@ -3320,7 +3338,9 @@ class IbkrClient(EWrapper, EClient):
             if context.get("request_type") != "ACCOUNT_SUMMARY":
                 return
             event = self._account_summary_events.get(reqId)
-            if event:
+            if event is not None and not event.is_set():
+                deadline = context.get("account_summary_deadline")
+                context["account_summary_end_received"] = deadline is not None and time.monotonic() < deadline
                 event.set()
             getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 

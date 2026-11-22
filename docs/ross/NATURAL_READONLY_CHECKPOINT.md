@@ -21282,3 +21282,55 @@ This follow-up remains subject to its own pull-request CI. FORCE_CLEAN_START
 remains default-off. No broker connection, position action, order enablement,
 legacy-holding exclusion or ownership adoption was performed. All five
 ownership vetoes remain in force. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### Ordinary Ross PAPER authority and broker-truth repair (2026-11-22)
+
+The follow-up clean-start candidate in PR #1243, head
+`3b8731d9c0337c8b31c0f159492cbb9e181c7a9b`, tree
+`8cfde9479f999b349bcd11b4c89b64e19f0d2f37`, passed a scoped independent
+review of all four strict-query read phases and the existing Core refusal.
+Its native query completes the current client's open-order request.
+Account-wide order identity and effects remain separate evidence.
+
+| Ordinary PAPER owner | Implemented and evidenced scope | Remaining acceptance |
+| --- | --- | --- |
+| Scanner and Ross selection | The Core manager consumes completed scanner and data facts. Ross applies source-bound publication and catalyst policy, TopN50, Watchlist15 and Focus5, setup geometry and occurrence-bound trigger before canonical intent. | A natural positive qualifying progression and ordinary PAPER acceptance are still unverified. Prior negative READ_ONLY results retain their scope. |
+| Position truth and recovery | Core collects scoped native position truth and compares it with the owned registry. Existing startup recovery, order intent persistence and restart quarantine retain authority. | P01 through P05 remain unresolved and vetoed. P01 and P02 have reported action continuity only. P03, P04 and P05 have no qualifying acquisition evidence. No historical position is assigned to Ross or an external owner. |
+| Risk and native write | Existing risk and capital reservation owners precede native dispatch. Native acknowledgement grants no filled ownership. Later callbacks precede committed exactly-once accounting and structural stop confirmation. | Ordinary capital paths lack the account-bound current evidence needed for legacy-inclusive admission. Live transport acceptance remains unverified. |
+| Bounded subset and exit | One-share standalone MICRO is the candidate for the first bounded ordinary release. The accepted inert Core proofs cover acknowledgement, later entry fill, independently confirmed protection, supported final protective fill and duplicate suppression. | These are synthetic control receipts. Optional management, multi-share behavior outside approved controlled enrollment, and new adds, trailing and resumption retain their vetoes. |
+
+The proposed inventory preservation policy remains admission-closed.
+Published position reports and the completed ownership investigation cannot
+supply fresh account-wide order truth, per-contract market values with verified
+currency, or account-bound equity and buying power. The existing capital
+projection primarily counts owned trades. A baseline exemption without those
+facts would understate account risk. Default reconciliation continues to block
+all five unresolved positions. No preservation enrollment or baseline was
+created. No laptop operation or ownership-veto change occurred.
+
+Three shared defects were reproduced with inert transport. Missing, lossy,
+or identity-ambiguous broker rows could look complete. The ordinary lifecycle
+overlay could infer and persist a closed trade from the legacy adapter's empty
+or integer-coerced result. The legacy capital-summary API could return
+complete-looking tags on timeout and accept updates after End. The repairs
+refuse lossy or ambiguous position snapshots, keep operational lifecycle
+accounting with the canonical owners, and require in-deadline matching End
+before returning the legacy summary. The legacy summary remains completion
+evidence only, without account/currency-qualified capital attribution.
+Operational cycles retain canonical signed-quantity reconciliation and
+lifecycle portfolio/risk summaries. The retired overlay's separate average-cost
+and structure drift findings no longer run in those cycles.
+
+The final focused Linux run passed 500 tests, including existing joined PMH,
+lifecycle, position truth, recovery and IBKR adapter tests. Independent scoped
+review checked the final deadline correction and the overlay's explicit skip
+receipt. Required final-head CI and actual merge identity are tracked on the
+corresponding pull requests.
+
+The next authorized local action is one natural ordinary-RTH READ_ONLY
+observation on 23 November 2026, using the maintained Windows PowerShell 5.1
+caller, accepted immutable source and reviewed November calendar. It requires
+local PAPER/Read-Only TWS verification, exact client71 admission, a fresh
+private root and the full 1260-second envelope before exchange close.
+Keep preparation, natural selection/intent and PAPER broker acceptance
+separate. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.

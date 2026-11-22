@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.config.config_resolver import set_config_overrides
+from src.config.runtime_config import RunMode
 from src.core.orchestrator import CoreOrchestrator
 from src.core.engines.position_management_engine import ManagedPosition
 from src.core.engines.trade_lifecycle_engine import LifecycleEvent, NativeValuationObservation, TradeLifecycleEngine
@@ -2362,3 +2363,23 @@ def test_p02_cooldown_repeated_reader_row_or_conflicting_event_id(committed_life
     assert snapshot['timing']==('UNKNOWN' if conflict else 'ACTIVE')
     assert snapshot['observed_entry_count']==(0 if conflict else 1)
     assert len(storage.fetch_trade_lifecycle_events())==1
+
+
+@pytest.mark.parametrize("mode", [RunMode.PAPER, RunMode.LIVE, RunMode.READ_ONLY])
+def test_operational_overlay_leaves_open_lifecycle_to_authoritative_fills(mode):
+    engine = TradeLifecycleEngine()
+    engine.apply_event(_event("open", "ENTRY_FILL", 1, 10.0))
+    reads = []
+
+    def legacy_snapshot():
+        reads.append(True)
+        return []  # Legacy adapter also uses this shape for unavailable truth.
+
+    orchestrator = SimpleNamespace(
+        run_mode=mode, execution_engine=SimpleNamespace(), trade_lifecycle_engine=engine,
+        _broker_position_adapter=SimpleNamespace(fetch_broker_positions=legacy_snapshot),
+    )
+    CoreOrchestrator._run_lifecycle_authority_overlay(orchestrator)
+    assert engine.get_trade("T1").quantity_open == 1
+    assert engine.get_trade("T1").status == "OPEN"
+    assert reads == []
