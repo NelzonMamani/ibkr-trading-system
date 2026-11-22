@@ -20895,3 +20895,37 @@ RTH enables neither the PRE route, the reviewed opening window, nor benchmark
 capture. An endpoint at the actual close refuses. All existing ownership,
 PAPER/Read-Only confirmation, single-use, cleanup and privacy protections
 remain in force. PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.
+
+
+### Laptop-local PAPER ledger collection and join preparation (2026-11-22)
+
+The supplied Windows PowerShell 5.1 collection transcript reports 48 verified
+database snapshots and a broker CSV SHA256 match. D002 has 787 rows marked PAPER
+in each of the two run-mode columns. Its historical startup-path provenance is
+READ_ONLY and its native PAPER state row count is zero. The other snapshots
+report zero PAPER runs where the relevant columns exist. Ten discovery gaps
+remain and the operative PAPER path is unverified.
+
+The offline ownership join is prepared for coordinator review. It verifies the
+broker report and each snapshot hash, inspects D002 first, and reads subsequent
+distinct SQLite images without storage initialization. Its shareable output
+uses the five original Open Positions row aliases. It reports broker
+acquisitions, support for Ross attribution, action continuity and unresolved
+open-lot ownership separately. A PAPER run label, simulated fill, API-order
+flag, or symbol and quantity coincidence supplies no ownership evidence.
+
+Three offline synthetic tests passed. They cover duplicate images, duplicate or
+conflicting executions, older schema columns, exact callback and order
+references, native lifecycle links, predecessor and successor action legs,
+simulated results, the broker hash gate, and the shareable output projection.
+The laptop collector's exact private manifest fields and report headers were
+unavailable for compatibility checks. The source references for the P01/P02
+contract pairs were unavailable for review. The script accepts a local
+`PRIVATE_CONTRACT_BINDINGS.json` with one entry per reviewed alias. Each entry
+requires a `document_reference` and `predecessor` and `successor` pairs of
+account ID and contract ID. Keep those values on the laptop. Missing bindings,
+missing action identifiers or unpaired legs leave explicit gaps.
+
+The laptop join has not run, and ownership remains unresolved. No broker,
+position, recovery, or ownership-veto operation was performed. PAPER_READY=NO.
+PAPER_READINESS_GATE=FAIL.
