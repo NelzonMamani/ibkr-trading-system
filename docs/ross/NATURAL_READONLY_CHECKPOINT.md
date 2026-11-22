@@ -21079,3 +21079,42 @@ pairs. The laptop inputs remained local and the laptop join has not run.
 The operative PAPER path and all five ownership verdicts remain unresolved.
 All five ownership vetoes remain in force. PAPER_READY=NO.
 PAPER_READINESS_GATE=FAIL.
+
+
+### Coordinator account-wrapper compatibility correction (2026-11-22)
+
+Coordinator review of exact source `690f9d1eec2baa23fb28c8e51325a044df5bb080`
+reproduced a remaining failure against the uploaded period-labelled CSV at
+SHA-256 `195bbf42d305a029618412c65933190faa8734ef9add6b634275857054bf236c`.
+The actual export contains a BOA record before the first BOS and a matching
+EOA before EOF. The preceding coordinator format summary and sanitized
+fixture omitted these account wrappers. The old head refused at its first
+BOS check. Removing only those wrappers in a controlled input projection
+allowed its remaining section and split checks to pass.
+
+The bounded correction accepts either the existing unwrapped envelope or
+one paired BOA/EOA envelope. Both wrapper records must carry the same
+account as BOF, with exactly two fields. Missing, extra, duplicated,
+misordered and account-mismatched wrappers refuse. Per-section headers,
+widths, counts, period, snapshot and broker hash gates remain unchanged.
+No account or security values from the private report are published.
+
+Nine focused synthetic test methods passed locally, including the existing
+seven checks and positive/negative wrapper controls. Separately, the
+original uploaded CSV parsed with its BOA/EOA wrappers and retained the
+May 25–November 20 period, five positions, zero trades, four action rows
+and zero transfers. Its two split pairs validated. A complete run used
+that original broker CSV with a disposable synthetic SQLite snapshot and
+the exact collector manifest shape. It wrote the aliased output, retained
+all five unresolved ownership verdicts and left both input hashes unchanged.
+The shareable result contained no account or current contract IDs. This
+is not a run against the laptop's 48 actual snapshots.
+
+Corrected script SHA-256:
+`5b78ab0f85427d5875d1ae99ea7551d18d3b614f59dc52329df286264aa87f6d`.
+The existing November 21 reconciliation and collection sections are each
+present exactly once. No full-suite CI, runtime or broker connection,
+source database write, position action, recovery clearing or main merge
+was performed. Next action is one laptop-local join against the already
+collected snapshots. Operative PAPER storage and all five ownership
+verdicts remain unresolved. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

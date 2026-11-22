@@ -66,6 +66,30 @@ def exec_row(conid, execution_id, run_id="R", source="IBKR", reference=""):
 
 
 class OfflineJoin(unittest.TestCase):
+    def test_account_wrapped_flex_matches_unwrapped_report(self):
+        wrapped = FLEX.replace("BOS,POST", "BOA,FIXTURE-ACCOUNT\nBOS,POST", 1).replace(
+            "EOF\n", "EOA,FIXTURE-ACCOUNT\nEOF\n", 1)
+        self.assertEqual(join.broker_sections(wrapped), join.broker_sections(FLEX))
+
+    def test_account_wrapper_pairing_and_identity_refuse(self):
+        wrapped = FLEX.replace("BOS,POST", "BOA,FIXTURE-ACCOUNT\nBOS,POST", 1).replace(
+            "EOF\n", "EOA,FIXTURE-ACCOUNT\nEOF\n", 1)
+        for old, new in [
+            ("BOA,FIXTURE-ACCOUNT", "BOA,OTHER-ACCOUNT"),
+            ("BOA,FIXTURE-ACCOUNT", "BOA"),
+            ("BOA,FIXTURE-ACCOUNT", "BOA,FIXTURE-ACCOUNT,EXTRA"),
+            ("BOA,FIXTURE-ACCOUNT\n", ""),
+            ("BOA,FIXTURE-ACCOUNT\n", "BOA,FIXTURE-ACCOUNT\nBOA,FIXTURE-ACCOUNT\n"),
+            ("EOA,FIXTURE-ACCOUNT", "EOA,OTHER-ACCOUNT"),
+            ("EOA,FIXTURE-ACCOUNT", "EOA"),
+            ("EOA,FIXTURE-ACCOUNT", "EOA,FIXTURE-ACCOUNT,EXTRA"),
+            ("EOA,FIXTURE-ACCOUNT\n", ""),
+            ("EOA,FIXTURE-ACCOUNT\n", "EOA,FIXTURE-ACCOUNT\nEOA,FIXTURE-ACCOUNT\n"),
+            ("EOA,FIXTURE-ACCOUNT\nEOF\n", "EOF\nEOA,FIXTURE-ACCOUNT\n"),
+        ]:
+            with self.subTest(old=old, new=new), self.assertRaises(join.EvidenceError):
+                join.broker_sections(wrapped.replace(old, new, 1))
+
     def test_flex_envelope_and_empty_sections(self):
         report = join.broker_sections(FLEX)
         self.assertEqual([len(report[key]) for key in join.FLEX_SECTIONS.values()], [5, 0, 4, 0])

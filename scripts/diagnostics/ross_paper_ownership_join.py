@@ -124,9 +124,16 @@ def broker_sections(report):
     if not valid_period:
         raise EvidenceError("Flex BOF statement period is invalid.")
 
+    first_section = next(reader, [])
+    account_wrapped = bool(first_section and first_section[0] == "BOA")
+    if account_wrapped:
+        if len(first_section) != 2 or first_section[1].strip() != bof[1].strip():
+            raise EvidenceError("Flex BOA account wrapper is invalid or mismatched.")
+        first_section = next(reader, [])
+
     sections = {}
-    for _ in range(count):
-        bos = next(reader, [])
+    for index in range(count):
+        bos = first_section if index == 0 else next(reader, [])
         if (len(bos) < 3 or bos[0] != "BOS"
                 or not re.fullmatch(r"[A-Z0-9]+", bos[1]) or not bos[2].strip()):
             raise EvidenceError("Expected Flex BOS section record.")
@@ -153,6 +160,10 @@ def broker_sections(report):
             raise EvidenceError("Flex EOS section record is missing.")
         sections[section] = rows
 
+    if account_wrapped:
+        eoa = next(reader, [])
+        if len(eoa) != 2 or eoa[0] != "EOA" or eoa[1].strip() != bof[1].strip():
+            raise EvidenceError("Flex EOA account wrapper is missing or mismatched.")
     eof = next(reader, [])
     if not eof or eof[0] != "EOF" or next(reader, None) is not None:
         raise EvidenceError("Flex EOF is missing, misplaced or followed by extra records.")
