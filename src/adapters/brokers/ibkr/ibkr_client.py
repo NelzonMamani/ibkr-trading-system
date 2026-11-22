@@ -14,6 +14,7 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 import math
+import re
 import time
 import json
 import os
@@ -255,6 +256,36 @@ class AccountCurrencyResult:
     cancellation_attempted: bool = False
     cleanup_complete: bool = True  # Local callback ownership retired only.
     source: str = "IBKR_ACCOUNT_SUMMARY_LEDGER"
+    account_scope_generation: Optional[int] = None
+
+
+_CAPITAL_TAGS = ("NetLiquidation", "AvailableFunds", "BuyingPower")
+
+
+@dataclass(frozen=True)
+class AccountCapitalFact:
+    account: str
+    tag: str
+    value: Decimal
+    currency: str
+    received_at: datetime
+
+
+@dataclass(frozen=True)
+class AccountCapitalResult:
+    """Initial account summary evidence. Receipt times are not market mark times."""
+
+    status: str
+    account: str
+    currency_evidence: AccountCurrencyResult
+    request_id: Optional[int] = None
+    connection_epoch: Optional[int] = None
+    client_id: Optional[int] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    facts: tuple[AccountCapitalFact, ...] = ()
+    cancellation_attempted: bool = False
+    account_scope_generation: Optional[int] = None
 
 
 def _market_data_type_code(market_data_type: str) -> int:
@@ -461,10 +492,10 @@ def _instrument_local_native_intake(cls, name):
     _LOCAL_NATIVE_FINGERPRINT_CODES.add(intake.__code__)
 
 
-def _instrument_local_native_request(cls, name, kind):
+def _instrument_local_native_request(cls, name, kind, *, completion_owner=None):
     from functools import wraps
     original = getattr(cls, name)
-    _LOCAL_NATIVE_REQUEST_CODES[kind] = inspect.unwrap(original).__code__
+    _LOCAL_NATIVE_REQUEST_CODES[kind] = inspect.unwrap(completion_owner or original).__code__
     @wraps(original)
     def request(self, *args, **kwargs):
         operation = self._begin_local_source_operation(kind)
@@ -2197,13 +2228,32 @@ class IbkrClient(EWrapper, EClient):
 
 
     def account_currency_snapshot(self, *, expected_account: str,
-                                  timeout_seconds: Optional[float] = None) -> AccountCurrencyResult:
+                                  timeout_seconds: Optional[float] = None, _deadline=None) -> AccountCurrencyResult:
         """Observe a concrete base currency through the existing summary owner.
 
         SDK reqAccountSummary documents $LEDGER as base-currency-only. The
         matching initial End freezes this point-in-time observation. Cancellation
         is an SDK call attempt, not a broker acknowledgement of stream termination.
         """
+        return self._strict_account_summary(expected_account, timeout_seconds, deadline=_deadline)
+
+    def account_capital_snapshot(self, *, expected_account: str,
+                                 timeout_seconds: Optional[float] = None) -> AccountCapitalResult:
+        """Bind concrete account currency and capital to the same native scope."""
+        timeout = self.snapshot_timeout_seconds if timeout_seconds is None else timeout_seconds
+        if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout < 0:
+            raise ValueError("Bounded account capital timeout required")
+        deadline = time.monotonic() + bounded_timeout(timeout)
+        currency = self.account_currency_snapshot(
+            expected_account=expected_account, timeout_seconds=timeout, _deadline=deadline)
+        if currency.status != "COMPLETE":
+            return AccountCapitalResult(currency.status, expected_account, currency)
+        if not currency.cancellation_attempted or not currency.cleanup_complete:
+            return AccountCapitalResult("CLEANUP_UNCONFIRMED", expected_account, currency)
+        return self._strict_account_summary(
+            expected_account, timeout, capital_currency=currency, deadline=deadline)
+
+    def _strict_account_summary(self, expected_account, timeout_seconds, *, capital_currency=None, deadline=None):
         checkpoint()
         if (not isinstance(expected_account, str) or not expected_account
                 or expected_account != expected_account.strip()):
@@ -2211,28 +2261,46 @@ class IbkrClient(EWrapper, EClient):
         timeout = self.snapshot_timeout_seconds if timeout_seconds is None else timeout_seconds
         if (type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout < 0):
             raise ValueError("Bounded account currency timeout required")
-        timeout = bounded_timeout(timeout)
+        local_deadline = time.monotonic() + bounded_timeout(timeout)
+        deadline = local_deadline if deadline is None else min(deadline, local_deadline)
         with self._lock:
             epoch, client_id = self._position_connection_epoch, self.client_id
             if (type(epoch) is not int or epoch < 0 or type(client_id) is not int or client_id < 0):
                 raise ValueError("Explicit native account currency identity required")
+            account_generation = getattr(self, "_managed_accounts_generation", 0)
+            started_at = datetime.now(timezone.utc)
+
             def result(status, req_id=None, *, currency=None, completed_at=None, tags=(), cancelled=False):
+                if capital_currency is not None:
+                    return AccountCapitalResult(
+                        status, expected_account, capital_currency, req_id, epoch, client_id,
+                        started_at if req_id is not None else None, completed_at,
+                        tuple(query["capital_facts"][tag] for tag in _CAPITAL_TAGS)
+                        if status == "COMPLETE" else (), cancelled, account_generation,
+                    )
                 return AccountCurrencyResult(status, req_id, epoch, expected_account, client_id,
-                    currency, completed_at, tags, cancelled)
+                    currency, completed_at, tags, cancelled, account_scope_generation=account_generation)
             if (not self.is_connected() or self._stop_event.is_set()
                     or not self._position_transport_available):
                 return result("DISCONNECTED")
             if tuple(self._managed_accounts) != (expected_account,):
                 return result("ACCOUNT_SCOPE_UNAVAILABLE")
-            if timeout == 0:
+            if capital_currency is not None and (
+                    capital_currency.connection_epoch != epoch or capital_currency.client_id != client_id
+                    or capital_currency.account_scope_generation != account_generation):
+                return result("SCOPE_CHANGED")
+            if time.monotonic() >= deadline:
                 return result("TIMEOUT")
             req_id = self._next_req_id()
             self._register_request(req_id, "ACCOUNT_CURRENCY_STRICT")
             context = self._request_context_by_req_id[req_id]
             query = {"status": "PARTIAL", "event": threading.Event(), "epoch": epoch,
-                "account": expected_account, "client_id": client_id,
-                "deadline": time.monotonic() + timeout, "currency": None,
+                "account": expected_account, "client_id": client_id, "account_generation": account_generation,
+                "deadline": deadline, "currency": None,
                 "tags": set(), "completed_at": None}
+            if capital_currency is not None:
+                query["capital_currency"] = capital_currency
+                query["capital_facts"] = {}
             context["account_currency_query"] = query
         sent = cancelled = False
         cleanup_error = None
@@ -2242,7 +2310,8 @@ class IbkrClient(EWrapper, EClient):
                     # Set before dispatch: a raised send may have reached the
                     # transport. Cleanup must not reinterpret it as unsent.
                     sent = True
-                    self.reqAccountSummary(req_id, "All", "$LEDGER")
+                    tags = ",".join(_CAPITAL_TAGS) if capital_currency is not None else "$LEDGER"
+                    self.reqAccountSummary(req_id, "All", tags)
             wait_event(query["event"], max(0, query["deadline"] - time.monotonic()))
             with self._lock:
                 self._account_currency_query_current(req_id, query, allow_complete=True)
@@ -2287,14 +2356,19 @@ class IbkrClient(EWrapper, EClient):
             # Recheck current scope after cleanup callbacks, without restoring
             # the retired request or renewing its completion timestamp.
             self._account_currency_query_current(req_id, query, allow_complete=True, retired=True)
-            if cleanup_error is not None:
+            if cleanup_error is not None or (
+                    capital_currency is not None and query["status"] == "COMPLETE" and not cancelled):
                 query["status"] = "CLEANUP_UNCONFIRMED"
+            if (capital_currency is not None and query["status"] == "COMPLETE"
+                    and not all(started_at <= fact.received_at <= query["completed_at"]
+                                for fact in query["capital_facts"].values())):
+                query["status"] = "INVALID_RECEIPT_TIME"
             complete = query["status"] == "COMPLETE"
             value = result(query["status"], req_id,
                 currency=query["currency"] if complete else None,
                 completed_at=query["completed_at"] if complete else None,
                 tags=tuple(sorted(query["tags"])), cancelled=cancelled)
-            if (complete and cancelled and cleanup_error is None
+            if (capital_currency is None and complete and cancelled and cleanup_error is None
                     and self._request_context_by_req_id.get(req_id) is context
                     and context.get("account_currency_query") is None
                     and req_id not in self._request_type_by_req_id):
@@ -2316,8 +2390,11 @@ class IbkrClient(EWrapper, EClient):
                 or self._stop_event.is_set() or not self._position_transport_available):
             status = "DISCONNECTED"
         elif (tuple(self._managed_accounts) != (query["account"],)
+                or query.get("account_generation", 0) != getattr(self, "_managed_accounts_generation", 0)
                 or type(self.client_id) is not int or self.client_id != query["client_id"]):
             status = "SCOPE_CHANGED"
+        elif query.get("capital_currency") is not None and not self._capital_currency_fresh(query["capital_currency"]):
+            status = "STALE_CURRENCY"
         elif status == "PARTIAL" and time.monotonic() >= query["deadline"]:
             status = "TIMEOUT"
         elif status == "COMPLETE":
@@ -2333,6 +2410,36 @@ class IbkrClient(EWrapper, EClient):
         query["status"] = status
         query["event"].set()
         return False
+
+    @staticmethod
+    def _capital_currency_fresh(currency):
+        from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+
+        age = (datetime.now(timezone.utc) - currency.completed_at).total_seconds()
+        return 0 <= age <= get_ibkr_snapshot_max_age_seconds()
+
+    @staticmethod
+    def _record_account_capital_fact(query, account, tag, value, currency):
+        if account != query["account"]:
+            return "WRONG_ACCOUNT"
+        if tag not in _CAPITAL_TAGS:
+            return "UNEXPECTED_TAG"
+        if currency != query["capital_currency"].currency:
+            return "AMBIGUOUS_CURRENCY"
+        if not isinstance(value, str) or not re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", value):
+            return "INVALID"
+        try:
+            amount = Decimal(value)
+        except InvalidOperation:
+            return "INVALID"
+        if not amount.is_finite():
+            return "INVALID"
+        previous = query["capital_facts"].get(tag)
+        if previous is not None:
+            return None if previous.value == amount else "CONFLICTING_VALUE"
+        query["capital_facts"][tag] = AccountCapitalFact(
+            account, tag, amount, currency, datetime.now(timezone.utc))
+        return None
 
     def get_account_summary(self, timeout_seconds: Optional[int] = None) -> Dict[str, str]:
         if not self.is_connected():
@@ -3301,6 +3408,12 @@ class IbkrClient(EWrapper, EClient):
                 query = context.get("account_currency_query")
                 if query is None or not self._account_currency_query_current(reqId, query):
                     return
+                if query.get("capital_currency") is not None:
+                    error = self._record_account_capital_fact(query, account, tag, value, currency)
+                    if error is not None:
+                        query["status"] = error
+                        query["event"].set()
+                    return
                 if account != query["account"]:
                     query["status"] = "WRONG_ACCOUNT"
                 elif (not isinstance(tag, str) or not tag or tag != tag.strip()
@@ -3334,6 +3447,13 @@ class IbkrClient(EWrapper, EClient):
             if context.get("request_type") == "ACCOUNT_CURRENCY_STRICT":
                 query = context.get("account_currency_query")
                 if query is not None and self._account_currency_query_current(reqId, query):
+                    if query.get("capital_currency") is not None:
+                        query["status"] = ("COMPLETE" if query["capital_facts"].keys() == set(_CAPITAL_TAGS)
+                                           else "MISSING_CAPITAL")
+                        if query["status"] == "COMPLETE":
+                            query["completed_at"] = datetime.now(timezone.utc)
+                        query["event"].set()
+                        return
                     query["status"] = "COMPLETE" if query["currency"] is not None else "MISSING_CURRENCY"
                     if query["status"] == "COMPLETE":
                         query["completed_at"] = datetime.now(timezone.utc)
@@ -3356,6 +3476,7 @@ class IbkrClient(EWrapper, EClient):
         with self._lock:
             accounts = [account.strip() for account in accountsList.split(",") if account.strip()]
             if accounts != self._managed_accounts:
+                self._managed_accounts_generation = getattr(self, "_managed_accounts_generation", 0) + 1
                 proxy = getattr(self, "_commission_decoder_proxy", None)
                 if proxy is not None and proxy.account_scope is not None and tuple(accounts) != proxy.account_scope:
                     self._commission_zero_disabled = True
@@ -3936,5 +4057,6 @@ for _local_intake_name in (
 del _local_intake_name
 
 _instrument_local_native_request(IbkrClient,"position_snapshot","POSITIONS_MULTI")
-_instrument_local_native_request(IbkrClient,"account_currency_snapshot","ACCOUNT_CURRENCY_STRICT")
+_instrument_local_native_request(IbkrClient, "account_currency_snapshot", "ACCOUNT_CURRENCY_STRICT",
+    completion_owner=IbkrClient._strict_account_summary)
 _LOCAL_NATIVE_FINGERPRINT_CODES.add(IbkrClient.__setattr__.__code__)

@@ -985,3 +985,101 @@ def test_legacy_account_summary_deadline_includes_native_dispatch(account_curren
     with pytest.raises(RuntimeError, match="ACCOUNT_SUMMARY_INCOMPLETE"):
         facts.client.get_account_summary(timeout_seconds=1)
     _assert_currency_retired(facts.client, facts.requests[-1][0])
+
+
+@pytest.mark.parametrize(("fault", "status"), [
+    ("none", "COMPLETE"), ("missing", "MISSING_CAPITAL"), ("incomplete", "TIMEOUT"),
+    ("wrong_end", "TIMEOUT"), ("foreign", "WRONG_ACCOUNT"), ("mixed", "AMBIGUOUS_CURRENCY"),
+    ("base", "AMBIGUOUS_CURRENCY"), ("nan", "INVALID"), ("malformed", "INVALID"),
+    ("conflict", "CONFLICTING_VALUE"), ("stale", "STALE_CURRENCY"),
+    ("reconnect", "DISCONNECTED"), ("cancel_error", "CLEANUP_UNCONFIRMED"),
+    ("account_aba", "SCOPE_CHANGED"),
+])
+def test_scoped_account_capital_uses_the_existing_native_summary_owner(account_currency_client, fault, status):
+    from dataclasses import FrozenInstanceError
+    from datetime import timedelta
+    from decimal import Decimal
+
+    facts = account_currency_client
+    client = facts.client
+    account = "SYNTHETIC_TEST"
+
+    def dispatch(req):
+        if facts.requests[-1][2] == "$LEDGER":
+            _currency_rows(client, req, "EUR")
+            return
+        assert facts.requests[-1][2] == "NetLiquidation,AvailableFunds,BuyingPower"
+        if fault == "stale":
+            facts.clock.now += timedelta(days=1)
+        for tag, value in [("NetLiquidation", "100.125"), ("AvailableFunds", "-1"), ("BuyingPower", "0")]:
+            if fault == "missing" and tag == "BuyingPower":
+                continue
+            client.accountSummary(req, "OTHER" if fault == "foreign" else account, tag,
+                                  {"nan": "NaN", "malformed": "1_000"}.get(fault, value),
+                                  {"mixed": "USD", "base": "BASE"}.get(fault, "EUR"))
+        if fault == "conflict":
+            client.accountSummary(req, account, "NetLiquidation", "999", "EUR")
+        if fault != "incomplete":
+            client.accountSummaryEnd(req + 1 if fault == "wrong_end" else req)
+        if fault == "none":
+            client.accountSummary(req, account, "NetLiquidation", "999", "EUR")
+
+    def cancel(req):
+        if req == facts.requests[0][0]:
+            return
+        if fault == "reconnect":
+            client._position_connection_epoch += 1
+        if fault == "account_aba":
+            client.managedAccounts("OTHER")
+            client.managedAccounts(account)
+        if fault == "cancel_error":
+            raise RuntimeError("inert cancellation")
+
+    facts.on_request = dispatch
+    facts.on_cancel = cancel
+    result = client.account_capital_snapshot(expected_account=account, timeout_seconds=.02)
+    assert result.status == status
+    ledger, summary = [row[0] for row in facts.requests]
+    assert ledger != summary
+    assert facts.cancels == [ledger, summary]
+    for req in (ledger, summary):
+        _assert_currency_retired(client, req)
+    if status == "COMPLETE":
+        assert result.account == account and result.currency_evidence.currency == "EUR"
+        assert result.request_id == summary and result.currency_evidence.request_id == ledger
+        assert result.connection_epoch == client._position_connection_epoch
+        assert result.client_id == client.client_id
+        assert [fact.value for fact in result.facts] == [Decimal("100.125"), Decimal("-1"), Decimal("0")]
+        assert all(fact.account == account and fact.currency == "EUR"
+                   and result.started_at <= fact.received_at <= result.completed_at for fact in result.facts)
+        with pytest.raises(FrozenInstanceError):
+            result.facts[0].value = Decimal(0)
+    else:
+        assert not result.facts and result.completed_at is None
+
+
+@pytest.mark.parametrize("fault", ["ledger_retirement", "combined_deadline"])
+def test_account_capital_never_dispatches_without_valid_ledger_dependency(account_currency_client, monkeypatch, fault):
+    facts = account_currency_client
+    client = facts.client
+    facts.on_request = lambda req: _currency_rows(client, req, "EUR")
+    if fault == "ledger_retirement":
+        def lose_context():
+            request = facts.requests[-1][0]
+            client._request_context_by_req_id.pop(request)
+            return None
+
+        monkeypatch.setattr(client, "_local_request_cleanup_revision", lose_context)
+    else:
+        def slow_cancel(req):
+            facts.clock.monotonic += 2
+        facts.on_cancel = slow_cancel
+    result = client.account_capital_snapshot(expected_account="SYNTHETIC_TEST", timeout_seconds=1)
+    if fault == "ledger_retirement":
+        assert result.status == "CLEANUP_UNCONFIRMED"
+        assert result.currency_evidence.status == "COMPLETE"
+        assert not result.currency_evidence.cancellation_attempted
+    else:
+        assert result.status == "TIMEOUT"
+    assert [tags for _, _, tags in facts.requests] == ["$LEDGER"]
+    assert not result.facts
