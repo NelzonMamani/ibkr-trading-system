@@ -1,6 +1,10 @@
 # Ordinary RTH READ_ONLY operator block. Run this file only on the authorized laptop.
 # This file invokes the existing immutable-source fetch and maintained observation caller.
 # The maintained caller requires contemporaneous confirmation before starting its runner.
+# Supplying this switch explicitly attests the printed local facts for THIS run.
+# It does not bypass source, calendar, native-client or machine admission checks.
+param([switch]$OperatorFactsVerified)
+
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
@@ -476,12 +480,19 @@ if __name__ == '__main__':
         Write-Host '4. Required market/scanner data login and entitlements are already active. Holdings, orders and recovery/submission state will remain untouched.'
         Write-Host 'If ANY OPERATOR fact above is unknown, unverifiable, false or conflicting, STOP. Client71 native admission remains unknown until the maintained connection result. Do not probe, change permissions or terminate a client to make it pass.'
         Write-Host '5. This attempt uses reviewed exchange closure and early-close facts for ordinary RTH only. The full 1260-second envelope must fit before the actual close.'
-        $attestation = Read-Host 'After checking the operator facts above, type exactly CONFIRM LOCAL PAPER READONLY CLIENT71 RESERVED ORDINARY RTH (anything else refuses launch)'
-        if ($attestation -cne 'CONFIRM LOCAL PAPER READONLY CLIENT71 RESERVED ORDINARY RTH') { throw 'Required local prerequisites were not verified; observation was not launched.' }
+        $attestationMethod = 'INTERACTIVE_TYPED_PHRASE'
+        if ($OperatorFactsVerified.IsPresent) {
+            $attestationMethod = 'EXPLICIT_INVOCATION_SWITCH'
+            Write-Host 'Local facts explicitly attested by invocation. All native and machine admission checks remain required.'
+        } else {
+            $attestation = Read-Host 'After checking the operator facts above, type exactly CONFIRM LOCAL PAPER READONLY CLIENT71 RESERVED ORDINARY RTH (anything else refuses launch)'
+            if ($attestation -cne 'CONFIRM LOCAL PAPER READONLY CLIENT71 RESERVED ORDINARY RTH') { throw 'Required local prerequisites were not verified; observation was not launched.' }
+        }
         $attestationPath = Join-Path $resolvedRunRoot 'local-operator-attestations.json'
         [ordered]@{
             scope = 'OPERATOR_ATTESTED_LOCAL_FACTS_AND_RESERVATION_NOT_NATIVE_ADMISSION'
             attested_utc = [datetime]::UtcNow.ToString('o')
+            attestation_method = $attestationMethod
             source_commit = $release.Commit
             reviewed_calendar_opt_in = $false
             observation_phase = 'RTH'
