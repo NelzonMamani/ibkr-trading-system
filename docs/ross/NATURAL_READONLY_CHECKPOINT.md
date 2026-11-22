@@ -21678,3 +21678,37 @@ provide separate observational evidence. It does not certify account-wide
 order completion or exclusion of concurrent orders, and grants no order
 binding or write authority. Preservation integration remains closed, all
 five ownership vetoes remain, and PAPER_READY=NO.
+
+### Accepted valuation timing and next local action (2026-11-22)
+
+Automatic main run 45035724334 passed all five jobs for
+7a2070abeb9ef38bf2952bf1e03e7dd919d7ab48, tree
+11db8bb9ee7dba296ff9befe01d5435032e4d832. Linux recorded 8589 passed and
+three skipped. Windows recorded 8590 passed and two skipped. Each included
+39 subtests. The earlier Windows interruptions remain historical.
+
+PR #1248 head 6db4b0457b2087bfe4d17e5ac1f571df814bbdf5 and tree
+1a6a1cbb444e8ae64351e866d5441883b894b7f4 passed 288 focused checks and
+independent review. The review added a chronological check from quote End
+through currency and capital completion to the final position receipt.
+The old accepted source refused the five-contract 11-second End case
+with timeout. The final inert fixture also exercises a backward wall clock
+step and proves matching fresh stamps individually do not establish order.
+Required run 45038869076 passed all five jobs. Linux recorded 8596 passed
+and three skipped. Windows recorded 8597 passed and two skipped. Each
+included 39 subtests. The reviewed tree is identical to merge
+98a5f90ced1d17fd97e45103155a22efe6b2bed9, whose ordered parents are
+7a2070abeb9ef38bf2952bf1e03e7dd919d7ab48 and
+6db4b0457b2087bfe4d17e5ac1f571df814bbdf5. Automatic CI for the timing merge
+was not used as a release receipt.
+
+Use the reviewed November 23 ordinary RTH READ_ONLY launcher at
+2b260cb02ce9a77fd1c77fa533bc839a4221fdac,
+docs/ross/ROSS_ORDINARY_RTH_READ_ONLY_20261123.ps1, SHA-256
+4c2e3a93907155d7e95a1d9104b0eecf5395f3c083cead2a6d737cb813aa64f6.
+The release pins 7a2070ab after verified automatic main CI. Preparation and
+calendar bindings are identical to the previous release. Final admission is
+strictly before 20:39 London in the 14:30–21:00 reviewed session. Existing
+local Windows, TWS Read-Only and exact client 71 prerequisites apply. The
+launcher has not run. No broker operation, preservation enrollment,
+ownership classification or veto change occurred. PAPER_READY=NO.
