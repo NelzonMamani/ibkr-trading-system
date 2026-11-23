@@ -2,6 +2,9 @@
 # Invocation attests that you checked the expected TWS PAPER login, flat
 # positions and no working orders, and will operate the account exclusively.
 # This is write-enabled controlled PAPER, separate from READ_ONLY.
+# Use the existing authoritative PAPER state, including the database and
+# order journals. Keep the reviewed calendar and exact native volume witness
+# on the laptop. Volume evidence only qualifies the matched contract.
 $rossPaperCaller = @'
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -50,10 +53,9 @@ if ($state -eq $repo -or $state.StartsWith($repo.TrimEnd('\') + '\', [StringComp
 $null = Local-Path (Join-Path $state 'ibkr_system.db') Leaf 'PAPER_RELEASE_EXISTING_STATE_DATABASE_REQUIRED'
 foreach ($name in @('order-id.json','submission-guard.json')) {
     $artifact = Join-Path $state $name
-    if (Test-Path -LiteralPath $artifact) {
-        $null = Local-Path $artifact Leaf 'PAPER_RELEASE_PRIVATE_STATE_PATH_INVALID'
-    }
+    $null = Local-Path $artifact Leaf 'PAPER_RELEASE_EXISTING_STATE_FILES_REQUIRED'
 }
+$null = Local-Path (Join-Path $state 'volume-witness.json') Leaf 'PAPER_RELEASE_NATIVE_VOLUME_WITNESS_REQUIRED'
 if (@(Get-ChildItem Env: | Where-Object { $_.Name -like 'GIT_*' }).Count) {
     throw 'PAPER_RELEASE_INHERITED_GIT_CONFIGURATION'
 }

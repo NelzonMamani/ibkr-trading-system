@@ -30,8 +30,12 @@ def run(state, evidence, calendar, calendar_sha256):
     receipt = json.loads(raw)
     if set(receipt) != {"coverage", "holidays", "half_days", "early_close"}:
         return "PAPER_RELEASE_CALENDAR_FORMAT_INVALID", 2
-    if not (state / "ibkr_system.db").is_file():
-        return "PAPER_RELEASE_EXISTING_STATE_DATABASE_REQUIRED", 2
+    for name in ("ibkr_system.db", "order-id.json", "submission-guard.json"):
+        if not (state / name).is_file():
+            return "PAPER_RELEASE_EXISTING_STATE_FILES_REQUIRED", 2
+    witness = state / "volume-witness.json"
+    if not witness.is_file():
+        return "PAPER_RELEASE_NATIVE_VOLUME_WITNESS_REQUIRED", 2
 
     # Apply only the controlled PAPER profile and the explicit calendar receipt.
     env_keys = {name for item in CONFIG_REGISTRY.values() for name in item["env"]}
@@ -48,6 +52,9 @@ def run(state, evidence, calendar, calendar_sha256):
         IBKR_ORDER_SUBMISSION_ENABLED="true", IBKR_ORDER_TRANSLATION_ENABLED="true",
         IBKR_MARKET_DATA_TYPE="LIVE", IBKR_FALLBACK_ENABLED="false",
         SCANNER_DATA_SOURCE="IBKR", ROSS_PAPER_RELEASE_ENABLED="1",
+        ROSS_TWS_VOLUME_COMPARATOR_PATH=str(witness),
+        DECISION_TRACE_PATH=str(evidence / "decision-trace.jsonl"),
+        TRACE_LOG_DIR=str(evidence / "trace"),
         STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED="false",
         MEAN_REVERSION_STRATEGY_ENABLED="false",
         FORCE_CLEAN_START="false", FLATTEN_ON_STARTUP="false",
