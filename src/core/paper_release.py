@@ -18,6 +18,7 @@ class PaperRelease:
         self.scope = None
         self.attempted = False
         self.rejection = None
+        self.last_gate = None
         self.lock = Lock()
 
     @classmethod

@@ -3779,6 +3779,9 @@ class CoreOrchestrator:
             return False
 
         if not self._startup_recovery_allows_strategy_execution():
+            release = getattr(self, "_paper_release", None)
+            if release is not None:
+                release.last_gate = "PAPER_RELEASE_RECOVERY_NOT_CLEAR"
             return False
         self._run_position_management_tick(cycle_started_at)
         # Owned reductions are separate from discovery/new-entry eligibility.
@@ -3813,6 +3816,7 @@ class CoreOrchestrator:
                 return False
         paper_release = getattr(self, "_paper_release", None)
         if paper_release is not None:
+            paper_release.last_gate = None
             if paper_release.attempted:
                 return True
             try:
@@ -3822,6 +3826,7 @@ class CoreOrchestrator:
             except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
                 raise
             except RuntimeError as exc:
+                paper_release.last_gate = str(exc)
                 print(f"[PAPER_RELEASE][BLOCK] reason={exc}")
                 return True
         if not self._autonomous_recovery_allows_new_entries(cycle_started_at=cycle_started_at):
@@ -4850,6 +4855,8 @@ class CoreOrchestrator:
                         intent.setup_family_id != "ABCD" or intent.relationship_context):
                     reason = "PAPER_RELEASE_REQUIRES_STANDALONE_ABCD_ONE_SHARE"
                 if reason:
+                    if paper_release is not None:
+                        paper_release.last_gate = reason
                     admission_gate_rejections[intent.symbol.upper()] = reason
                 else:
                     retained.append(intent)
@@ -5005,6 +5012,8 @@ class CoreOrchestrator:
                         risk_allowed_symbols.append(intent.symbol)
                     else:
                         canonical_risk_blocked_count += 1
+                        if paper_release is not None:
+                            paper_release.last_gate = reason
                         canonical_risk_rejections[intent.symbol.upper()] = reason
                         pipeline_audit.record(intent.symbol, TerminalOutcome.RISK_BLOCKED, reason, "risk")
             # READ_ONLY never dispatches orders. PAPER uses the existing
@@ -5036,6 +5045,8 @@ class CoreOrchestrator:
                 submitted = self.execution_engine.submission_confirmed(result)
                 attempted = bool(result.attempted) or str(result.status).upper() == "SUBMISSION_UNKNOWN"
                 reason = result.rejection_reason or result.rationale or result.status
+                if paper_release is not None and not submitted:
+                    paper_release.last_gate = reason
                 self._trace_event("EXECUTION_RESULT", {
                     "strategy": strategy_key, "symbol": intent.symbol,
                     "decision_id": decision.decision_id, "status": result.status,

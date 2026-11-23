@@ -1,0 +1,126 @@
+# Fill the local fields before pasting into Windows PowerShell 5.1.
+# Invocation attests that you checked the expected TWS PAPER login, flat
+# positions and no working orders, and will operate the account exclusively.
+# This is write-enabled controlled PAPER, separate from READ_ONLY.
+$rossPaperCaller = @'
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = 'Stop'
+$repo = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
+$python = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scripts\python.exe'
+$state = 'ENTER_EXISTING_PRIVATE_PAPER_STATE_DIRECTORY'
+$calendar = 'ENTER_REVIEWED_CALENDAR_JSON_PATH'
+$calendarSha = 'ENTER_REVIEWED_CALENDAR_JSON_SHA256'
+$account = 'ENTER_EXPECTED_PAPER_ACCOUNT'
+$pin = '@ACCEPTED_COMMIT@'
+$tree = '@ACCEPTED_TREE@'
+$launcherShaLF = '@OPERATOR_SHA256_LF@'
+$launcherShaCRLF = '@OPERATOR_SHA256_CRLF@'
+
+if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or
+    $PSVersionTable.PSVersion.Minor -ne 1) { throw 'PAPER_RELEASE_WINDOWS_POWERSHELL_51_REQUIRED' }
+if ($pin -cnotmatch '^[0-9a-f]{40}$' -or $tree -cnotmatch '^[0-9a-f]{40}$' -or
+    $launcherShaLF -cnotmatch '^[0-9a-f]{64}$' -or $launcherShaCRLF -cnotmatch '^[0-9a-f]{64}$') {
+    throw 'PAPER_RELEASE_ACCEPTED_SOURCE_PIN_MISSING'
+}
+if ($account -cnotmatch '^DUK?[0-9]+$') { throw 'PAPER_RELEASE_EXPECTED_ACCOUNT_REQUIRED' }
+if ($calendarSha -cnotmatch '^[0-9a-f]{64}$') { throw 'PAPER_RELEASE_CALENDAR_HASH_REQUIRED' }
+
+function Local-Path([string]$Path, [string]$Type, [string]$Gate) {
+    if ($Path -notmatch '^[A-Za-z]:\\' -or !(Test-Path -LiteralPath $Path -PathType $Type)) { throw $Gate }
+    $item = Get-Item -LiteralPath $Path -Force
+    $full = $item.FullName
+    $drive = New-Object IO.DriveInfo -ArgumentList ([IO.Path]::GetPathRoot($full))
+    if ($drive.DriveType -ne [IO.DriveType]::Fixed) { throw $Gate }
+    while ($null -ne $item) {
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw $Gate }
+        $parent = Split-Path -Parent $item.FullName
+        if (!$parent -or $parent -eq $item.FullName) { break }
+        $item = Get-Item -LiteralPath $parent -Force
+    }
+    return $full
+}
+
+$repo = Local-Path $repo Container 'PAPER_RELEASE_CHECKOUT_PATH_INVALID'
+$python = Local-Path $python Leaf 'PAPER_RELEASE_PYTHON_PATH_INVALID'
+$state = Local-Path $state Container 'PAPER_RELEASE_EXISTING_PRIVATE_STATE_REQUIRED'
+$calendar = Local-Path $calendar Leaf 'PAPER_RELEASE_REVIEWED_CALENDAR_REQUIRED'
+if ($state -eq $repo -or $state.StartsWith($repo.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'PAPER_RELEASE_PRIVATE_STATE_MUST_BE_OUTSIDE_CHECKOUT'
+}
+$null = Local-Path (Join-Path $state 'ibkr_system.db') Leaf 'PAPER_RELEASE_EXISTING_STATE_DATABASE_REQUIRED'
+foreach ($name in @('order-id.json','submission-guard.json')) {
+    $artifact = Join-Path $state $name
+    if (Test-Path -LiteralPath $artifact) {
+        $null = Local-Path $artifact Leaf 'PAPER_RELEASE_PRIVATE_STATE_PATH_INVALID'
+    }
+}
+if (@(Get-ChildItem Env: | Where-Object { $_.Name -like 'GIT_*' }).Count) {
+    throw 'PAPER_RELEASE_INHERITED_GIT_CONFIGURATION'
+}
+$git = (Get-Command git.exe -CommandType Application -ErrorAction Stop).Source
+function Checked-Git([string[]]$Arguments) {
+    $result = @(& $git --no-optional-locks -C $repo @Arguments 2>$null)
+    if ($LASTEXITCODE -ne 0) { throw 'PAPER_RELEASE_GIT_VERIFICATION_FAILED' }
+    return $result
+}
+$actualRoot = @(Checked-Git @('rev-parse','--show-toplevel'))
+if ($actualRoot.Count -ne 1 -or ($actualRoot[0].Replace('/','\')) -ine $repo) {
+    throw 'PAPER_RELEASE_CHECKOUT_ROOT_MISMATCH'
+}
+if ((Checked-Git @('rev-parse','HEAD')) -cne $pin -or
+    (Checked-Git @('rev-parse','HEAD^{tree}')) -cne $tree) {
+    throw 'PAPER_RELEASE_ACCEPTED_CHECKOUT_REQUIRED'
+}
+$files = @(Checked-Git @('ls-files','-v'))
+if (@($files | Where-Object { $_ -cnotmatch '^H ' }).Count -or
+    @(Checked-Git @('-c','core.fsmonitor=false','status','--porcelain=v1','--untracked-files=all')).Count) {
+    throw 'PAPER_RELEASE_CLEAN_CHECKOUT_REQUIRED'
+}
+$launcher = Local-Path (Join-Path $repo 'scripts\certification\ross_paper_release_operator.py') Leaf 'PAPER_RELEASE_OPERATOR_SOURCE_MISSING'
+if ((Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash.ToLowerInvariant() -cnotin @($launcherShaLF, $launcherShaCRLF)) {
+    throw 'PAPER_RELEASE_OPERATOR_SOURCE_HASH_MISMATCH'
+}
+if ((Get-FileHash -LiteralPath $calendar -Algorithm SHA256).Hash.ToLowerInvariant() -cne $calendarSha) {
+    throw 'PAPER_RELEASE_CALENDAR_HASH_MISMATCH'
+}
+
+$lockPath = Join-Path $state 'ross-paper-release.lock'
+if (Test-Path -LiteralPath $lockPath) { $null = Local-Path $lockPath Leaf 'PAPER_RELEASE_STATE_LOCK_PATH_INVALID' }
+try { $lock = [IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None') }
+catch { throw 'PAPER_RELEASE_STATE_LOCK_UNAVAILABLE' }
+$previousAccount = [Environment]::GetEnvironmentVariable('ROSS_PAPER_EXPECTED_ACCOUNT', 'Process')
+$previousAttestation = [Environment]::GetEnvironmentVariable('ROSS_PAPER_EXCLUSIVE_START_ATTESTED', 'Process')
+try {
+    $root = Join-Path $state ('ross-paper-' + [Guid]::NewGuid().ToString('N'))
+    $null = New-Item -ItemType Directory -Path $root -ErrorAction Stop
+    Write-Host ('Controlled PAPER. Graceful stop file: ' + (Join-Path $root 'stop'))
+    Write-Host ('Private output directory: ' + $root)
+    [Environment]::SetEnvironmentVariable('ROSS_PAPER_EXPECTED_ACCOUNT', $account, 'Process')
+    [Environment]::SetEnvironmentVariable('ROSS_PAPER_EXCLUSIVE_START_ATTESTED', '1', 'Process')
+    $arguments = '-I -B "{0}" "{1}" "{2}" "{3}" {4}' -f $launcher,$state,$root,$calendar,$calendarSha
+    $native = @{
+        FilePath=$python; ArgumentList=$arguments; WorkingDirectory=$repo
+        NoNewWindow=$true; Wait=$true; PassThru=$true
+        RedirectStandardOutput=(Join-Path $root 'stdout.private.log')
+        RedirectStandardError=(Join-Path $root 'stderr.private.log')
+    }
+    $runtime = Start-Process @native
+    $resultPath = Join-Path $root 'sanitized-result.json'
+    if (!(Test-Path -LiteralPath $resultPath -PathType Leaf)) { throw 'PAPER_RELEASE_NO_TERMINAL_RECEIPT' }
+    $receipt = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
+    if ($receipt.status -cnotmatch '^PAPER_RELEASE_[A-Z0-9_]+$') { throw 'PAPER_RELEASE_INVALID_TERMINAL_RECEIPT' }
+    Write-Host ([string]$receipt.status)
+    Write-Host ('Sanitized result: ' + $resultPath)
+    if ($runtime.ExitCode -ne 0) { throw 'PAPER_RELEASE_RUNTIME_BLOCKED_OR_INCOMPLETE' }
+} finally {
+    [Environment]::SetEnvironmentVariable('ROSS_PAPER_EXPECTED_ACCOUNT', $previousAccount, 'Process')
+    [Environment]::SetEnvironmentVariable('ROSS_PAPER_EXCLUSIVE_START_ATTESTED', $previousAttestation, 'Process')
+    $lock.Dispose()
+}
+'@
+$rossPaperTokens = $null
+$rossPaperParseErrors = $null
+$rossPaperAst = [System.Management.Automation.Language.Parser]::ParseInput(
+    $rossPaperCaller, [ref]$rossPaperTokens, [ref]$rossPaperParseErrors)
+if ($rossPaperParseErrors.Count -ne 0) { throw 'PAPER_RELEASE_NATIVE_POWERSHELL_PARSE_FAILED' }
+& $rossPaperAst.GetScriptBlock()
