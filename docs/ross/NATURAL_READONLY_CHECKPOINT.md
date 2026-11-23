@@ -22094,3 +22094,31 @@ Do not re-run unchanged observations or reopen completed acquisition searches.
 Current state at publication: all five vetoes remain; no broker action, holdings
 disposition, operational enrollment or recovery clearing. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
+
+### One-share Ross PAPER implementation candidate (2026-11-23)
+
+Source under review: `736911164c7937b7ad0e5d44ecdf085cd91aac9f`, tree
+`4d711521cdd775a3b31d572d2aec058568ebdb82`. This batch selects standalone
+ABCD and the independent MICRO risk profile. Its bounded acceptance profile
+admits at most one new entry attempt during a covered RTH opening window.
+
+| ID | Candidate status | Evidence or remaining condition |
+| --- | --- | --- |
+| B01 | ACCOUNT_PREREQUISITE | Clean startup refuses retained management/recovery state and nonzero broker holdings, including fractional holdings. No action was taken on the five unresolved laptop holdings or their evidence. |
+| B02 | IMPLEMENTED / VERIFIED_INERT / LAPTOP SOURCE FACT OPEN | Native tick provenance includes the original value, tick type, qualified security, request, client/epoch, server, trading-day basis, times and market-data status. Verified shares pass through unchanged. A fresh live tick 8 and matching TWS shares comparator qualify only the exact contract and session scope. The private diagnostic does not produce an upload package. The actual TWS build, effective lots setting, and same-contract live pair remain unverified. |
+| B03 | IMPLEMENTED / VERIFIED_INERT | Opening Focus retains its 250,000 participation threshold. The warning/data floor and the 1,000,000-share RTH entry minimum keep their roles. Reference enrichment can complete provisional eligibility without overriding any prior explicit refusal. READ_ONLY retains marked diagnostic raw-volume progression. Real PAPER entry checks scanner eligibility and native share evidence before risk and again before wire dispatch. |
+| B04 | IMPLEMENTED / VERIFIED_INERT | The same completed scoped USD account capital result feeds ordinary native PAPER risk, allocation, reservations and final SDK admission. Wrong scope, stale, incomplete, conflicting and missing evidence refuse. A verified zero is insufficient funds. The existing notional controls apply at the approved entry price. The market order carries no fill-price ceiling, and the broker result does not certify an unborrowed or settled cash balance. |
+| B05/B06 | IMPLEMENTED / VERIFIED_INERT | Actual scanner, quote, position and capital callbacks reached ABCD/MICRO through Core, risk, reserves and native dispatch in both ordinary and exclusive modes. Acknowledgment left ownership empty. The later fill accounted once, a separately observed one-share working stop used the original structural price, and the protective exit reconciled flat. Tests exercise duplicate exit callbacks, unresolved/missing/rejected/wrong-price protection, retained restart, and refusal of unsupported native PAPER shorts. Ambiguous protective submission is not retried. |
+| B07 | IMPLEMENTED / VERIFIED_INERT / WINDOWS AND LAPTOP OPEN | Default-off startup requires expected PAPER scope, operator attestation, a verified RTH opening, completed zero positions and current-client orders, fresh broker capital, and clear retained recovery. Observed changes inhibit new dispatch up to the final SDK boundary. Owned management remains active after the starting gate. The PowerShell 5.1 caller template refuses without accepted source hashes. Windows parser verification is part of required CI. |
+| B08 | VERIFIED_LAPTOP PENDING | This candidate has no broker acceptance receipt. The private volume comparator, reviewed local current calendar and genuinely clean exclusive PAPER scope are required for a later supervised attempt. |
+
+Independent review at source `3163d80e08579fe7dcdb774fd966d9f33b23fc39`,
+tree `417df34602f64cf086c7c1576c2c7c44053bf5d9`, passed 185 focused offline
+cases, including the ordinary and exclusive joined positives and established
+READ_ONLY risk progression. Final source review cleared the short-veto delta
+for draft publication, with 19 focused offline passes. These receipts overlap.
+Required release CI and post-merge CI are pending. PR1249 still has its reviewed
+head `ccb8311beec3d4ca888d712bd58db91a1b10cfc3`. Its Linux and Windows
+controlled-process jobs passed on run 45216779844. The Windows offline job was
+still running at this checkpoint. No accepted release pin has been issued.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
