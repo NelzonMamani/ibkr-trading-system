@@ -765,6 +765,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 snapshot=snapshot if isinstance(snapshot, MarketSnapshot) else None,
                 session_label=session_label,
                 session_phase=session_phase,
+                mode=mode,
             )
             print("[PATTERN_PIPELINE] DONE")
             if inputs is None:
@@ -804,6 +805,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 inputs=inputs,
                 session_label=session_label,
                 quality_flags=quality_flags,
+                mode=mode,
             )
             intraday_payload = {
                 "candles": list(getattr(inputs, "candles", []) or []),
@@ -1800,6 +1802,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "execution_stream": dict(selected_trigger.get("execution_stream") or {}),
                 })
             intent.quote_evidence = {"selection": row_quote, "snapshot": snapshot_quote}
+            read_selection = row.get if isinstance(row, dict) else lambda key: getattr(row, key, None)
+            selection_volume = read_selection("volume_evidence")
+            if isinstance(selection_volume, dict):
+                intent.volume_evidence = {
+                    **selection_volume,
+                    "scanner_session": read_selection("session_phase") or read_selection("session_label"),
+                    "scanner_execution_eligible": read_selection("execution_eligible") is True,
+                }
             intent.relationship_context = dict((getattr(selected_contract, "setup_metadata", {}) or {}).get("relationship") or {})
             if intent.relationship_context:
                 intent.relationship_context["warning"] = bool(

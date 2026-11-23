@@ -985,3 +985,167 @@ def test_completed_holdings_timing_with_five_native_quotes(
     assert set(cancelled) == ({row[-1] for row in facts.requests} if case in {"no_end", "outer_deadline"} else set())
     assert_native_quote_cleanup(client)
     assert not client._position_queries
+
+
+def test_live_stock_volume_is_joined_to_exact_comparator_and_current_request(native, monkeypatch):
+    from src.domain.volume_evidence import ross_entry_volume_rejection, verified_volume_shares
+
+    selected = contract()
+    selected.primaryExchange = "NASDAQ"
+    monkeypatch.setattr(native, "resolve_contract", lambda symbol: SimpleNamespace(contract=selected))
+    monkeypatch.setattr(native, "isConnected", lambda: True)
+    monkeypatch.setattr(native, "serverVersion", lambda: 157)
+    market_volume = [39018]
+    tick_type = [8]
+    market_at = datetime.now(timezone.utc)
+    def send(self, req, *args):
+        self.marketDataType(req, 1)
+        for kind, value in [(1, 5.0), (2, 5.1), (4, 5.05), (9, 4.8)]:
+            self.tickPrice(req, kind, value, None)
+        self.tickSize(req, tick_type[0], market_volume[0])
+        self.tickString(req, 45, str(market_at.timestamp()))
+        self.tickSnapshotEnd(req)
+
+    monkeypatch.setattr(EClient, "reqMktData", send)
+    quote = native.get_market_snapshot(selected.symbol)
+    unknown = quote.volume_evidence
+    assert unknown["raw_value"] == 39018
+    assert unknown["tick_type"] == 8
+    assert unknown["request_id"] == quote.request_id
+    assert unknown["con_id"] == selected.conId
+    assert verified_volume_shares(unknown) is None
+    intent = dict(strategy_name="ross_momentum", symbol=selected.symbol,
+                  volume_evidence=unknown)
+    assert ross_entry_volume_rejection(intent, "PAPER") == "ROSS_VOLUME_UNIT_UNVERIFIED"
+    assert ross_entry_volume_rejection(intent, "READ_ONLY") is None
+
+    comparator_scope = dict(con_id=selected.conId, observed_at=datetime.now(timezone.utc))
+    assert not native.verify_us_stock_share_volume(
+        unknown, reference_shares=3_901_800, send_us_stock_market_data_in_lots=False, **comparator_scope,
+    )
+    assert verified_volume_shares(native.get_market_snapshot(selected.symbol).volume_evidence) is None
+    latest = native.get_market_snapshot(selected.symbol).volume_evidence
+    assert not native.verify_us_stock_share_volume(
+        latest, reference_shares=39018, send_us_stock_market_data_in_lots=True, **comparator_scope,
+    )
+    assert native.verify_us_stock_share_volume(
+        latest, reference_shares=39018, send_us_stock_market_data_in_lots=False, **comparator_scope,
+    )
+    sample = native.get_market_snapshot(selected.symbol).volume_evidence
+    assert verified_volume_shares(sample) == 39018
+    assert native.ross_volume_source_current(sample)
+    runtime_rth_phases = ("RTH_OPEN", "OPENING_0_30", "MORNING", "MIDDAY", "LATE", "POWER_HOUR")
+    for phase in runtime_rth_phases:
+        weak = dict(sample, scanner_session=phase, scanner_execution_eligible=True)
+        assert ross_entry_volume_rejection(dict(intent, volume_evidence=weak), "PAPER") == "ROSS_VOLUME_BELOW_STOCK_SELECTION_MINIMUM"
+
+    market_volume[0] = 1_000_000
+    sample = client_for(native).snapshot_stock(selected).volume_evidence
+    good = dict(sample, scanner_session="OPENING_0_30", scanner_execution_eligible=True)
+    for phase in runtime_rth_phases:
+        candidate = dict(intent, volume_evidence=dict(good, scanner_session=phase))
+        assert ross_entry_volume_rejection(candidate, "PAPER", con_id=selected.conId) is None
+    assert native.ross_volume_source_current(good)
+
+    doubled = dict(good, shares=100 * good["raw_value"])
+    assert ross_entry_volume_rejection(dict(intent, volume_evidence=doubled), "PAPER") == "ROSS_VOLUME_UNIT_UNVERIFIED"
+    assert not native.ross_volume_source_current(doubled)
+    assert ross_entry_volume_rejection(dict(intent, volume_evidence=good), "PAPER", con_id=selected.conId + 1) == "ROSS_VOLUME_SCOPE_MISMATCH"
+    degraded = dict(good, scanner_execution_eligible=False)
+    assert ross_entry_volume_rejection(dict(intent, volume_evidence=degraded), "PAPER") == "ROSS_VOLUME_SCANNER_EXECUTION_INELIGIBLE"
+
+    selected.conId += 1
+    assert verified_volume_shares(native.get_market_snapshot(selected.symbol).volume_evidence) is None
+    selected.conId -= 1
+    tick_type[0] = 74
+    delayed = native.get_market_snapshot(selected.symbol).volume_evidence
+    assert delayed["tick_type"] == 74 and verified_volume_shares(delayed) is None
+    assert not native.ross_volume_source_current(good)
+    native._invalidate_position_queries()
+    assert not native.ross_volume_source_current(good)
+
+
+@pytest.mark.parametrize("replace_after_preflight", [False, True])
+def test_private_exact_contract_calibration_binds_fresh_ticks_and_native_completed_adv20(
+        native, monkeypatch, tmp_path, replace_after_preflight):
+    from hashlib import sha256
+    import json
+    from src.domain.volume_evidence import ross_entry_volume_rejection, verified_volume_shares
+    from src.ibkr.volume_calibration import prepare_paper_volume_calibration
+
+    selected = contract()
+    selected.primaryExchange = "NASDAQ"
+    monkeypatch.setattr(native, "resolve_contract", lambda symbol: SimpleNamespace(contract=selected))
+    monkeypatch.setattr(native, "isConnected", lambda: True)
+    monkeypatch.setattr(native, "serverVersion", lambda: 157)
+    previous = (datetime.now().date() - timedelta(days=2)).strftime("%Y%m%d")
+    volume = [1_500_000]
+    def send_quote(self, req, *args):
+        self.marketDataType(req, 1)
+        self.tickPrice(req, 4, 5.05, None)
+        self.tickSize(req, 8, volume[0])
+        self.tickString(req, 45, str(datetime.now(timezone.utc).timestamp()))
+        self.tickSnapshotEnd(req)
+    def send_history(self, req, *args):
+        self.historicalData(req, SimpleNamespace(date=previous, volume=86_400))
+        self.historicalDataEnd(req, "", "")
+    monkeypatch.setattr(EClient, "reqMktData", send_quote)
+    monkeypatch.setattr(EClient, "reqHistoricalData", send_history)
+    original = native.get_market_snapshot(selected.symbol).volume_evidence
+    previous_daily = native.reqHistoricalData(selected, durationStr="20 D")
+    assert previous_daily.volume_basis["unit"] == "UNKNOWN"
+    probe = tmp_path / "volume-probe.json"
+    comparison = tmp_path / "tws-observations.json"
+    witness = tmp_path / "volume-witness.json"
+    probe.write_text(json.dumps({
+        "watchlist": original,
+        "history": {**previous_daily.volume_basis, "bars": [[previous, 86_400]]},
+    }))
+    observed = {
+        "tws_build": "10.37.1", "con_id": 123, "watchlist_observed_at": original["received_at_utc"],
+        "watchlist_shares": 1_500_000, "historical_bar_date": previous,
+        "historical_bar_shares": 86_400, "watchlist_shares_setting": True, "historical_shares_setting": True,
+    }
+    comparison.write_text(json.dumps(dict(observed, historical_bar_shares=864)))
+    with pytest.raises(RuntimeError, match="PAPER_RELEASE_VOLUME_HISTORICAL_COMPARISON_MISMATCH"):
+        prepare_paper_volume_calibration(probe, comparison, witness)
+    assert not witness.exists()
+    comparison.write_text(json.dumps(observed))
+    prepare_paper_volume_calibration(probe, comparison, witness)
+    monkeypatch.setenv("ROSS_PAPER_RELEASE_ENABLED", "1")
+    monkeypatch.setenv("ROSS_TWS_VOLUME_COMPARATOR_PATH", str(witness))
+    checked = witness.read_bytes()
+    monkeypatch.setenv("ROSS_TWS_VOLUME_CALIBRATION_SHA256", sha256(checked).hexdigest())
+    if replace_after_preflight:
+        witness.write_bytes(checked + b"\n")
+        assert verified_volume_shares(native.get_market_snapshot(selected.symbol).volume_evidence) is None
+        witness.write_bytes(checked)
+        assert verified_volume_shares(native.get_market_snapshot(selected.symbol).volume_evidence) is None
+        return
+
+    # Later watchlist data uses today's calibration and its own fresh receipt.
+    volume[0] = 1_650_000
+    live = native.get_market_snapshot(selected.symbol).volume_evidence
+    assert verified_volume_shares(live) == 1_650_000
+    assert live["request_id"] != original["request_id"]
+    adv20 = native.reqHistoricalData(selected, durationStr="20 D")
+    assert adv20.volume_basis["unit"] == "SHARES"
+    evidence = dict(live, scanner_session="OPENING_0_30", scanner_execution_eligible=True)
+    intent = dict(strategy_name="ross_momentum", symbol=selected.symbol, volume_evidence=evidence)
+    assert ross_entry_volume_rejection(intent, "PAPER") == "ROSS_RVOL_ADV20_UNIT_UNVERIFIED"
+    monkeypatch.delenv("ROSS_PAPER_RELEASE_ENABLED")
+    assert ross_entry_volume_rejection(intent, "PAPER") == "ROSS_RVOL_ADV20_UNIT_UNVERIFIED"
+    evidence["adv20_volume_basis"] = dict(adv20.volume_basis, connection_epoch=4)
+    assert ross_entry_volume_rejection(intent, "PAPER") == "ROSS_RVOL_ADV20_BASIS_MISMATCH"
+    evidence["adv20_volume_basis"] = adv20.volume_basis
+    assert ross_entry_volume_rejection(intent, "PAPER") is None
+    assert native.ross_volume_source_current(evidence)
+
+    selected.conId = 456
+    assert verified_volume_shares(native.get_market_snapshot(selected.symbol).volume_evidence) is None
+    assert native.reqHistoricalData(selected, durationStr="20 D").volume_basis["unit"] == "UNKNOWN"
+    selected.conId = 123
+    witness.write_text(witness.read_text() + "\n")
+    assert not native.ross_volume_source_current(evidence)
+    native._invalidate_position_queries()
+    assert verified_volume_shares(native.get_market_snapshot(selected.symbol).volume_evidence) is None

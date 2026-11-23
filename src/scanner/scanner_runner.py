@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from src.domain.quote_freshness import quote_time_rejection, quote_evidence
+from src.domain.volume_evidence import (
+    READ_ONLY_VOLUME_DIAGNOSTIC, native_stock_volume_rejection, ross_adv20_volume_rejection, verified_volume_shares,
+)
 
 from src.core.acquisition import history_enrichment, acquisition_cycle, checkpoint, acquisition_deadline, cycle_cache
 
@@ -17,6 +20,7 @@ import re
 from pathlib import Path
 import sys
 import time
+from math import isfinite
 from zoneinfo import ZoneInfo
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
@@ -388,6 +392,7 @@ class GateThresholds:
     live_quality_required: bool = True
     validation_override_active: bool = False
     run_mode: str = "LIVE"
+    ross_paper_volume_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -1370,6 +1375,13 @@ def _apply_degraded_contract(context: Dict[str, Any]) -> None:
         focus_eligible = False
         execution_eligible = False
         reason_codes.append("UNQUALIFIED_CONTINUITY_ONLY")
+    volume_rejection = context.get("volume_rejection")
+    if READ_ONLY_VOLUME_DIAGNOSTIC in (context.get("data_quality_flags") or ()):
+        execution_eligible = False
+        reason_codes.append(READ_ONLY_VOLUME_DIAGNOSTIC)
+    if volume_rejection:
+        execution_eligible = False
+        reason_codes.append(volume_rejection)
     if focus_eligible and (degraded_reference or degraded_rvol or degraded_adv20):
         reason_codes.append("DEGRADED_FOCUS_ALLOWED")
 
@@ -1583,6 +1595,7 @@ def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdReso
         live_quality_required=runtime.live_quality_required,
         validation_override_active=runtime.validation_override_active,
         run_mode=runtime.run_mode,
+        ross_paper_volume_required=runtime.run_mode == "PAPER" and policy.policy_name == "ROSS_MOMENTUM",
     )
 
 
@@ -1779,7 +1792,8 @@ def _populate_pct_change(
             context[key] = None
         context.update(historical_outcome=failure, historical_end_received=False,
                        adv20_outcome=failure, adv20_resolved=False,
-                       adv20_source="UNAVAILABLE", rvol_status="UNKNOWN", rvol_failure_reason=failure)
+                       adv20_source="UNAVAILABLE", adv20_volume_basis=None,
+                       rvol_status="UNKNOWN", rvol_failure_reason=failure)
         if context.get("reference_source") not in {"IBKR_PREV_CLOSE", "QUOTE_CLOSE_FALLBACK",
                 "SCANNER_PCT_SYNTHETIC_FALLBACK", "SNAPSHOT_LAST_PRICE_FALLBACK"}:
             for key in ("prev_close", "ref_close_rth", "reference_price", "pct_change", "pct_change_resolved"):
@@ -1787,6 +1801,7 @@ def _populate_pct_change(
             context.update(reference_resolved=False, qualification_usable_reference=False,
                            execution_usable_reference=False, pct_change_qualification_usable=False,
                            pct_change_execution_usable=False, reference_failure_reason=failure)
+        _apply_degraded_contract(context)
         return
     if context.get("_enrichment_reference_projected"):
         return
@@ -2280,6 +2295,24 @@ def _evaluate_focus_gates(
     premarket_volume = _safe_float(context.get("premarket_volume"), None)
     dollar_volume = _safe_float(context.get("dollar_volume"), None)
     session = normalize_session_label(str(context.get("session") or ""))
+    if thresholds.ross_paper_volume_required:
+        volume_evidence = context.get("volume_evidence")
+        source_rejection = native_stock_volume_rejection(
+            volume_evidence, con_id=context.get("con_id"), symbol=context.get("symbol"),
+        )
+        if source_rejection:
+            context["volume_rejection"] = source_rejection
+        elif verified_volume_shares(volume_evidence) is None:
+            context["volume_rejection"] = "ROSS_VOLUME_UNIT_UNVERIFIED"
+        elif session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"} and volume is not None and volume < thresholds.min_volume:
+            context["volume_rejection"] = "ROSS_VOLUME_BELOW_STOCK_SELECTION_MINIMUM"
+        if not context.get("volume_rejection") and (
+                volume_evidence.get("calibration_id") or os.environ.get("ROSS_PAPER_RELEASE_ENABLED") == "1"):
+            basis = context.get("adv20_volume_basis")
+            context["volume_rejection"] = ross_adv20_volume_rejection(volume_evidence, basis)
+            if not context["volume_rejection"] and basis["average"] != context.get("avg_volume_20d"):
+                context["volume_rejection"] = "ROSS_RVOL_ADV20_VALUE_MISMATCH"
+        _apply_degraded_contract(context)
     spread_pct = _safe_float(context.get("spread_pct"), None)
     bid = _safe_float(context.get("bid"), None)
     ask = _safe_float(context.get("ask"), None)
@@ -2410,6 +2443,9 @@ def _evaluate_focus_gates(
     if focus_decision == "WAIT":
         return "DROP_RVOL_FOCUS"
     if volume is None:
+        if context.get("volume_evidence") is not None and session not in {"PRE", "OVN"}:
+            context["focus_volume_flag"] = "UNKNOWN_UNIT_OR_SOURCE"
+            return "SOFT_FAIL_VOLUME"
         _log_focus_volume_drop(
             context=context,
             stage="focus",
@@ -3003,7 +3039,10 @@ def _news_candidates_for_symbols(
                 gap_pct=_safe_float(metadata.get("gap_pct") or metadata.get("pct_change"), None),
                 percentage_move=_safe_float(metadata.get("pct_change"), None),
                 float_shares=int(metadata["float_shares"]) if metadata.get("float_shares") is not None else None,
-                absolute_share_volume=int(metadata["volume"]) if metadata.get("volume") is not None else None,
+                absolute_share_volume=(
+                    int(metadata["volume"]) if metadata.get("volume") is not None
+                    and READ_ONLY_VOLUME_DIAGNOSTIC not in (metadata.get("data_quality_flags") or ()) else None
+                ),
                 relative_volume_rvol=_safe_float(metadata.get("rvol"), None),
                 metadata=metadata,
             )
@@ -4146,6 +4185,10 @@ def _candidate_from_context(
         float_cache_hit=context.get("float_cache_hit"),
         float_millions=float_millions,
         volume=volume,
+        volume_evidence=(
+            {**context["volume_evidence"], "adv20_volume_basis": context.get("adv20_volume_basis")}
+            if isinstance(context.get("volume_evidence"), dict) else None
+        ),
         premarket_volume=premarket_volume,
         dollar_volume=context.get("dollar_volume"),
         bid=context.get("bid"),
@@ -4475,8 +4518,23 @@ def _build_symbol_context(
     except Exception:
         intraday = None
 
-    quote_volume = _safe_float(getattr(quote, "volume", None), None)
-    volume = intraday.current_intraday_volume if intraday and intraday.current_intraday_volume is not None else quote_volume
+    volume_evidence = getattr(quote, "volume_evidence", None)
+    if volume_evidence is not None:
+        # Quote, unit and request identity are one observation. A second snapshot
+        # from intraday stats cannot replace its volume.
+        volume = verified_volume_shares(volume_evidence)
+        if volume is None:
+            data_quality_flags.append("VOLUME_UNIT_UNVERIFIED")
+            if get_run_mode() == RunMode.READ_ONLY:
+                raw_units = _safe_float(volume_evidence.get("raw_value"), None)
+                if raw_units is not None and isfinite(raw_units) and raw_units >= 0:
+                    # Retain the preexisting diagnostic ranking/progression as
+                    # an uncalibrated metric. No execution eligibility follows.
+                    volume = raw_units
+                    data_quality_flags.append(READ_ONLY_VOLUME_DIAGNOSTIC)
+    else:
+        quote_volume = _safe_float(getattr(quote, "volume", None), None)
+        volume = intraday.current_intraday_volume if intraday and intraday.current_intraday_volume is not None else quote_volume
     avg_volume_20d = intraday.average_daily_volume_20d if intraday else None
     avg_volume_window_days = intraday.average_daily_volume_window_days if intraday else None
     intraday_history_end_received = getattr(intraday, "historical_end_received", None)
@@ -4580,7 +4638,7 @@ def _build_symbol_context(
         hod_pct = round(((last_price - day_high) / day_high) * 100, 2)
 
     dollar_volume = None
-    if last_price is not None and volume is not None:
+    if last_price is not None and volume is not None and READ_ONLY_VOLUME_DIAGNOSTIC not in data_quality_flags:
         dollar_volume = round(last_price * volume, 2)
 
     float_entry = float_cache.get(symbol) or {}
@@ -4676,6 +4734,11 @@ def _build_symbol_context(
         "persisted_rvol": persisted_rvol,
         "ibkr_change_pct": ibkr_change_pct,
         "volume": volume,
+        "volume_evidence": volume_evidence,
+        "adv20_volume_basis": (
+            getattr(intraday, "adv20_volume_basis", None)
+            if intraday_history_end_received is True and intraday.average_daily_volume_20d is not None else None
+        ),
         "_enrichment_reference_snapshot": reference_snapshot,
         "avg_volume_20d": avg_volume_20d,
         "average_daily_volume_window_days": avg_volume_window_days,
@@ -4731,7 +4794,10 @@ def _build_symbol_context(
         "universe_rank": universe_rank,
     }
     attach_session_contract(context, session_contract)
-    _apply_degraded_contract(context)
+    # Provisional rows intentionally omit their pct-change projection.
+    # Calculate eligibility once that projection has been populated.
+    if include_pct_change:
+        _apply_degraded_contract(context)
     quote_contract = context.get("quote_contract") or _compute_quote_validity_contract(context)
     context["quote_contract"] = quote_contract
     _emit_scanner_reference_trace("final_context_build", context)
@@ -4967,7 +5033,8 @@ def _merge_snapshot_fields(context, snapshot_data):
         return
     for name in ("last_price", "bid", "ask", "volume", "close"):
         context["snapshot_" + name] = snapshot_data.get(name)
-        if context.get(name) is None and snapshot_data.get(name) is not None:
+        if (context.get(name) is None and snapshot_data.get(name) is not None
+                and not (name == "volume" and context.get("volume_evidence") is not None)):
             context[name] = snapshot_data[name]
             context.setdefault("snapshot_supplemented_fields", {})[name] = {
                 "source": "MarketSnapshotEnricher", "returned_market_data_type": "UNKNOWN",

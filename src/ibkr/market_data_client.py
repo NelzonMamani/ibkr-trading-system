@@ -118,6 +118,7 @@ class HistoricalDataResult(Sequence):
     normalization_selected_count: int | None = None
     normalization_rejected_count: int | None = None
     normalized_raw_bar_timestamps: tuple = ()
+    volume_basis: dict | None = None
 
     def __post_init__(self):
         if self.status in {"COMPLETE_BARS", "COMPLETE_EMPTY"} and not self.end_received:
@@ -181,6 +182,15 @@ def historical_binding_result(result, contract, expected_spec):
             and result.completed and historical_bar_facts(result.bars) != result.raw_source_bars):
         return replace(result, status="SOURCE_BAR_CONFLICT")
     return result
+
+
+def average_daily_bar_volume(bars, window):
+    volumes = [_clean(getattr(bar, "volume", None)) for bar in bars]
+    volumes = [int(value) for value in volumes if value is not None]
+    if not volumes:
+        return None, None
+    sample = volumes[-min(window, len(volumes)):]
+    return int(sum(sample) / len(sample)), len(sample)
 
 
 def historical_bar_facts(bars):
@@ -441,6 +451,7 @@ class MarketDataSnapshot:
     con_id: Optional[int] = None
     client_id: Optional[int] = None
     connection_epoch: Optional[int] = None
+    volume_evidence: Optional[dict[str, object]] = None
 
 
 class MarketDataClient:
@@ -964,6 +975,9 @@ class MarketDataClient:
                     "missing_fields": missing_fields,
                     **_snapshot_authority_metadata(observed, raw_fields, completed_at=completed_at, completion_reason=completion_reason),
                 }
+                volume_evidence = getattr(ib, "snapshot_volume_evidence", None)
+                if callable(volume_evidence):
+                    attempt_debug["volume_evidence"] = volume_evidence(observed)
                 debug["attempts"].append(attempt_debug)
                 attempt_finished = True
                 if completion_reason == "timeout":
@@ -1050,6 +1064,7 @@ class MarketDataClient:
             ask_size=best_fields["ask_size"],
             last_size=best_fields["last_size"],
             volume=best_fields["volume"],
+            volume_evidence=best_debug.get("volume_evidence"),
             vwap=best_fields["vwap"],
             open=best_fields["open"],
             high=best_fields["high"],
@@ -1456,12 +1471,8 @@ class MarketDataClient:
 
     def average_daily_volume_from_history(self, contract_or_symbol, *, window: int = 20, use_rth: bool = True) -> tuple[Optional[int], Optional[int]]:
         bars = self.daily_bars_from_history(contract_or_symbol, lookback_days=max(window, 3), use_rth=use_rth)
-        volumes = [_clean(getattr(bar, "volume", None)) for bar in bars]
-        volumes = [int(v) for v in volumes if v is not None]
-        if not volumes:
-            return HistoricalVolumeResult(None, None, bars)
-        sample = volumes[-min(window, len(volumes)):]
-        return HistoricalVolumeResult(int(sum(sample) / len(sample)), len(sample), bars)
+        average, sample_count = average_daily_bar_volume(bars, window)
+        return HistoricalVolumeResult(average, sample_count, bars)
 
     def _empty_snapshot(
         self,

@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -23,7 +24,7 @@ def manifest(repo):
     return {name: digest(repo/name) for name in names if name}
 
 
-def acquire(client, put):
+def acquire(client, put, *, put_private=None, requested_type="DELAYED", volume_symbol=None):
     from ibapi.scanner import ScannerSubscription
     from src.core.acquisition import acquisition_deadline, checkpoint, wait_event
     from src.ibkr.market_data_client import _clean, _returned_market_data_type, _resolve_snapshot_timestamp
@@ -33,47 +34,55 @@ def acquire(client, put):
     subscription.numberOfRows, subscription.abovePrice, subscription.belowPrice = 50, 1, 20
     result = {'scan_outcome': 'UNAVAILABLE', 'selected': [], 'quotes': [], 'PAPER_READY': False}
     with acquisition_deadline(time.monotonic() + 25):
-        try:
-            rows = client.reqScannerData(subscription)  # Exactly ONE; never robust_scan.
-        finally:
-            scan_receipt = dict(client.last_scanner_request)
-            error = scan_receipt.pop('error', None)
-            scan_receipt['error_present'] = error is not None
-            scan_receipt['error_code'] = (error[0] if isinstance(error, tuple) and
-                                          error and type(error[0]) is int else None)
-            put('scanner.json', scan_receipt)
-        receipt = client.last_scanner_request
-        if not (receipt.get('completion_status') == 'COMPLETE' and receipt.get('end_received')
-                and receipt.get('wait_signalled') and receipt.get('error') is None
-                and receipt.get('connected') and client.is_connected()
-                and receipt.get('row_count') == len(rows)):
-            raise RuntimeError('Scanner completion/ownership proof unavailable')
-        result['scan_outcome'] = 'CONFIRMED_EMPTY' if not rows else 'COMPLETE_NONEMPTY'
-        put('acquisition.json', result)
-        if not rows:
-            return result  # No quote, retry, substitute or fallback.
-        selected, seen = [], set()
-        for row in sorted(rows, key=lambda r: r.rank):
-            c = row.contractDetails.contract
-            if (c.secType != 'STK' or c.currency != 'USD' or type(c.conId) is not int
-                    or c.conId <= 0 or not c.symbol or len(c.symbol) > 64 or c.conId in seen):
-                continue
-            seen.add(c.conId)
-            c = copy.copy(c)
-            c.exchange = 'SMART'  # Normal routing instruction, not issuer identity.
-            selected.append(c)
-            result['selected'].append({'rank': row.rank, 'symbol': c.symbol, 'con_id': c.conId,
-                                       'primary_exchange': c.primaryExchange, 'route': c.exchange})
-            if len(selected) == 1:
-                break
-        put('acquisition.json', result)
+        if volume_symbol:
+            contract = client.resolve_contract(volume_symbol).contract
+            if (contract.symbol != volume_symbol or contract.secType != "STK"
+                    or contract.currency != "USD" or type(contract.conId) is not int or contract.conId <= 0):
+                raise RuntimeError("PAPER_RELEASE_VOLUME_CALIBRATION_CONTRACT_UNSUPPORTED")
+            selected = [contract]
+            result["selected"].append({"symbol": volume_symbol, "con_id": contract.conId})
+        else:
+            try:
+                rows = client.reqScannerData(subscription)  # Exactly ONE; never robust_scan.
+            finally:
+                scan_receipt = dict(client.last_scanner_request)
+                error = scan_receipt.pop('error', None)
+                scan_receipt['error_present'] = error is not None
+                scan_receipt['error_code'] = (error[0] if isinstance(error, tuple) and
+                                              error and type(error[0]) is int else None)
+                put('scanner.json', scan_receipt)
+            receipt = client.last_scanner_request
+            if not (receipt.get('completion_status') == 'COMPLETE' and receipt.get('end_received')
+                    and receipt.get('wait_signalled') and receipt.get('error') is None
+                    and receipt.get('connected') and client.is_connected()
+                    and receipt.get('row_count') == len(rows)):
+                raise RuntimeError('Scanner completion/ownership proof unavailable')
+            result['scan_outcome'] = 'CONFIRMED_EMPTY' if not rows else 'COMPLETE_NONEMPTY'
+            put('acquisition.json', result)
+            if not rows:
+                return result  # No quote, retry, substitute or fallback.
+            selected, seen = [], set()
+            for row in sorted(rows, key=lambda r: r.rank):
+                c = row.contractDetails.contract
+                if (c.secType != 'STK' or c.currency != 'USD' or type(c.conId) is not int
+                        or c.conId <= 0 or not c.symbol or len(c.symbol) > 64 or c.conId in seen):
+                    continue
+                seen.add(c.conId)
+                c = copy.copy(c)
+                c.exchange = 'SMART'  # Normal routing instruction, not issuer identity.
+                selected.append(c)
+                result['selected'].append({'rank': row.rank, 'symbol': c.symbol, 'con_id': c.conId,
+                                           'primary_exchange': c.primaryExchange, 'route': c.exchange})
+                if len(selected) == 1:
+                    break
+            put('acquisition.json', result)
         for c in selected:
             checkpoint()
             ticker = client.reqMktData(c, genericTickList='', snapshot=True, regulatorySnapshot=False)
             req = ticker.reqId
             reason = 'interrupted'
             try:
-                signalled = wait_event(client._market_events[req], 5)
+                signalled = wait_event(client._market_events[req], 12 if put_private is not None else 5)
                 with client._lock:
                     client._raise_if_request_id_conflicted(req)
                     t = copy.deepcopy(vars(ticker))
@@ -95,14 +104,35 @@ def acquire(client, put):
                     and age is not None and 0 <= age <= int(get_config('IBKR_SNAPSHOT_MAX_AGE_SECONDS'))
                     and all(v is not None for v in fields.values()))
                 result['quotes'].append({'symbol': c.symbol, 'con_id': c.conId, 'request_id': req,
-                    'requested_type': 'DELAYED', 'returned_type': returned, 'snapshot_complete': t.snapshotEnd,
+                    'requested_type': requested_type, 'returned_type': returned, 'snapshot_complete': t.snapshotEnd,
                     'market_timestamp_utc': stamp.isoformat() if stamp else None, 'age_seconds': age,
                     'field_presence': {k: v is not None for k, v in fields.items()}, 'diagnostic_fields_available': available,
                     'canonical_qualification': 'NOT_PERFORMED',
                     'completion_reason': reason})
+                if put_private is not None:
+                    from src.domain.volume_evidence import native_stock_volume_rejection
+                    volume_sample = client.snapshot_volume_evidence(t)
+                    put_private("native-volume.json", volume_sample)
+                    result["native_volume_sample_status"] = (
+                        native_stock_volume_rejection(volume_sample)
+                        or ("LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED" if available
+                            else "PAPER_RELEASE_VOLUME_NATIVE_PROBE_INCOMPLETE")
+                    )
             finally:
                 client.record_quote_completion(req, reason)
                 client.cancelMktData(req)
+                put('acquisition.json', result)
+            if volume_symbol and result.get("native_volume_sample_status") == "LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED":
+                history = client.reqHistoricalData(c, durationStr="20 D", barSizeSetting="1 day",
+                                                  whatToShow="TRADES", useRTH=1, formatDate=1)
+                if history.volume_basis is None:
+                    result["native_volume_sample_status"] = "PAPER_RELEASE_VOLUME_HISTORICAL_PROBE_UNVERIFIED"
+                else:
+                    put_private("volume-probe.json", {
+                        "watchlist": volume_sample,
+                        "history": {**history.volume_basis,
+                                    "bars": [[row["date"], row["volume"]] for row in history.raw_source_bars]},
+                    })
                 put('acquisition.json', result)
     return result
 
@@ -140,28 +170,49 @@ def final_orders(put, observer_factory=None):
 
 def main():
     args = sys.argv[1:]
-    if len(args) not in (3, 5):
-        raise RuntimeError('Expected phase/root/commit and optional explicit profile/tree')
+    if len(args) == 4 and args[0] == "prepare-volume":
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from src.ibkr.volume_calibration import prepare_paper_volume_calibration
+        try:
+            prepare_paper_volume_calibration(*map(Path, args[1:]))
+        except RuntimeError as exc:
+            print(str(exc))
+            return 2
+        except OSError:
+            print("PAPER_RELEASE_VOLUME_CALIBRATION_OUTPUT_UNAVAILABLE")
+            return 2
+        print("PAPER_RELEASE_VOLUME_CALIBRATION_PREPARED")
+        return 0
+    if len(args) not in (3, 5, 6):
+        raise RuntimeError('Expected phase/root/commit and optional explicit profile/tree/volume symbol')
     phase, root_text, expected = args[:3]
-    profile, expected_tree = args[3:] if len(args) == 5 else ('quotes', None)
-    if profile not in ('quotes', 'final-orders'):
+    profile, expected_tree = args[3:5] if len(args) >= 5 else ('quotes', None)
+    volume_symbol = args[5] if len(args) == 6 else None
+    if (profile == "live-volume" and (not volume_symbol or not re.fullmatch(r"[A-Z][A-Z0-9. -]{0,14}", volume_symbol))) or (
+            profile != "live-volume" and volume_symbol):
+        raise RuntimeError("PAPER_RELEASE_VOLUME_CALIBRATION_CONTRACT_REQUIRED")
+    if profile not in ('quotes', 'final-orders', 'live-volume'):
         raise RuntimeError('Unknown diagnostic profile')
-    if profile == 'final-orders' and (not expected_tree or len(expected_tree) != 40 or
+    if profile != 'quotes' and (not expected_tree or len(expected_tree) != 40 or
                                      any(c not in '0123456789abcdef' for c in expected_tree)):
-        raise RuntimeError('Final orders requires explicit reviewed tree')
+        raise RuntimeError('Diagnostic requires explicit reviewed tree')
+    scope = {"quotes": "QUOTE_DIAGNOSTIC_ONLY", "final-orders": "FINAL_ORDERS_DIAGNOSTIC_ONLY",
+             "live-volume": "LIVE_VOLUME_DIAGNOSTIC_ONLY"}[profile]
     root = Path(root_text); repo = root/'s'; evidence = root/'e'
     sys.path.insert(0, str(repo)); os.chdir(repo)
     from src.ibkr.evidence_safety import install_console_protection, scan_artifacts, write_json
     def put(name, value):
         write_json(evidence/name, value)
     if phase in ('package', 'seal'):
+        if profile == "live-volume":
+            raise RuntimeError("Live volume diagnostics are laptop-private")
         # Filesystem only. All quote writers must have exited before this phase.
         proof = json.loads((evidence/'privacy-probe.json').read_text(encoding='utf-8'))
         if not proof.get('passed'):
             raise RuntimeError('Probe privacy verification absent/failed; retain local evidence')
-        if profile == 'final-orders':
+        if profile != 'quotes':
             result = json.loads((evidence/'result.json').read_text(encoding='utf-8'))
-            if result.get('scope') != 'FINAL_ORDERS_DIAGNOSTIC_ONLY' or result.get('accepted') != expected:
+            if result.get('scope') != scope or result.get('accepted') != expected:
                 raise RuntimeError('Package scope/pin differs')
         shutil.copy2(__file__, evidence/'operator.py')
         scan = scan_artifacts(evidence)
@@ -170,7 +221,8 @@ def main():
             raise RuntimeError('Privacy scan failed; no shareable archive')
         if phase == 'package':
             return 0
-        archive = root/('final-orders-diagnostic-upload.zip' if profile == 'final-orders' else 'quote-diagnostic-upload.zip')
+        archive = root/{"final-orders": "final-orders-diagnostic-upload.zip",
+                        "quotes": "quote-diagnostic-upload.zip"}[profile]
         with zipfile.ZipFile(archive, 'x', zipfile.ZIP_DEFLATED) as z:
             for path in sorted(evidence.rglob('*')):
                 if (evidence/'PACKAGE_STOP_REQUESTED').exists():
@@ -186,7 +238,7 @@ def main():
         timings.append({'stage': name, 'utc': datetime.now(timezone.utc).isoformat(),
                         'elapsed_seconds': time.monotonic()-started})
         put('startup-stages.json', timings)
-    report = {'status': 'FAIL', 'PAPER_READY': False, 'PAPER_READINESS_GATE': 'FAIL', 'scope': 'FINAL_ORDERS_DIAGNOSTIC_ONLY' if profile == 'final-orders' else 'QUOTE_DIAGNOSTIC_ONLY',
+    report = {'status': 'FAIL', 'PAPER_READY': False, 'PAPER_READINESS_GATE': 'FAIL', 'scope': scope,
               'accepted': expected, 'operator_sha256': digest(Path(__file__)), 'scanner_attempted': False, 'broker_audit_completed': False,
               'source_state': 'NOT_VERIFIED', 'operator_state': 'NOT_VERIFIED'}
     diagnostic = None
@@ -251,7 +303,7 @@ def main():
             from ibapi.client import EClient
             stage('imports_complete_source_begin')
             safety.require_clean_certification_worktree(expected)
-            if profile == 'final-orders':
+            if profile != 'quotes':
                 actual_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], cwd=repo, timeout=10).decode().strip()
                 if actual_tree != expected_tree:
                     raise RuntimeError('Reviewed tree differs')
@@ -289,7 +341,8 @@ def main():
                 rc = 0 if complete and transport['coverage_verified'] else 2
                 report['status'] = 'DIAGNOSTIC_COMPLETE' if rc == 0 else 'DIAGNOSTIC_ONLY'
             else:
-                client = IbkrClient('127.0.0.1', 7497, 71, 5, 'DELAYED', True)
+                requested_type = "LIVE" if profile == "live-volume" else "DELAYED"
+                client = IbkrClient('127.0.0.1', 7497, 71, 5, requested_type, True)
                 from src.ibkr.transport_diagnostic import TransportDiagnostic
                 diagnostic = TransportDiagnostic(client)
                 diagnostic.__enter__()
@@ -297,11 +350,22 @@ def main():
                     client.connect()  # One connection, no manager/reconnect wrapper.
                     diagnostic.record('negotiated', server_version=client.serverVersion())
                     stage('connected_acquisition_begin')
-                    report['scanner_attempted'] = True
-                    result = acquire(client, put)
+                    report['scanner_attempted'] = profile != "live-volume"
+                    if profile == "live-volume":
+                        result = acquire(client, put, requested_type=requested_type, volume_symbol=volume_symbol,
+                                         put_private=lambda name, value: write_json(root/name, value))
+                    else:
+                        result = acquire(client, put)
+                    if profile == "live-volume":
+                        report["native_volume_sample_status"] = result.get(
+                            "native_volume_sample_status", "ROSS_VOLUME_EVIDENCE_MISSING",
+                        )
                 stage('acquisition_finished')
                 complete = bool(result['selected'] and len(result['quotes']) == len(result['selected'])
-                                and all(q['diagnostic_fields_available'] for q in result['quotes']))
+                                and all(q['diagnostic_fields_available']
+                                    for q in result['quotes'])
+                                and (profile != "live-volume" or report["native_volume_sample_status"] ==
+                                     "LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED"))
                 report['status'] = 'DIAGNOSTIC_COMPLETE' if complete else 'DIAGNOSTIC_ONLY'
                 rc = 0 if complete else 2
         except BaseException as exc:

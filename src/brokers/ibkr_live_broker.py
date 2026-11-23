@@ -148,12 +148,15 @@ class IbkrLiveBroker(BaseBroker):
             f"client_id={metadata.get('connected_client_id')} connected={client.is_connected()}"
         )
 
-    def disconnect(self, reason: str = "manual") -> None:
+    def disconnect(self, reason: str = "manual", *, disconnect_admission=None) -> None:
         if self.connection_manager is None:
+            if disconnect_admission is not None:
+                raise RuntimeError("PAPER_RELEASE_SHUTDOWN_FINAL_SCOPE_CHANGED")
             return
-        self.connection_manager.disconnect(reason=reason)
+        self.connection_manager.disconnect(reason=reason, **(
+            {"disconnect_admission": disconnect_admission} if disconnect_admission is not None else {}))
 
-    def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
+    def place_order(self, request: BrokerOrderRequest, *, entry_admission=None) -> ExecutionResult:
         profile_name = str(get_risk_profile_name() or "NORMAL").upper()
         profile = RISK_PROFILES.get(profile_name)
         if profile and profile.max_shares is not None and request.quantity > profile.max_shares:
@@ -208,7 +211,7 @@ class IbkrLiveBroker(BaseBroker):
             direction=request.direction,
             quantity=request.quantity,
             order_type=request.order_type,
-            limit_price=None,
+            limit_price=request.limit_price,
             time_in_force="DAY",
             strategy_name=request.strategy_name or "UNKNOWN",
             trader_type=request.trader_type or "UNKNOWN",
@@ -240,7 +243,9 @@ class IbkrLiveBroker(BaseBroker):
         try:
             self.ensure_connection()
             assert self.submitter is not None
-            result = self.submitter.submit_once(internal_order)
+            result = self.submitter.submit_once(
+                internal_order, **({"entry_admission": entry_admission} if entry_admission is not None else {}),
+            )
         except Exception as exc:
             rationale = f"LIVE_SUBMISSION_FAILED: {exc}"
             return ExecutionResult(
@@ -272,7 +277,7 @@ class IbkrLiveBroker(BaseBroker):
         resolved_stop_loss = request.stop_loss_price
         resolved_take_profit = request.take_profit_price
 
-        if fill_status in {"FULL", "PARTIAL"} and filled_quantity > 0:
+        if entry_admission is None and fill_status in {"FULL", "PARTIAL"} and filled_quantity > 0:
             entry_price = average_fill_price
             if entry_price is not None:
                 pattern_name = request.pattern_name
@@ -458,11 +463,12 @@ class IbkrLiveBroker(BaseBroker):
         trade_id: str,
         parent_order_id: str | None,
         before_submit=None,
+        final_entry_admission=None,
         con_id=None,
     ) -> dict[str, str]:
         if Contract is None or Order is None:
             raise RuntimeError("ibapi dependency missing; protective order unavailable")
-        if before_submit is not None:
+        if before_submit is not None or final_entry_admission is not None:
             # New unit ownership cannot acquire/reconnect a client implicitly.
             client = getattr(self.connection_manager, "existing_client", None)
             if self.run_mode != RunMode.PAPER or client is None or not client.isConnected():
@@ -473,7 +479,7 @@ class IbkrLiveBroker(BaseBroker):
             client = self.connection_manager.get_client()
         contract = Contract()
         contract.symbol = str(symbol).upper()
-        if before_submit is not None:
+        if before_submit is not None or final_entry_admission is not None:
             if type(con_id) is not int or con_id <= 0:
                 raise RuntimeError("NATIVE_UNIT_STOP_SECURITY_UNAVAILABLE")
             contract.conId = con_id
@@ -495,7 +501,11 @@ class IbkrLiveBroker(BaseBroker):
             order.parentId = int(parent_order_id)
         order.transmit = True
         order.orderRef = f"PROTECT|{trade_id}"
-        broker_order_id = client.submit_order(contract, order, **({"before_submit": before_submit} if before_submit is not None else {}))
+        broker_order_id = client.submit_order(
+            contract, order,
+            **({"before_submit": before_submit} if before_submit is not None else {}),
+            **({"final_entry_admission": final_entry_admission} if final_entry_admission is not None else {}),
+        )
         print(
             "[IBKR][ORDER_SUBMITTED] "
             f"type={order.orderType} order_id={broker_order_id} trade_id={trade_id} symbol={symbol} "
@@ -513,6 +523,7 @@ class IbkrLiveBroker(BaseBroker):
         trade_id: str,
         parent_order_id: str | None = None,
         before_submit=None,
+        final_entry_admission=None,
         con_id=None,
     ) -> dict[str, str]:
         return self._submit_protective_order(
@@ -525,6 +536,7 @@ class IbkrLiveBroker(BaseBroker):
             trade_id=trade_id,
             parent_order_id=parent_order_id,
             before_submit=before_submit,
+            final_entry_admission=final_entry_admission,
             con_id=con_id,
         )
 

@@ -21980,3 +21980,426 @@ remains pending when this publication receipt is prepared. No unchanged local
 observation or benchmark retry, source database change, order/holding action,
 recovery clearing, preservation enrollment or gate relaxation occurred.
 All five ownership vetoes remain. PAPER_READY=NO.
+
+### Active Ross PAPER release checklist and autonomous implementation contract (2026-11-23)
+
+This is the current consolidated release checklist. Keep this section and its
+dated evidence updates in THIS existing checkpoint; do not create another Ross
+tracker or duplicate implementation. Historical receipts remain verbatim.
+A later status must name its actual source, test/CI receipt and acceptance
+scope. IMPLEMENTED, VERIFIED_INERT and VERIFIED_LAPTOP are different states.
+
+Objective: release one supported Ross setup through the ordinary one-share
+MICRO risk profile on an explicitly prepared clean, exclusively operated PAPER
+session. Finish code, review and integration autonomously under the operator's
+standing authorization. Actual broker acceptance remains a laptop receipt.
+The MICRO risk profile is not the Micro Pullback setup family; name both
+explicitly when choosing the bounded supported setup.
+
+#### Accepted work: reuse, do not repeat
+
+| ID | Status and accepted evidence | Boundary still retained |
+| --- | --- | --- |
+| D01 | IMPLEMENTED / VERIFIED_INERT / required CI passed: exact fractional position truth and clean-start refusal before mutations, cumulative strict completed reads, ambiguous native-position callback rejection and retirement of the lossy operational lifecycle overlay, PRs1242-1245. | Automatic fractional legacy cleanup is unsupported; FORCE_CLEAN_START stays default-off. |
+| D02 | IMPLEMENTED / VERIFIED_INERT / required CI passed: account-bound capital producer1246, exact held-contract USD stock gross valuation1247, explicit12-second completed valuation wait1248. Main98a5f90ced1d17fd97e45103155a22efe6b2bed9 contains these changes; its automatic main CI45044024637 was verified successful. | Evidence producers do not themselves enroll ordinary risk or preservation. Matching bracketing positions are endpoints, not atomic consistency. |
+| D03 | VERIFIED_LAPTOP within READ_ONLY scope: November23 root ro-8e455b5b, source7a2070ab, all phase exits0, zero mutations, completed cleanup/audit; three completed50-row scans, Focus1 in31 cycles,27 raw emissions24ABCD/3Micro. | Repeated emissions are not27 unique opportunities. All rejected before risk by ownership truth; volume qualification remains unresolved. This is accepted natural raw-intent progress, not executable/broker acceptance. |
+| D04 | IMPLEMENTED / VERIFIED_INERT / independent review CLEAR: PR1249 headccb8311beec3d4ca888d712bd58db91a1b10cfc3 accepts exactly DU/DUK plus ASCII digits in both existing benchmark validators;169 focused passes. Required CI45216779844 remains in progress at checklist publication. | Benchmark-only compatibility; no SPY/QQQ capture accepted, prefix syntax not PAPER-login proof, no Ross veto removed. Check actual final CI and expected head before integration. |
+
+Current accepted main when this checklist is prepared:
+98a5f90ced1d17fd97e45103155a22efe6b2bed9.
+PR1249 is a separate reviewed candidate, not accepted main while CI is pending.
+This checklist is appended on a descendant review branch so all earlier receipts
+remain once. A coordinator/Codex must inspect current refs before integration.
+
+#### Active blockers and decisive completion evidence
+
+| ID | Status / existing owner | Required implementation or decisive receipt |
+| --- | --- | --- |
+| B01 | ACCOUNT_PREREQUISITE: five unresolved legacy holdings; Core position-truth entry guard in src/core/orchestrator.py. | The observed account still refuses. Shortest first-release route is a genuinely clean, order-free, exclusively operated PAPER starting session/account, followed by fresh supported runtime checks. Alternatively authoritative ownership must be established. No automatic reset, liquidation, adoption, exemption, registry deletion, recovery clearing or false external-owner classification. P01/P02 have split continuity only. |
+| B02 | CODE_REQUIRED + SOURCE_FACT_UNVERIFIED: raw volume at src/adapters/brokers/ibkr/ibkr_client.py tickSize8/74, src/ibkr/market_data_client.py and src/scanner/providers/ibkr_provider.py. | Carry raw value, tick/source type, security/request/connection identity, time/session, LIVE/delayed state and unit provenance through existing owners. Normalize shares only under an established documented source contract. Unknown units cannot establish execution eligibility; no blanket100 multiplier. Add a minimal private diagnostic for the exact missing runtime fact if source alone cannot establish the effective contract. |
+| B03 | CODE_REQUIRED: Ross volume-policy consumption in src/scanner/scanner_runner.py and src/strategies/ross_momentum_strategy_v1.py. | Reconcile the250000 opening Focus rule,50000 warning,10000 data floor and declared1000000 execution minimum by their existing authoritative roles and session policies. Correct units first. Diagnostic/degraded discovery may remain useful; ordinary PAPER cannot silently inherit eligibility from a warning route. Prove the decision at actual Core risk/final admission, preserving thresholds and other Ross pillars. No invented or weakened policy. |
+| B04 | CODE_REQUIRED: ordinary account-capital admission in Core, src/risk/risk_engine.py and src/execution/execution_engine.py. | Risk currently starts with get_default_capital/sourceCONFIG; execution's _capital_account_snapshot also accepts evaluated/provider dictionaries. Bind the existing completed same-account/connection, concrete-currency capital facts through ordinary risk, allocation/reservation and final native admission. Missing, stale, wrong-scope, ambiguous or conflicting facts refuse; zero funds is valid zero, not missing/fallback. Configured capital or permissive summaries cannot masquerade as broker truth. Preserve no-borrowing/cash constraints and existing numerical risk/daily limits. |
+| B05 | IMPLEMENTATION_VERIFY_AND_REPAIR: ordinary one-share PAPER owners already exist, including Core canonical decision/risk handoff and native execution. | Reuse one already supported setup/management contract and real ordinary configuration, no synthetic enrollment or prepared approvals. Prove actual native-format scanner/strategy intent, canonical identity, position truth, genuine risk/capital/reservation and native dispatch through inert transport; repair demonstrated defects. Existing default one-share route is not globally synthetic-only. Do not require every Ross family or all20 strategies. |
+| B06 | VERIFIED_INERT_PARTIAL / BROKER_UNPROVED: fill, accounting, structural stop and supported exit. | Joined acceptance must show ack without ownership; attributable later entry fill; committed exactly-once accounting; independently observed working protection at the selected original structural stop; supported exit fill and flat reconciliation. Delayed/duplicate/conflicting callbacks, rejected/missing protection, uncertain submission, reconnect and cold restart must not fabricate ownership, duplicate trades or resume uncertainty. Use existing approved failure handling and quarantine. Actual IBKR acceptance is still a later laptop receipt. |
+| B07 | CODE_REQUIRED / OPERATING_CONTRACT: clean exclusive PAPER admission and minimal caller. | Define a default-off bounded acceptance profile using existing owners. Require expected current PAPER scope, complete supported zero-position truth, current supported order observations, fresh account-bound capital, data eligibility and clear recovery state. One explicit invocation may attest the operator checked UI flat/order-free/exclusive PAPER conditions; label these as operator facts. Detectable changes or uncertainty invalidate admission before writes. Existing five-position account must refuse. |
+| B08 | BROKER_UNPROVED: local controlled attempt. | After independent review, exact-head required CI/integration and caller/source verification, one supervised qualifying one-share PAPER opportunity establishes real ack/fill/protection/exit receipts. If no valid opportunity occurs, return NO_TRADE with the true gate. Do not force a setup, retry automatically or call inert tests broker proof. No cloud TWS/broker activity in implementation batch. |
+
+#### Explicit limitations and deferred work
+
+* Inventory preservation remains CLOSED. Startup/current-client/overlapping native
+  order requests can share an untagged openOrderEnd; no global final-write fence
+  against arbitrary other clients is established. Do not rediscover this same
+  limitation or invent an atomic guarantee. Clean, exclusive operation is a
+  separately declared operating assumption plus observable scoped checks.
+  Current-client order completion must never be relabelled account-wide proof.
+  Preserve all known contradictions and invalidate on observed uncertainty.
+* PRE/10-second execution details and normal phase policies remain intact.
+  The first bounded release can target ordinary RTH with a reviewed session
+  calendar; other sessions are not implicitly certified.
+* Adds, multi-share management, discretionary trailing, uncertain restart
+  resumption and broader family variants remain outside the first release
+  unless already supported by the selected existing contract. Do not import
+  composed Bull/Micro numerical policy into standalone setups.
+* Direct GAP_GO missing structural-stop authority, HALT-specific unsupported
+  behavior, listing-compliance/provenance work and all other parked protections
+  retain their recorded scope. A family with unresolved mandatory authority
+  stays disabled; it need not block an independently supported first setup.
+* SPY/QQQ capture, P02/P03 activation and the remaining20-strategy programme
+  remain tracked follow-on work. PR1249 fixes a capture compatibility gate,
+  not the Ross trading blocker. No new strategy work precedes this release.
+* Catalyst coverage in this run was partial; issuer earnings/cache qualification
+  was observed, not complete news coverage or independent original-publisher
+  authentication. Existing freshness, catalyst, float, price, gap, RVOL,
+  quote, trigger and dilution protections must remain authoritative.
+* No claim of profitability, full strategy certification or operational
+  readiness follows from terminalPASS, source review or green CI alone.
+
+#### Next autonomous Codex batch: finite delivery
+
+Run parallel read-only/source-owner work where useful, serialize shared Core/
+config edits, and reuse existing modules/harnesses. Deliver B02-B07 code and
+joined inert evidence to the extent source facts permit; isolate any precise
+laptop-only unit or account fact without stopping independent implementation.
+Do not replace those facts with fabricated success or configuration fallback.
+
+Include a single complete Windows PowerShell5.1 paste-and-Enter caller pinned
+to accepted source with hashes and native parsing. Prefer the existing maintained
+caller and admission/cleanup paths, no duplicate launcher framework. No extra
+confirmation word is needed; explicit invocation must clearly state its current
+operator-attested facts. Separate preparation/preflight from actual execution,
+keep raw account/contract/order/financial records laptop-local, and emit only
+sanitized blockers/status and output paths. Apply supported quote timing and
+source/calendar/client/process checks; do not copy an expired one-day window.
+
+Perform meaningful causal regression cases and a joined ordinary one-share
+positive using inert transport. Reuse native owners, do not mock risk approval
+or hand-create the approval being tested. Include wrong account/currency/epoch,
+zero/absent/stale capital, unknown/double-normalized volume, degraded eligibility,
+unresolved/fractional holdings, unexpected orders, duplicate fill and protection/
+restart uncertainty negatives. Existing default refusals and READ_ONLY zero
+mutations remain covered.
+
+Finish independent final-tree review, focused checks, required Linux/Windows CI
+and authorized exact-head integration without routine permission pauses. If a
+genuine platform approval rejection prevents integration, retain the concrete
+reviewable head and report the action and reason; do not bypass it. Resolve CI
+failures within scope; no hiding failures, weakening checks or unchanged retry
+loops. Verify actual merge parents/tree and post-merge CI before publishing a
+new launch pin. Check PR1249 final checks before its independent merge.
+
+Update THIS checklist after every completed batch with exact heads/trees,
+test/CI receipts and verified status. The final handoff contains changes,
+remaining blockers, truthful PAPER readiness, and ONE next local action.
+Do not re-run unchanged observations or reopen completed acquisition searches.
+Current state at publication: all five vetoes remain; no broker action, holdings
+disposition, operational enrollment or recovery clearing. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
+
+### One-share Ross PAPER implementation candidate (2026-11-23)
+
+Source under review: `736911164c7937b7ad0e5d44ecdf085cd91aac9f`, tree
+`4d711521cdd775a3b31d572d2aec058568ebdb82`. This batch selects standalone
+ABCD and the independent MICRO risk profile. Its bounded acceptance profile
+admits at most one new entry attempt during a covered RTH opening window.
+
+| ID | Candidate status | Evidence or remaining condition |
+| --- | --- | --- |
+| B01 | ACCOUNT_PREREQUISITE | Clean startup refuses retained management/recovery state and nonzero broker holdings, including fractional holdings. No action was taken on the five unresolved laptop holdings or their evidence. |
+| B02 | IMPLEMENTED / VERIFIED_INERT / LAPTOP SOURCE FACT OPEN | Native tick provenance includes the original value, tick type, qualified security, request, client/epoch, server, trading-day basis, times and market-data status. Verified shares pass through unchanged. A fresh live tick 8 and matching TWS shares comparator qualify only the exact contract and session scope. The private diagnostic does not produce an upload package. The actual TWS build, effective lots setting, and same-contract live pair remain unverified. |
+| B03 | IMPLEMENTED / VERIFIED_INERT | Opening Focus retains its 250,000 participation threshold. The warning/data floor and the 1,000,000-share RTH entry minimum keep their roles. Reference enrichment can complete provisional eligibility without overriding any prior explicit refusal. READ_ONLY retains marked diagnostic raw-volume progression. Real PAPER entry checks scanner eligibility and native share evidence before risk and again before wire dispatch. |
+| B04 | IMPLEMENTED / VERIFIED_INERT | The same completed scoped USD account capital result feeds ordinary native PAPER risk, allocation, reservations and final SDK admission. Wrong scope, stale, incomplete, conflicting and missing evidence refuse. A verified zero is insufficient funds. The existing notional controls apply at the approved entry price. The market order carries no fill-price ceiling, and the broker result does not certify an unborrowed or settled cash balance. |
+| B05/B06 | IMPLEMENTED / VERIFIED_INERT | Actual scanner, quote, position and capital callbacks reached ABCD/MICRO through Core, risk, reserves and native dispatch in both ordinary and exclusive modes. Acknowledgment left ownership empty. The later fill accounted once, a separately observed one-share working stop used the original structural price, and the protective exit reconciled flat. Tests exercise duplicate exit callbacks, unresolved/missing/rejected/wrong-price protection, retained restart, and refusal of unsupported native PAPER shorts. Ambiguous protective submission is not retried. |
+| B07 | IMPLEMENTED / VERIFIED_INERT / WINDOWS AND LAPTOP OPEN | Default-off startup requires expected PAPER scope, operator attestation, a verified RTH opening, completed zero positions and current-client orders, fresh broker capital, and clear retained recovery. Observed changes inhibit new dispatch up to the final SDK boundary. Owned management remains active after the starting gate. The PowerShell 5.1 caller template refuses without accepted source hashes. Windows parser verification is part of required CI. |
+| B08 | VERIFIED_LAPTOP PENDING | This candidate has no broker acceptance receipt. The private volume comparator, reviewed local current calendar and genuinely clean exclusive PAPER scope are required for a later supervised attempt. |
+
+Independent review at source `3163d80e08579fe7dcdb774fd966d9f33b23fc39`,
+tree `417df34602f64cf086c7c1576c2c7c44053bf5d9`, passed 185 focused offline
+cases, including the ordinary and exclusive joined positives and established
+READ_ONLY risk progression. Final source review cleared the short-veto delta
+for draft publication, with 19 focused offline passes. These receipts overlap.
+Required release CI and post-merge CI are pending. PR1249 still has its reviewed
+head `ccb8311beec3d4ca888d712bd58db91a1b10cfc3`. Its Linux and Windows
+controlled-process jobs passed on run 45216779844. The Windows offline job was
+still running at this checkpoint. No accepted release pin has been issued.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### Candidate compatibility verification (2026-11-23)
+
+PR1250 draft was published at `cfbab94bdbdd31e6f983a599da45b37811c12ba9`.
+Its initial run 45224533001 failed the Windows quote diagnostic AST contract,
+which assumed there was only one explicit profile. The updated test checks
+both profiles, rejects a missing tree for both, and verifies that live-volume
+returns before packaging. The launcher and diagnostic AST parsed locally under
+PowerShell 7 without acquisition. Windows PowerShell 5.1 remains a required
+new-head check.
+
+Source `e7c0a8869eda9c6ebedbed164c96dad89da22034`, tree
+`9cee340b6c04e1274aac128c02a8c37d86e48be0`, also isolates invariant checking
+to the traces emitted during the current strategy invocation. A blocked
+candidate cannot reuse a prior detected trace with an equal market timestamp.
+The isolated native wire fixtures explicitly keep their unrelated capital-read
+owner inactive. On this source, 52 focused offline tests passed, covering the
+joined PAPER paths, restored READ_ONLY diagnostics, profile, capital and late
+mark cases. Independent verification passed 65 adjacent trace and native wire
+tests on the same source. The receipts overlap.
+
+D04 required exact-head CI 45216779844 completed successfully in every job.
+The attempt to merge PR1249 against expected head
+`ccb8311beec3d4ca888d712bd58db91a1b10cfc3` was rejected by automatic approval
+review because the reviewer requires explicit authorization to merge into
+`main`. The repository was left at its accepted head pending that approval.
+No laptop result or accepted PAPER source pin is asserted.
+
+### Full-suite follow-up and Windows caller parse (2026-11-23)
+
+The isolated Linux full suite on earlier source
+`3163d80e08579fe7dcdb774fd966d9f33b23fc39` reported 8,603 passed,
+36 failed and three skipped. The failures identified compatibility work,
+including optional volume provenance for legacy snapshot readers,
+historical diagnostic volume reuse, a historical Core harness binding, and
+the workflow's expected PowerShell step count. Failed cases remain part of
+that receipt.
+
+At source `f69f2ef4e2582043904badd740802c4f4cd633a6`, tree
+`50ff7b407706e0af52624ef04f94ae49c2e06a75`, legacy readers can expose
+diagnostic volume when native evidence is absent. Explicit unknown native
+evidence remains ineligible. The sanitized laptop result preserves the last
+concrete gate, including insufficient funds. The focused exact-source suite
+passed 149 cases. Independent review passed 157 overlapping compatibility
+cases on that source. The preceding PR1250 head
+`283f4bf08d15c483ee7d35822d1594e92a2dc36d` passed all Windows controlled
+process checks on run 45226468548, including native PowerShell 5.1 parsing
+and the caller's deliberate missing-pin refusal. The caller template is
+unchanged in this delta. Current-head full Linux/Windows CI is still required.
+The authorized operator volume probe and controlled PAPER launch remain
+unexecuted. PAPER_READY=NO.
+
+### Coordinator review of PR1250 and Windows causal repair (2026-11-23)
+
+Review source: 484afebdaad74db4dcb82afee03a933ac7040bb4. The candidate remains
+DRAFT and its write-enabled laptop caller remains UNPINNED. This dated review
+supersedes any implication that B02-B07 are fully release-complete merely
+because their inert positive cases pass. No broker connection or laptop
+operation was performed.
+
+#### Integrated independent benchmark repair
+
+PR1249 required run45216779844 passed all five jobs on reviewed
+ccb8311beec3d4ca888d712bd58db91a1b10cfc3. Coordinator merged under the
+operator's standing authorization through the GitHub exact-head merge tool.
+Actual main merge42bf5ba95b5808231ed923d824ad96977882cb68 has ordered parents
+98a5f90ced1d17fd97e45103155a22efe6b2bed9 and
+ccb8311beec3d4ca888d712bd58db91a1b10cfc3. Its tree
+845758c31d76a5a36795ebd05e48ad96e12e3c97 equals the reviewed head.
+Automatic main run45239388028 was still in progress when this receipt was
+prepared. Earlier automatic approval rejection is historical; this merge
+succeeded. No new user authorization question was necessary. D04 source
+integration is complete; actual SPY/QQQ acquisition remains unverified.
+
+#### Actual Windows result and causal test-harness correction
+
+Run45227777348 on484afeb passed Linux8641/3skipped and Windows controlled
+process, but Windows offline job137878935177 FAILED:5failed/8637passed/
+2skipped,39subtests,2959.92seconds. The aggregate failed. The five
+ordinary/exclusive/missing-stop/rejected-stop/wrong-structural-stop cases
+reported PRISTINE_PAPER_EXECUTION_CERTIFICATE:LEG. These are retained
+failures, not a passed or still-running Windows receipt.
+
+The cause was reproduced on Linux by forcing the real stdlib
+socket._fallback_socketpair: native scanner import initializes asyncio;
+Windows uses a private TCP socketpair for its self-pipe. The cold-child
+method-level socket.connect denial intercepted that internal connection
+before entry dispatch. A later supplied fill therefore correctly failed
+its missing-prior-dispatch certificate. The guard was not evidence of an
+actual broker transaction or an invalid production fill.
+
+The narrow correction in tests/test_startup_recovery_and_stop_protection.py
+verifies the inherited hard offline audit guard, creates/owns the native
+scanner asyncio loop before installing the unchanged stricter method-level
+denials, and closes that loop during owned cleanup. The existing hard audit
+still restricts private socketpair setup to the genuine stdlib internal
+pair. No production code, execution certificate or global offline guard is
+weakened. tests/test_native_stop_price_prerequisite.py now exercises all
+five outcomes with both native and forced Windows stdlib socketpairs and
+checks loop closure.
+Independent review cleared this narrow two-file test delta and confirmed
+that the inherited audit, application network denies and prior execution
+assertions remain intact.
+
+Focused verification:13joined/cold-start cases passed in40.59seconds,
+including10socketpair/lifecycle combinations, READ_ONLY progression,
+empty startup and child timeout cleanup. The existing24offline socketpair/
+network-guard cases passed in5.99seconds. git diff --check passed.
+These scoped results do not replace actual required Windows CI on the
+new combined head.
+
+#### Reopened active release checklist
+
+| ID | Current precise status | Decisive remaining work |
+| --- | --- | --- |
+| B01 | ACCOUNT_PREREQUISITE unchanged | Five legacy holdings remain unresolved and entry-vetoed. No clean account/session has been prepared or verified; no disposition/adoption/exemption/reset is authorized by this review. |
+| B02 | Native provenance and exact-contract share-verification primitive VERIFIED_INERT; operator calibration INCOMPLETE | The caller expects a four-key volume-witness.json; the diagnostic writes a different native-volume.json schema and samples the first acceptable scanner row. The comparator must initially match the exact runtime contract and be fresh, so a stale renamed probe file cannot qualify a later unrelated ABCD. Implement a coherent private calibration/preparation path; retain actual candidate freshness and reconnect invalidation. TWS build/settings and a real matching pair remain local facts. |
+| B03 | Snapshot gate VERIFIED_INERT; RVOL denominator unit authority OPEN | Historical bars and ADV are passed/averaged in raw units, while scanner phase RVOL can divide verified snapshot shares by that untyped ADV. Missing dimensional-compatibility enforcement is established; an actual factor100 laptop error is NOT established. Carry and validate historical-volume quantity basis before RVOL can support entry. |
+| B04 | Account-bound margin/equity capital handoff VERIFIED_INERT; cash-only spend contract INCOMPLETE | Evidence contains NetLiquidation/AvailableFunds/BuyingPower, not settled/unborrowed USD cash. Final notional uses approved entry price while actual entry may be MKT. Complete a source-backed cash/no-borrowing, executable price ceiling and fee/reservation contract through existing owners before enabling the controlled caller. Do not relabel margin metrics as settled cash. |
+| B05 | Ordinary/exclusive standalone ABCD one-share chain VERIFIED_INERT within its existing scope | Preserve actual Core/risk/reservation identity and acknowledgment-not-ownership behavior. Windows fixture correction still needs exact-head CI; no broker acceptance follows. |
+| B06 | Lifecycle positives VERIFIED_INERT; pending-entry shutdown and final stop admission OPEN | The900second timer requests shutdown even with a pending entry; ExecutionEngine.shutdown disconnects without resolving that BUY. A later fill could lack a processed fill callback and initial stop. Reporting uncertainty does not mitigate this exposure. Implement bounded owned-entry resolution/late-fill protection before disconnect or an explicit continued-management handoff. Also serialize the qualified ABCD stop's final epoch/account-generation recheck with native dispatch through the existing final-admission seam; before_submit alone leaves a finite local callback race. Wrong-account execution is not demonstrated. |
+| B07 | Default-off preflight/caller template exists; release UNPINNED | Keep the caller unusable for trading until B02/B03/B04/B06, final independent review and required CI are satisfied. Flatness is a starting entry condition, never a prerequisite for protecting newly acquired exposure. Exclusive operator conditions remain labelled assumptions; no global atomic broker fence is claimed. |
+| B08 | BROKER_UNPROVED | A later supervised qualifying clean-account one-share PAPER attempt remains required. No new unchanged READ_ONLY run or current unpinned caller execution is requested. |
+
+The apparent omission of an explicit IBKR_KILL_SWITCH=false in the operator
+was checked and is NOT a demonstrated defect: effective PAPER configuration
+derives false through the resolver. Do not create an unrelated flag fix from
+the registry's raw default.
+
+Next autonomous implementation priority: complete these finite operational
+gaps in the existing PR1250/owners, reuse its implemented source and tests,
+then final independent review, exact-head required Linux/Windows CI and
+authorized integration. No new strategy, parallel tracker or repeated legacy
+acquisition search. Do not weaken guards, invent policy values, accept stale
+calibration as fresh market data, force an opportunity, reset recovery or
+launch a cloud broker operation. PAPER_READY=NO; all five vetoes remain.
+
+### PR1250 operational hardening first batch (2026-11-23)
+
+PR1249 is accepted at merge `42bf5ba95b5808231ed923d824ad96977882cb68`.
+Its ordered parents and tree `845758c31d76a5a36795ebd05e48ad96e12e3c97` were
+verified against reviewed PR1249 head `ccb8311beec3d4ca888d712bd58db91a1b10cfc3`.
+Automatic main CI 45239388028 passed all five required jobs. PR1250's
+continuation head `d47ee4dcfe6215b634e1069b1e1de7f11f45218f` also passed all
+five required jobs on 45240724035. These receipts apply to those exact heads.
+The five Windows failures on earlier head 484afeb remain part of its history.
+
+B06 initial stop final-admission repair is implemented. The qualified
+standalone ABCD stop now runs account, transport and connection generation,
+retained parent/confirmed quantity, exact stock contract and original stop
+checks under the native dispatch lock. It reuses the SDK write seam already
+used for entry. Existing single-dispatch and uncertain-write handling remain
+authoritative. This is a local callback scope check.
+
+Independent review passed 146 focused cases on `0fc53310712f82aea5eb8d708ac3c58fa9dc05ba`,
+including the native ABCD lifecycle and a change-away-and-back account race.
+The scope-refinement follow-up reuses the native live-scope observation and
+adds a transport-stop negative. Three focused final-seam cases passed on
+`fbd138d6`. B06 timed pending-entry shutdown remains open until its separate
+owner and joined tests land. B01, B02/B03, B04 and the pinned caller's
+integration and broker acceptance remain open. PAPER_READY=NO.
+
+### PR1250 controlled ABCD operational handoff (2026-11-23)
+
+The controlled route is still default-off and limited to one standalone ABCD
+BUY under the MICRO risk profile. Use the retained state root. The five
+unresolved legacy holdings still veto startup. Restart quarantine, READ_ONLY
+mutation protections and the existing strategy thresholds remain in force.
+
+| ID | Implementation and inert evidence | Remaining laptop fact |
+| --- | --- | --- |
+| B02/B03 | Exact-contract private calibration pairs live native tick 8 and end-confirmed RTH daily TRADES history with two independent TWS share observations. It binds contract, primary exchange, SDK/server and the consuming connection. A changed witness or relevant observable scope invalidates it. Each candidate still needs its own fresh live data. Execution requires compatible verified share units and the matching completed ADV20 denominator. | Same TWS instance/build and effective watchlist and historical share settings, plus the two real independent comparisons. |
+| B04 | Controlled risk and both reservation owners use completed account-bound USD securities settled cash and reserve the risk-approved limit plus the applicable all-fee ceiling. The serialized SDK gate requires the same scoped evidence and exact one-share SMART BUY LMT terms. Missing cash/cost authority and insufficient cash block entry. A no-dispatch refusal releases unused reservations. | The installed PAPER TWS must emit the scoped USD securities settlement field and the operator must have written confirmation of all applicable entry fees. |
+| B06 | Timed stop ends entry admission. One durably recorded owned-order cancel is allowed. Native executions, position truth, order inventory and callback state resolve cancellation/fill races. An attributable fill uses existing ownership and protection owners. Unresolved state keeps the runtime attached and emits a private handoff. The native scope is rechecked at the final disconnect boundary. Initial ABCD stop admission is serialized with the native SDK write. | Supervised broker acceptance of the complete path. |
+| B07/B08 | The Windows caller validates the checkout, calendar, calibration and fee inputs before starting the existing controlled runtime. Its stop-file and active handoff paths are local. | Accepted source pin after reviewed required CI, integration and post-merge CI. Clean exclusive PAPER scope and supervised broker acceptance are still required. |
+
+IBKR documents the per-currency `SettledCashByDate` update, its securities
+segment `-S` variant, and its cumulative future balances. The controlled route
+accepts the minimum observed current/forward USD securities balance from the
+completed scoped updates. The fee ceiling is a private transcription of an
+applicable written broker confirmation. Its `valid_until_utc` must extend beyond the covered
+regular-session close. The confirmation must cover all charges for the
+qualifying regular-session DAY order, including a late fill. Published commission
+schedules can vary by account and plan.
+https://www.interactivebrokers.com/docs/tws-api/doc/accounts/updates
+https://www.interactivebrokers.com/docs/tws-api/doc/accounts/models
+https://www.interactivebrokers.com/docs/tws-api/doc/orders/objects
+https://www.interactivebrokers.com/en/pricing/commissions-stocks.php
+
+#### Laptop preparation and controlled invocation
+
+1. In the same TWS instance used for the later controlled run, record the
+   exact build and effective US stock watchlist and historical volume share
+   settings. During the covered opening window, choose an exact naturally
+   observed candidate to calibrate. The private probe uses the existing
+   READ_ONLY launcher with `-DiagnosticProfile live-volume -ExpectedCommit
+   <reviewed-probe-commit> -ExpectedTree <reviewed-probe-tree> -VolumeSymbol
+   <symbol>`. It reports the local `volume-probe.json` path. Keep it local.
+2. Independently record the unrounded TWS watchlist share count at capture
+   time and the exact unrounded TWS RTH TRADES chart volume for a completed
+   daily bar of the same contract. Supply a private JSON object containing
+   `tws_build`, `con_id`, `watchlist_observed_at` (aware ISO timestamp),
+   `watchlist_shares`, `historical_bar_date` (YYYYMMDD),
+   `historical_bar_shares`, `watchlist_shares_setting` and
+   `historical_shares_setting`. Both settings must confirm shares. Use the
+   evidence directly observed in TWS for these comparison values.
+3. Run the existing diagnostic's offline `prepare-volume <volume-probe.json>
+   <independent-comparison.json> <new-private-volume-witness.json>` command
+   with the pinned source's Python entrypoint. Use the resulting path in the
+   controlled caller. It applies only to the exact calibrated contract,
+   the same NY trading date and the observed supported source scope. Keep
+   the TWS instance, build and volume settings consistent through entry.
+   The SDK does not report those setting toggles to the consumer.
+4. In the retained state root, keep a private `entry-fee-ceiling.json` with
+   schema `IBKR_CONFIRMED_USD_ENTRY_FEE_CEILING_V1`. Its required keys are
+   `schema`, `account`, `currency` (USD), `security_type` (STK),
+   `exchange` (SMART), `side` (BUY), `quantity` (1),
+   `max_limit_price` and `max_fee` (decimal strings),
+   `valid_until_utc` (UTC ISO timestamp), and `broker_reference`. Populate
+   these from the applicable written confirmation. Raw broker records remain
+   on the laptop.
+5. Once published with an accepted pin, use the PowerShell 5.1 caller to
+   attest the stated starting facts and invoke controlled PAPER. Creating
+   the local stop file ends entry admission and starts owned resolution.
+   While `pending-entry-handoff.json` reports
+   `PAPER_RELEASE_SHUTDOWN_HANDOFF_ACTIVE`, leave the runtime attached and
+   inspect the local handoff from a second console. A completed result
+   can also reflect a no-trade session.
+
+The volume contract is scoped to the observed instrument. IBKR documents
+cumulative native tick volume and separately filtered historical trades.
+The installed wire scaling for both fields is established by the independent
+local comparisons. No general stock-class conversion is inferred.
+https://www.interactivebrokers.com/docs/tws-api/doc/md/streaming-data
+https://interactivebrokers.github.io/tws-api/historical_data.html
+https://ibkrcampus.com/docs/tws-api/protobuf/api-settings-config
+
+Final software source under review:
+`38d5e257aa895b23bfa4cf665cb7376470522e39`,
+tree `013ff95bd3484e6ae354ced7b193c754f4179897`. Independent review
+cleared this source for integration after required CI. The preceding complete
+combined source `818a8e345bbc17c1dfd3e66a4935097ba751900b` passed 421 focused
+offline tests and 28 overlapping independently run causal tests. These
+cover the ordinary and controlled production joins, native and Windows
+fallback harnesses, cash/account/fee and limit vetoes, unresolved cancellation,
+late and in-flight fill processing, and a changed working stop. The reviewed
+final delta adds the pre-cancel cached-order amendment test and preserves
+a legacy non-reentrant callback test's lock contract. Current-head required
+CI and actual laptop verification are separate. The controlled launcher
+remains unpinned. PAPER_READY=NO.
+
+The final cancel/shutdown and legacy callback slice passed 12 cases on the
+combined source. The first full local run on `ae7d7a87` stopped at a clean-start
+fixture whose unbound native adapter lacked the constructor's snapshot lock.
+Test-only follow-up `01b7430a91385b2b8240e31e82b60f4e888e4f51` supplies
+that lock. The unchanged clean-start and legacy callback assertions passed
+all 31 focused cases. The isolated full rerun passed the affected range.
+
+The isolated full run at the test-equivalent `01b7430a` reported 8,666 passed,
+18 failed and three skipped. All 18 failures came from one isolated legacy
+fixture lacking its retained request's explicit MKT type. Follow-up
+`5235789fa716bfe95ab2641d6557e537d811e2a6` supplies that fixture value.
+The existing certificate checks and production code stay as reviewed.
+The affected legacy certificate and joined shutdown slice passed all 55 cases.
+Required exact-head CI still controls integration.
+
+At `cedd3d9c77870c408d8b22a178e6ab9c2434a9f5`, required CI
+[45262896401](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/45262896401)
+passed full Linux (8,684 passed, three skipped and 39 subtests) and native
+Windows controlled-process verification. The Windows offline job exceeded
+its 60-minute limit at 89 percent. Its final progress included a failure marker
+without a traceback before cancellation. The required aggregate failed.
+Earlier Windows runs 45258964426 and 45259799358 also exhausted the job budget.
+
+The existing Windows aggregate now requires complementary offline jobs and
+the unchanged native Windows controlled-process job. The offline jobs retain
+the existing per-job limit, state setup and offline guards. The native stop
+and standalone late-fill modules run with named test output in their own
+job. Independent collection verified full coverage across the two jobs
+(1,501 and 7,187 distinct cases) and five aggregate gate tests passed.
+The repaired workflow still requires a passing exact-head run before integration.

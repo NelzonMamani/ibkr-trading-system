@@ -34,6 +34,7 @@ class BrokerOrderRequest:
     setup_metadata: Optional[dict] = None
     management_session_plan: Optional[str] = None
     selected_stop_units: bool = False
+    limit_price: Optional[float] = None
 
 
 @runtime_checkable

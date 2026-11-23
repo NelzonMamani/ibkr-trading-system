@@ -16,6 +16,7 @@ from src.adapters.data import historical_data_provider
 from src.adapters.data.historical_data_provider import get_intraday_bars
 from src.market_data.float_provider import FloatProvider
 from src.domain.market_snapshot import MarketSnapshot
+from src.domain.volume_evidence import READ_ONLY_VOLUME_DIAGNOSTIC, verified_volume_shares
 from src.market_data.session_pct_change import compute_session_relative_volume_with_provenance, normalize_session_label
 from src.scanner.result_models import CandidateMetrics
 from src.strategies.common.candles.candle_types import Candle
@@ -435,13 +436,31 @@ def infer_symbol_source(row: Any) -> str:
     return "watchlist"
 
 
-def build_input_snapshot_summary(*, row: Any, snapshot: MarketSnapshot | None, inputs: PatternInputs | None, session_label: str | None, quality_flags: list[str] | None = None) -> PatternInputSnapshotSummary:
+def _selected_market_volume(row: Any, snapshot: MarketSnapshot | None, mode=None) -> tuple[float | None, bool]:
+    selection = _get_value(row, "volume_evidence")
+    snapshot_evidence = getattr(snapshot, "volume_evidence", None)
+    if selection is not None or snapshot_evidence is not None:
+        # Keep the policy volume on the selected request. A later snapshot,
+        # including an unverified one, cannot replace its denominator basis.
+        evidence = selection if selection is not None else snapshot_evidence
+        shares = verified_volume_shares(evidence)
+        if shares is None and isinstance(evidence, dict) and str(getattr(mode, "value", mode)).upper() == "READ_ONLY":
+            raw = _safe_float(evidence.get("raw_value"))
+            return (raw if raw is not None and isfinite(raw) and raw >= 0 else None), True
+        return _safe_float(shares), True
+    return _safe_float(_coalesce(
+        getattr(snapshot, "volume", None), _get_value(row, "current_intraday_volume"),
+        _get_value(row, "volume"),
+    )), False
+
+
+def build_input_snapshot_summary(*, row: Any, snapshot: MarketSnapshot | None, inputs: PatternInputs | None, session_label: str | None, quality_flags: list[str] | None = None, mode=None) -> PatternInputSnapshotSummary:
     input_flags = list(getattr(inputs, "data_quality_flags", []) if inputs else [])
     bid = _safe_float(getattr(snapshot, "bid", None))
     ask = _safe_float(getattr(snapshot, "ask", None))
     last = _safe_float(getattr(snapshot, "last", None))
     row_last = _safe_float(_get_value(row, "last_price") or _get_value(row, "price"))
-    volume = _safe_float(getattr(snapshot, "volume", None) or _get_value(row, "volume"))
+    volume, _ = _selected_market_volume(row, snapshot, mode)
     spread = _safe_float(_get_value(row, "spread"))
     if spread is None and bid is not None and ask is not None:
         spread = round(ask - bid, 4)
@@ -493,16 +512,15 @@ def build_input_snapshot_summary(*, row: Any, snapshot: MarketSnapshot | None, i
     )
 
 
-def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnapshot | None, session_label: str | None, session_phase: str | None) -> tuple[PatternInputs | None, list[str]]:
+def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnapshot | None, session_label: str | None, session_phase: str | None, mode=None) -> tuple[PatternInputs | None, list[str]]:
     quality_flags: list[str] = list(_get_value(row, "data_quality_flags") or [])
     last = _safe_float(getattr(snapshot, "last", None))
     bid = _safe_float(getattr(snapshot, "bid", None))
     ask = _safe_float(getattr(snapshot, "ask", None))
-    volume = _safe_float(
-        getattr(snapshot, "volume", None)
-        or _get_value(row, "current_intraday_volume")
-        or _get_value(row, "volume")
-    )
+    volume, has_native_volume_evidence = _selected_market_volume(row, snapshot, mode)
+    evidence = _get_value(row, "volume_evidence") or getattr(snapshot, "volume_evidence", None)
+    if has_native_volume_evidence and volume is not None and verified_volume_shares(evidence) is None:
+        quality_flags.append(READ_ONLY_VOLUME_DIAGNOSTIC)
     row_last = _safe_float(_get_value(row, "last_price") or _get_value(row, "price"))
     last_price = last if last is not None else row_last
     if last_price is None:
@@ -618,8 +636,9 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         sum(max(_safe_float(candle.volume) or 0.0, 0.0) for candle in candles),
         2,
     )
-    market_volume = _coalesce(volume, inferred_intraday_volume)
-    if volume is not None and volume <= 100.0 and inferred_intraday_volume > volume:
+    market_volume = volume if has_native_volume_evidence else _coalesce(volume, inferred_intraday_volume)
+    if (not has_native_volume_evidence and volume is not None
+            and volume <= 100.0 and inferred_intraday_volume > volume):
         market_volume = inferred_intraday_volume
     if market_volume is not None and market_volume <= 100.0:
         quality_flags.append("INVALID_VOLUME")

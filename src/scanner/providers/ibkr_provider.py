@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.domain.volume_evidence import verified_volume_shares
+
 import logging
 
 from src.core.acquisition import checkpoint
@@ -340,6 +342,7 @@ class IbkrScannerProvider(ScannerDataProvider):
             close=snapshot.close,
             change_percent=snapshot.change_percent,
             volume=snapshot.volume,
+            volume_evidence=getattr(snapshot, "volume_evidence", None),
             timestamp_utc=snapshot.timestamp_utc,
             data_quality_flags=tuple(flags),
             requested_market_data_type=getattr(snapshot, "requested_market_data_type", "UNKNOWN"),
@@ -484,7 +487,14 @@ class IbkrScannerProvider(ScannerDataProvider):
 
     def get_intraday_stats(self, symbol: str) -> IntradayStats:
         snapshot = self.get_quote(symbol)
-        volume = int(snapshot.volume) if snapshot.volume is not None else None
+        evidence = getattr(snapshot, "volume_evidence", None)
+        shares = verified_volume_shares(evidence)
+        volume = shares
+        if evidence is None:
+            # Older adapters expose diagnostic volume without a native callback
+            # witness. Preserve the legacy metric; admission still needs that witness.
+            legacy_volume = getattr(snapshot, "volume", None)
+            volume = int(legacy_volume) if legacy_volume is not None else None
         avg_volume = None
         window_days = None
         history = None
@@ -505,9 +515,10 @@ class IbkrScannerProvider(ScannerDataProvider):
             relative_volume_category=None,
             volume_velocity_5m=None,
             volume_velocity_15m=None,
-            volume_data_quality_flag="IBKR_SNAPSHOT",
+            volume_data_quality_flag="IBKR_SNAPSHOT" if shares is not None else "IBKR_SNAPSHOT_UNIT_UNVERIFIED",
             historical_outcome=history.status if history is not None else None,
             historical_end_received=history.end_received if history is not None else None,
+            adv20_volume_basis=history.volume_basis if history is not None and avg_volume is not None else None,
         )
 
     def get_float(self, symbol: str) -> Optional[int]:

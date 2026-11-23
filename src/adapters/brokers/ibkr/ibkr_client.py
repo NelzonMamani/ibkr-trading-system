@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from src.domain.quote_freshness import quote_time_rejection
+from src.domain.volume_evidence import (
+    SHARE_UNIT_SOURCE, VERIFIED_SHARE_UNIT, native_stock_volume_rejection,
+)
 from src.ibkr.quote_diagnostics import record_time_assessment
 
 from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, wait_event, bounded_timeout
@@ -47,9 +50,11 @@ from src.ibkr.market_data_client import (
     _record_field_receipt,
     _snapshot_authority_metadata,
     _copy_snapshot_ticker,
+    average_daily_bar_volume,
 )
 from src.ibkr.read_only_guard import assert_read_only_allows
 from src.ibkr.evidence_safety import register_account, sanitize
+from src.ibkr.volume_calibration import HISTORICAL_BASIS, load_paper_volume_calibration
 
 
 
@@ -257,6 +262,7 @@ class AccountCurrencyResult:
     cleanup_complete: bool = True  # Local callback ownership retired only.
     source: str = "IBKR_ACCOUNT_SUMMARY_LEDGER"
     account_scope_generation: Optional[int] = None
+    settled_cash: Optional[Decimal] = None
 
 
 _CAPITAL_TAGS = ("NetLiquidation", "AvailableFunds", "BuyingPower")
@@ -1390,6 +1396,12 @@ class IbkrClient(EWrapper, EClient):
         self._connection_event.clear()
         self._position_upstream_lost = False
         with self._lock:
+            if getattr(self, "_volume_calibration_binding", None) is not None:
+                self._volume_calibration_invalidated = True
+            self._volume_unit_witness = None
+            self._last_native_volume_sample = None
+            self._native_volume_evidence = {}
+            self._calibrated_history_requests = {}
             attempts = getattr(self, "_commission_connection_attempts", None)
             if type(attempts) is not int or not hasattr(self, "_commission_constructor_queue"):
                 self._commission_zero_disabled = True
@@ -1509,11 +1521,26 @@ class IbkrClient(EWrapper, EClient):
             and report.get("commission_decoder_generation") == 1
             and report.get("commission_decoder_thread_id") == getattr(self._thread, "ident", None))
 
-    def disconnect(self) -> None:  # type: ignore[override]
+    def disconnect(self, *, final_authorization=None) -> None:  # type: ignore[override]
+        if final_authorization is not None:
+            with self._lock:
+                lifetime = self._p02_source_lifetime
+                # Existing intake registration precedes status/execution/order
+                # cache publication. Refuse even a callback paused in between.
+                # The supplied closure uses only local observations/accounting.
+                with lifetime["lock"]:
+                    if any(operation[3] in {"orderStatus", "execDetails", "openOrder", "managedAccounts",
+                                             "connectionClosed", "error", "position"}
+                           for operation in lifetime["operations"].values()):
+                        raise RuntimeError("PAPER_RELEASE_SHUTDOWN_CALLBACK_IN_FLIGHT")
+                    final_authorization()
+                    self._stop_event.set()
+                self._invalidate_position_queries()
         print(f"[IBKR] Disconnecting client_id={self.client_id}")
         self._stop_event.set()
         self._invalidate_historical_requests()
-        self._invalidate_position_queries()
+        if final_authorization is None:
+            self._invalidate_position_queries()
         try:
             try:
                 with self._lock:
@@ -1642,6 +1669,12 @@ class IbkrClient(EWrapper, EClient):
     def _build_ticker(self, contract) -> object:
         return SimpleNamespace(
             contract=contract,
+            volumeTickType=None,
+            volumeRawValue=None,
+            mixedVolumeTickTypes=False,
+            volumeConnectionEpoch=self._position_connection_epoch,
+            volumeClientId=self.client_id,
+            volumeServerVersion=self.serverVersion(),
             bid=None,
             ask=None,
             last=None,
@@ -1746,7 +1779,7 @@ class IbkrClient(EWrapper, EClient):
             print(f"[IBKR][ORDER_ID_SEQUENCE] reserved={order_id} next={self._next_valid_order_id}")
             return order_id
 
-    def submit_order(self, contract: Contract, order, *, before_submit=None) -> int:
+    def submit_order(self, contract: Contract, order, *, before_submit=None, final_entry_admission=None) -> int:
         if not self.is_connected():
             raise RuntimeError("IBKR client is not connected.")
         assert_read_only_allows("PLACE_ORDER")
@@ -1806,7 +1839,14 @@ class IbkrClient(EWrapper, EClient):
                     if type(lease) is not _P02LocalEntryLease or lease.owner is not state["owner"]:
                         raise RuntimeError("P02_LOCAL_ENTRY_ISSUER_INVALID")
                     context["lease"] = lease
-            self.placeOrder(order_id, contract, order)
+            if final_entry_admission is None:
+                self.placeOrder(order_id, contract, order)
+            else:
+                # Serialize the local admission recheck and send against native
+                # callback scope changes. The preparatory hook may await reads.
+                with self._lock:
+                    final_entry_admission(self, order_id, contract, order)
+                    self.placeOrder(order_id, contract, order)
         except Exception as exc:
             print(f"[IBKR][PLACE_ORDER][ERROR] symbol={getattr(contract, 'symbol', None)} order_id={order_id} error={exc}")
             raise
@@ -1865,7 +1905,8 @@ class IbkrClient(EWrapper, EClient):
                     raise RuntimeError("OPEN_ORDERS_DISCONNECTED")
                 return list(self._open_orders_snapshot.values())
             self._open_orders_event.clear()
-            self._open_orders_snapshot = {}
+            with self._lock:
+                self._open_orders_snapshot = {}
             self.reqOpenOrders()
             complete = self._open_orders_event.wait(timeout=timeout)
             if not complete or not self.is_connected():
@@ -1878,6 +1919,10 @@ class IbkrClient(EWrapper, EClient):
             raise
         finally:
             self._open_orders_query_lock.release()
+
+    def cached_open_order_rows(self) -> tuple:
+        with self._lock:
+            return tuple(self._open_orders_snapshot.values())
 
     def executions(self, timeout_seconds: Optional[int] = None) -> list[object]:
         if not self.is_connected():
@@ -2062,9 +2107,11 @@ class IbkrClient(EWrapper, EClient):
             if len(accounts) != 1 or not accounts[0]:
                 return BrokerPositionResult(status="ACCOUNT_SCOPE_UNAVAILABLE")
             epoch = self._position_connection_epoch
+            client_id = self.client_id
+            generation = getattr(self, "_managed_accounts_generation", 0)
         req_id = self._next_req_id()
         timeout = self.snapshot_timeout_seconds if timeout_seconds is None else timeout_seconds
-        context = {"account": accounts[0], "client_id": self.client_id, "rows": {}, "event": threading.Event(),
+        context = {"account": accounts[0], "client_id": client_id, "rows": {}, "event": threading.Event(),
                    "status": "PARTIAL", "completed_at": None, "epoch": epoch,
                    "deadline": time.monotonic() + max(0, timeout)}
         with self._lock:
@@ -2087,7 +2134,8 @@ class IbkrClient(EWrapper, EClient):
             with self._lock:
                 if epoch != self._position_connection_epoch or not self.is_connected():
                     context["status"] = "DISCONNECTED"
-                elif tuple(self._managed_accounts) != accounts:
+                elif (tuple(self._managed_accounts) != accounts or client_id != self.client_id
+                      or generation != getattr(self, "_managed_accounts_generation", 0)):
                     context["status"] = "WRONG_ACCOUNT"
                 elif context["status"] == "PARTIAL":
                     context["status"] = "TIMEOUT"
@@ -2096,8 +2144,9 @@ class IbkrClient(EWrapper, EClient):
                     age = (datetime.now(timezone.utc) - context["completed_at"]).total_seconds()
                     if not 0 <= age <= get_ibkr_snapshot_max_age_seconds():
                         context["status"] = "STALE"
+                scope = (client_id, epoch, generation) if context["status"] == "COMPLETE" else None
                 return BrokerPositionResult(tuple(context["rows"].values()), context["status"],
-                                            context["account"], context["completed_at"])
+                                            context["account"], context["completed_at"], scope)
         except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
             raise
         except Exception:
@@ -2148,6 +2197,12 @@ class IbkrClient(EWrapper, EClient):
             for query in getattr(self, "_price_rule_requests", {}).values():
                 self._finish_price_rule(query, "DISCONNECTED")
             self._position_connection_epoch += 1
+            if getattr(self, "_volume_calibration_binding", None) is not None:
+                self._volume_calibration_invalidated = True
+            self._volume_unit_witness = None
+            self._last_native_volume_sample = None
+            self._native_volume_evidence = {}
+            self._calibrated_history_requests = {}
             self._position_transport_available = False
             self._position_upstream_lost = True
             if clear_account_scope:
@@ -2238,14 +2293,19 @@ class IbkrClient(EWrapper, EClient):
         return self._strict_account_summary(expected_account, timeout_seconds, deadline=_deadline)
 
     def account_capital_snapshot(self, *, expected_account: str,
-                                 timeout_seconds: Optional[float] = None) -> AccountCapitalResult:
+                                 timeout_seconds: Optional[float] = None,
+                                 require_settled_usd: bool = False) -> AccountCapitalResult:
         """Bind concrete account currency and capital to the same native scope."""
         timeout = self.snapshot_timeout_seconds if timeout_seconds is None else timeout_seconds
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout < 0:
             raise ValueError("Bounded account capital timeout required")
         deadline = time.monotonic() + bounded_timeout(timeout)
-        currency = self.account_currency_snapshot(
-            expected_account=expected_account, timeout_seconds=timeout, _deadline=deadline)
+        if require_settled_usd:
+            currency = self._strict_account_summary(
+                expected_account, timeout, deadline=deadline, settled_usd=True)
+        else:
+            currency = self.account_currency_snapshot(
+                expected_account=expected_account, timeout_seconds=timeout, _deadline=deadline)
         if currency.status != "COMPLETE":
             return AccountCapitalResult(currency.status, expected_account, currency)
         if not currency.cancellation_attempted or not currency.cleanup_complete:
@@ -2253,7 +2313,20 @@ class IbkrClient(EWrapper, EClient):
         return self._strict_account_summary(
             expected_account, timeout, capital_currency=currency, deadline=deadline)
 
-    def _strict_account_summary(self, expected_account, timeout_seconds, *, capital_currency=None, deadline=None):
+    def account_capital_scope(self, expected_account: str, *, request_ids=()) -> tuple[int, int, int] | None:
+        """Return current local identity for a sole, connected account."""
+        with self._lock:
+            if (not self.is_connected() or self._stop_event.is_set()
+                    or not self._position_transport_available
+                    or tuple(self._managed_accounts) != (expected_account,)
+                    or any(self._request_id_conflicted(req_id) for req_id in request_ids)):
+                return None
+            identity = (self.client_id, self._position_connection_epoch,
+                        getattr(self, "_managed_accounts_generation", 0))
+            return identity if all(type(value) is int and value >= 0 for value in identity) else None
+
+    def _strict_account_summary(self, expected_account, timeout_seconds, *, capital_currency=None, deadline=None,
+                                settled_usd=False):
         checkpoint()
         if (not isinstance(expected_account, str) or not expected_account
                 or expected_account != expected_account.strip()):
@@ -2279,7 +2352,10 @@ class IbkrClient(EWrapper, EClient):
                         if status == "COMPLETE" else (), cancelled, account_generation,
                     )
                 return AccountCurrencyResult(status, req_id, epoch, expected_account, client_id,
-                    currency, completed_at, tags, cancelled, account_scope_generation=account_generation)
+                    currency, completed_at, tags, cancelled,
+                    source="IBKR_ACCOUNT_UPDATES_MULTI_USD_SECURITIES" if settled_usd else "IBKR_ACCOUNT_SUMMARY_LEDGER",
+                    account_scope_generation=account_generation,
+                    settled_cash=query.get("settled_cash") if settled_usd and status == "COMPLETE" else None)
             if (not self.is_connected() or self._stop_event.is_set()
                     or not self._position_transport_available):
                 return result("DISCONNECTED")
@@ -2298,6 +2374,9 @@ class IbkrClient(EWrapper, EClient):
                 "account": expected_account, "client_id": client_id, "account_generation": account_generation,
                 "deadline": deadline, "currency": None,
                 "tags": set(), "completed_at": None}
+            if settled_usd:
+                query["settled_usd"] = True
+                query["cash_as_of_date"] = started_at.astimezone(ZoneInfo("America/New_York")).date()
             if capital_currency is not None:
                 query["capital_currency"] = capital_currency
                 query["capital_facts"] = {}
@@ -2310,8 +2389,11 @@ class IbkrClient(EWrapper, EClient):
                     # Set before dispatch: a raised send may have reached the
                     # transport. Cleanup must not reinterpret it as unsent.
                     sent = True
-                    tags = ",".join(_CAPITAL_TAGS) if capital_currency is not None else "$LEDGER"
-                    self.reqAccountSummary(req_id, "All", tags)
+                    if settled_usd:
+                        self.reqAccountUpdatesMulti(req_id, expected_account, "", True)
+                    else:
+                        tags = ",".join(_CAPITAL_TAGS) if capital_currency is not None else "$LEDGER"
+                        self.reqAccountSummary(req_id, "All", tags)
             wait_event(query["event"], max(0, query["deadline"] - time.monotonic()))
             with self._lock:
                 self._account_currency_query_current(req_id, query, allow_complete=True)
@@ -2349,7 +2431,10 @@ class IbkrClient(EWrapper, EClient):
                         and not self._request_id_conflicted(req_id)):
                     cancelled = True
                     try:
-                        self.cancelAccountSummary(req_id)
+                        if settled_usd:
+                            self.cancelAccountUpdatesMulti(req_id)
+                        else:
+                            self.cancelAccountSummary(req_id)
                     except Exception as exc:
                         cleanup_error = str(exc)
         with self._lock:
@@ -2368,7 +2453,7 @@ class IbkrClient(EWrapper, EClient):
                 currency=query["currency"] if complete else None,
                 completed_at=query["completed_at"] if complete else None,
                 tags=tuple(sorted(query["tags"])), cancelled=cancelled)
-            if (capital_currency is None and complete and cancelled and cleanup_error is None
+            if (capital_currency is None and not settled_usd and complete and cancelled and cleanup_error is None
                     and self._request_context_by_req_id.get(req_id) is context
                     and context.get("account_currency_query") is None
                     and req_id not in self._request_type_by_req_id):
@@ -2419,6 +2504,16 @@ class IbkrClient(EWrapper, EClient):
         return 0 <= age <= get_ibkr_snapshot_max_age_seconds()
 
     @staticmethod
+    def _account_capital_amount(value):
+        if not isinstance(value, str) or not re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", value):
+            return None
+        try:
+            amount = Decimal(value)
+        except InvalidOperation:
+            return None
+        return amount if amount.is_finite() else None
+
+    @staticmethod
     def _record_account_capital_fact(query, account, tag, value, currency):
         if account != query["account"]:
             return "WRONG_ACCOUNT"
@@ -2426,13 +2521,8 @@ class IbkrClient(EWrapper, EClient):
             return "UNEXPECTED_TAG"
         if currency != query["capital_currency"].currency:
             return "AMBIGUOUS_CURRENCY"
-        if not isinstance(value, str) or not re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", value):
-            return "INVALID"
-        try:
-            amount = Decimal(value)
-        except InvalidOperation:
-            return "INVALID"
-        if not amount.is_finite():
+        amount = IbkrClient._account_capital_amount(value)
+        if amount is None:
             return "INVALID"
         previous = query["capital_facts"].get(tag)
         if previous is not None:
@@ -2999,6 +3089,7 @@ class IbkrClient(EWrapper, EClient):
                         use_rth=int(bool(useRTH)), format_date=int(formatDate),
                         keep_up_to_date=bool(keepUpToDate), chart_options=chartOptions or [])
                     state["contract_identity"] = CandidateIdentity.from_contract(contract)
+                    state["volume_scope"] = (self.client_id, self._position_connection_epoch, self.serverVersion())
                     state["request_dispatched_at_utc"] = datetime.now(timezone.utc).isoformat()
                     state["sent"] = True
                     super().reqHistoricalData(req_id, contract, endDateTime, durationStr,
@@ -3028,6 +3119,7 @@ class IbkrClient(EWrapper, EClient):
         finally:
             self._retire_historical_request(req_id, state)
         from src.ibkr.market_data_client import historical_bar_facts
+        volume_basis = self._historical_volume_basis(state, req_id)
         return HistoricalDataResult(state["status"], tuple(state["bars"]),
             state["end_received"], req_id, state["error_code"], len(state["bars"]) if not state["end_received"] else 0,
             contract_identity=state.get("contract_identity"),
@@ -3036,7 +3128,8 @@ class IbkrClient(EWrapper, EClient):
             completed_at_utc=state.get("completed_at_utc"),
             callback_start=state.get("callback_start"), callback_end=state.get("callback_end"),
             raw_bar_timestamps=tuple(getattr(bar, "date", None) for bar in state["bars"]),
-            source_bar_count=len(state["bars"]), raw_source_bars=historical_bar_facts(state["bars"]))
+            source_bar_count=len(state["bars"]), raw_source_bars=historical_bar_facts(state["bars"]),
+            volume_basis=volume_basis)
 
     def _retire_historical_request(self, req_id, state):
         with self._lock:
@@ -3119,6 +3212,173 @@ class IbkrClient(EWrapper, EClient):
             getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 
     # --- Market data snapshot ---
+    def _paper_volume_calibration(self):
+        path = os.environ.get("ROSS_TWS_VOLUME_COMPARATOR_PATH")
+        if not path or getattr(self, "_volume_calibration_invalidated", False):
+            return None
+        try:
+            calibration = load_paper_volume_calibration(path, now=datetime.now(timezone.utc))
+        except RuntimeError:
+            if getattr(self, "_volume_calibration_binding", None):
+                self._volume_calibration_invalidated = True
+            return None
+        expected = os.environ.get("ROSS_TWS_VOLUME_CALIBRATION_SHA256")
+        if expected is not None and expected != calibration["calibration_id"]:
+            self._volume_calibration_invalidated = True
+            return None
+        attested = (self.client_id, self._position_connection_epoch, self.serverVersion(),
+                    calibration["calibration_id"])
+        if (self._stop_event.is_set() or not self.isConnected()
+                or self.serverVersion() != calibration["server_version"]
+                or self._quote_trace.sdk_distribution != calibration["sdk_distribution"]):
+            return None
+        previous = getattr(self, "_volume_calibration_binding", None)
+        if previous is not None and previous != attested:
+            self._volume_calibration_invalidated = True
+            return None
+        self._volume_calibration_binding = attested
+        return calibration
+
+    def _historical_volume_basis(self, state, request_id):
+        spec, identity = state.get("request_spec"), state.get("contract_identity")
+        if (state["status"] != "COMPLETE_BARS" or not state["end_received"] or spec is None
+                or spec.what_to_show != "TRADES" or spec.bar_size_setting != "1 day"
+                or spec.duration_str != "20 D" or spec.end_date_time != "" or spec.format_date != 1
+                or spec.use_rth != 1 or spec.keep_up_to_date or not spec.chart_options_empty
+                or identity is None or identity.con_id is None):
+            return None
+        with self._lock:
+            scope = (self.client_id, self._position_connection_epoch, self.serverVersion())
+            if state.get("volume_scope") != scope or self._request_id_conflicted(request_id):
+                return None
+            historical_average, sample_count = average_daily_bar_volume(state["bars"], 20)
+            basis = {"basis": HISTORICAL_BASIS, "con_id": identity.con_id, "client_id": scope[0],
+                     "connection_epoch": scope[1], "server_version": scope[2], "request_id": request_id,
+                     "completed_at_utc": state.get("completed_at_utc"), "end_received": True,
+                     "unit": "UNKNOWN", "calibration_id": None,
+                     "average": historical_average, "sample_count": sample_count}
+            calibration = self._paper_volume_calibration()
+            if (calibration is not None and calibration["con_id"] == identity.con_id
+                    and identity.symbol == calibration["symbol"] and identity.sec_type == "STK"
+                    and identity.currency == "USD" and identity.primary_exchange == calibration["primary_exchange"]):
+                basis.update(unit=VERIFIED_SHARE_UNIT, calibration_id=calibration["calibration_id"])
+                retained = self.__dict__.setdefault("_calibrated_history_requests", {})
+                if len(retained) >= QuoteDiagnostics.MAX_REQUESTS:
+                    retained.pop(next(iter(retained)), None)
+                retained[request_id] = dict(basis)
+            return basis
+
+    def snapshot_volume_evidence(self, ticker):
+        """Capture native volume facts separately from the unqualified quote value."""
+        tick_type = getattr(ticker, "volumeTickType", None)
+        if tick_type is None:
+            return None
+        contract = ticker.contract
+        timestamp = _resolve_snapshot_timestamp(ticker)
+        evidence = {
+            "raw_value": ticker.volumeRawValue,
+            "source": "IBKR_NATIVE_TICK_SIZE",
+            "tick_type": tick_type,
+            "session_basis": "IBKR_CURRENT_TRADING_DAY_CUMULATIVE",
+            "symbol": str(getattr(contract, "symbol", "")).upper(),
+            "con_id": getattr(contract, "conId", None),
+            "security_type": getattr(contract, "secType", None),
+            "currency": getattr(contract, "currency", None),
+            "primary_exchange": getattr(contract, "primaryExchange", None),
+            "request_id": ticker.reqId,
+            "client_id": ticker.volumeClientId,
+            "connection_epoch": ticker.volumeConnectionEpoch,
+            "server_version": ticker.volumeServerVersion,
+            "sdk_distribution": self._quote_trace.sdk_distribution,
+            "received_at_utc": ticker.fieldReceivedAt.get("volume"),
+            "market_timestamp_utc": timestamp.isoformat() if timestamp else None,
+            "market_data_status": _returned_market_data_type(ticker),
+            "mixed_volume_tick_types": ticker.mixedVolumeTickTypes,
+            "nonlive_type_observed": (
+                getattr(ticker, "volumeNonLiveTypeObserved", False)
+                or getattr(ticker, "strictSnapshotNonLive", False)
+            ),
+            "broker_error_observed": bool(ticker.brokerErrors),
+            "unit": "UNKNOWN",
+            "unit_source": "UNVERIFIED_NATIVE_VOLUME_SETTING",
+            "shares": None,
+        }
+        with self._lock:
+            scope = (self.client_id, self._position_connection_epoch, self.serverVersion())
+            if scope == (ticker.volumeClientId, ticker.volumeConnectionEpoch, ticker.volumeServerVersion):
+                self._last_native_volume_sample = dict(evidence)
+                if native_stock_volume_rejection(evidence) is None:
+                    calibration = self._paper_volume_calibration()
+                    witness = (*scope, evidence["con_id"])
+                    if (calibration is not None and calibration["con_id"] == evidence["con_id"]
+                            and calibration["symbol"] == evidence["symbol"]
+                            and calibration["primary_exchange"] == evidence["primary_exchange"]):
+                        evidence.update(unit=VERIFIED_SHARE_UNIT, unit_source=SHARE_UNIT_SOURCE,
+                                        shares=evidence["raw_value"], calibration_id=calibration["calibration_id"])
+                    elif (os.environ.get("ROSS_PAPER_RELEASE_ENABLED") != "1"
+                            and not os.environ.get("ROSS_TWS_VOLUME_COMPARATOR_PATH")
+                            and getattr(self, "_volume_unit_witness", None) == witness):
+                        evidence.update(unit=VERIFIED_SHARE_UNIT, unit_source=SHARE_UNIT_SOURCE,
+                                        shares=evidence["raw_value"])
+                self._last_native_volume_sample = dict(evidence)
+                retained = self.__dict__.setdefault("_native_volume_evidence", {})
+                if len(retained) >= QuoteDiagnostics.MAX_REQUESTS:
+                    retained.pop(next(iter(retained)), None)
+                retained[evidence["request_id"]] = dict(evidence)
+        return evidence
+
+    def ross_volume_source_current(self, evidence):
+        with self._lock:
+            scope = (self.client_id, self._position_connection_epoch, self.serverVersion())
+            if (not self.isConnected() or self._stop_event.is_set()
+                    or native_stock_volume_rejection(
+                        evidence, client_id=scope[0], connection_epoch=scope[1],
+                    ) or evidence["server_version"] != scope[2]):
+                return False
+            if evidence.get("calibration_id") or os.environ.get("ROSS_PAPER_RELEASE_ENABLED") == "1":
+                calibration = self._paper_volume_calibration()
+                basis = evidence.get("adv20_volume_basis")
+                if (calibration is None or calibration["calibration_id"] != evidence.get("calibration_id")
+                        or not isinstance(basis, Mapping) or self._request_id_conflicted(basis.get("request_id"))
+                        or getattr(self, "_calibrated_history_requests", {}).get(basis.get("request_id")) != basis):
+                    return False
+            elif (os.environ.get("ROSS_TWS_VOLUME_COMPARATOR_PATH")
+                  or getattr(self, "_volume_unit_witness", None) != (*scope, evidence["con_id"])):
+                return False
+            retained = getattr(self, "_native_volume_evidence", {})
+            original = retained.get(evidence["request_id"])
+            if original is None or any(evidence.get(key) != value for key, value in original.items()):
+                return False
+            latest = next((sample for sample in reversed(retained.values())
+                           if sample["con_id"] == evidence["con_id"]), None)
+            return latest is not None and native_stock_volume_rejection(latest) is None
+
+    def verify_us_stock_share_volume(self, sample, *, reference_shares, observed_at, con_id,
+                                     send_us_stock_market_data_in_lots):
+        """Retain the existing in-process watchlist-only component witness.
+
+        Runtime preparation uses the private paired calibration file, which
+        also checks an independent historical-volume observation.
+        """
+        with self._lock:
+            self._volume_unit_witness = None
+            now = datetime.now(timezone.utc)
+            scope = (self.client_id, self._position_connection_epoch, self.serverVersion())
+            if (not self.isConnected() or self._stop_event.is_set()
+                    or send_us_stock_market_data_in_lots is not False
+                    or not isinstance(observed_at, datetime) or type(con_id) is not int or con_id <= 0
+                    or quote_time_rejection(observed_at, "LAST_TRADE", now=now)
+                    or sample != getattr(self, "_last_native_volume_sample", None)
+                    or native_stock_volume_rejection(sample, client_id=scope[0],
+                        connection_epoch=scope[1], con_id=con_id, now=now)
+                    or sample["server_version"] != scope[2]
+                    or quote_time_rejection(sample["market_timestamp_utc"], "LAST_TRADE", now=observed_at)
+                    or type(reference_shares) is not int or reference_shares <= 0
+                    or reference_shares != sample["raw_value"]):
+                return False
+            self._volume_unit_witness = (*scope, con_id)
+            return True
+
     def get_market_snapshot(self, symbol: str) -> MarketSnapshot:
         details = self.resolve_contract(symbol)
         contract = details.contract
@@ -3191,6 +3451,7 @@ class IbkrClient(EWrapper, EClient):
             snapshot_complete=ticker.snapshotEnd,
             received_at_utc=ticker.receivedAt,
             data_quality_flags=tuple(flags),
+            volume_evidence=self.snapshot_volume_evidence(ticker),
             **_snapshot_authority_metadata(ticker, fields, completed_at=completed_at, completion_reason=completion_reason),
         )
         print(f"[IBKR] Snapshot symbol={symbol} req_id={req_id} requested_type={requested_type} returned_type={returned_type} complete={ticker.snapshotEnd} bid={snapshot.bid} ask={snapshot.ask} last={snapshot.last}")
@@ -3208,6 +3469,7 @@ class IbkrClient(EWrapper, EClient):
             ask_size=snapshot.ask_size,
             last_size=snapshot.last_size,
             volume=snapshot.volume,
+            volume_evidence=snapshot.volume_evidence,
             vwap=None,
             open=snapshot.open,
             high=snapshot.high,
@@ -3310,6 +3572,8 @@ class IbkrClient(EWrapper, EClient):
                 return
             if getattr(ticker, "freeze_on_snapshot_end", False) and marketDataType != 1:
                 ticker.strictSnapshotNonLive = True
+            if marketDataType != 1:
+                ticker.volumeNonLiveTypeObserved = True
             ticker.marketDataType = marketDataType if marketDataType in {1, 2, 3, 4} else None
             ticker.marketDataTypeConfirmed = ticker.marketDataType is not None
             ticker.marketDataTypeReceivedAt = datetime.now(timezone.utc)
@@ -3357,6 +3621,11 @@ class IbkrClient(EWrapper, EClient):
             value = float(size)
             self._market_data[reqId][field] = value
             setattr(ticker, field, value)
+            if field == "volume":
+                previous = ticker.volumeTickType
+                ticker.mixedVolumeTickTypes |= previous is not None and previous != tickType
+                ticker.volumeTickType = tickType
+                ticker.volumeRawValue = size if type(size) is int else _clean(size)
             _record_field_receipt(ticker, [{"bidSize": "bid_size", "askSize": "ask_size", "lastSize": "last_size"}.get(field, field)])
         self._market_update_event.set()
 
@@ -3426,6 +3695,8 @@ class IbkrClient(EWrapper, EClient):
                         query["status"] = error
                         query["event"].set()
                     return
+                if query.get("settled_usd"):
+                    return
                 if account != query["account"]:
                     query["status"] = "WRONG_ACCOUNT"
                 elif (not isinstance(tag, str) or not tag or tag != tag.strip()
@@ -3466,6 +3737,8 @@ class IbkrClient(EWrapper, EClient):
                             query["completed_at"] = datetime.now(timezone.utc)
                         query["event"].set()
                         return
+                    if query.get("settled_usd"):
+                        return
                     query["status"] = "COMPLETE" if query["currency"] is not None else "MISSING_CURRENCY"
                     if query["status"] == "COMPLETE":
                         query["completed_at"] = datetime.now(timezone.utc)
@@ -3482,6 +3755,63 @@ class IbkrClient(EWrapper, EClient):
                 context["account_summary_end_received"] = deadline is not None and time.monotonic() < deadline
                 event.set()
             getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
+
+    def accountUpdateMulti(self, reqId, account, modelCode, key, value, currency):  # type: ignore[override]
+        with self._lock:
+            query = self._request_context_by_req_id.get(reqId, {}).get("account_currency_query")
+            if not query or not query.get("settled_usd") or not self._account_currency_query_current(reqId, query):
+                return
+            if account != query["account"] or modelCode != "":
+                query["status"] = "SETTLED_CASH_SCOPE_MISMATCH"
+            elif key == "AccountReady" and str(value).lower() != "true":
+                query["status"] = "SETTLED_CASH_ACCOUNT_NOT_READY"
+            elif key in {"SettledCashByDate-S", "$LEDGER-SettledCashByDate-S"} and currency == "USD":
+                # IBKR reports available cash on the first date and cumulative
+                # balances on later dates. Do not spend against future credits
+                # or disregard outstanding debits to the securities segment.
+                try:
+                    rows = []
+                    for item in value.split(";"):
+                        raw_day, raw_amount = item.split(":")
+                        if not re.fullmatch("[0-9]{8}", raw_day):
+                            raise ValueError
+                        day = datetime.strptime(raw_day, "%Y%m%d").date()
+                        amount = self._account_capital_amount(raw_amount)
+                        if amount is None or (rows and day <= rows[-1][0]):
+                            raise ValueError
+                        rows.append((day, amount))
+                    if rows[0][0] != query["cash_as_of_date"]:
+                        raise ValueError
+                    rows = tuple(rows)
+                except (AttributeError, IndexError, ValueError):
+                    query["status"] = "SETTLED_CASH_INVALID"
+                else:
+                    previous = query.get("settled_cash_rows")
+                    if previous is None or previous == rows:
+                        query["settled_cash_rows"] = rows
+                        query["settled_cash"] = min(amount for _, amount in rows)
+                        query["currency"] = currency
+                        query["tags"].add(key)
+                        return
+                    query["status"] = "SETTLED_CASH_CONFLICTING"
+            else:
+                return
+            query["event"].set()
+
+    def accountUpdateMultiEnd(self, reqId):  # type: ignore[override]
+        with self._lock:
+            query = self._request_context_by_req_id.get(reqId, {}).get("account_currency_query")
+            if not query or not query.get("settled_usd") or not self._account_currency_query_current(reqId, query):
+                return
+            now = datetime.now(timezone.utc)
+            if query.get("settled_cash") is None:
+                query["status"] = "SETTLED_CASH_UNAVAILABLE"
+            elif now.astimezone(ZoneInfo("America/New_York")).date() != query["cash_as_of_date"]:
+                query["status"] = "SETTLED_CASH_DATE_CHANGED"
+            else:
+                query["status"] = "COMPLETE"
+                query["completed_at"] = now
+            query["event"].set()
 
     def managedAccounts(self, accountsList: str):  # type: ignore[override]
         register_account(accountsList)
@@ -3725,6 +4055,8 @@ class IbkrClient(EWrapper, EClient):
         whyHeld: str,
         mktCapPrice: float,
     ):  # type: ignore[override]
+        with self._lock:
+            status_scope = (self._position_connection_epoch, getattr(self, "_managed_accounts_generation", 0))
         self._observe_order_id(int(orderId))
         if not hasattr(self, "_order_status_count"):
             self._order_status_count = 0
@@ -3741,17 +4073,24 @@ class IbkrClient(EWrapper, EClient):
             f"remaining={remaining}"
         )
         self._ensure_order_state_registry()
-        existing = self._order_status.get(orderId, {})
-        # Intake owns whole-share validation. Truncation here would conceal a
-        # fractional or malformed callback before that owner can reject it.
-        self._order_status[orderId] = {
-            **existing,
-            "status": status,
-            "filled": filled,
-            "remaining": remaining,
-            "avgFillPrice": avgFillPrice,
-            "lastFillPrice": lastFillPrice,
-        }
+        with self._lock:
+            if status_scope != (self._position_connection_epoch, getattr(self, "_managed_accounts_generation", 0)):
+                return
+            existing = self._order_status.get(orderId, {})
+            # Intake owns whole-share validation. Truncation here would conceal a
+            # fractional or malformed callback before that owner can reject it.
+            self._order_status[orderId] = {
+                **existing,
+                "status": status,
+                "filled": filled,
+                "remaining": remaining,
+                "avgFillPrice": avgFillPrice,
+                "lastFillPrice": lastFillPrice,
+                "status_client_id": clientId,
+                "status_parent_id": parentId,
+                "status_connection_epoch": status_scope[0],
+                "status_account_generation": status_scope[1],
+            }
         self._publish_local_intake("orderStatus",cache="_order_status",order_id=orderId)
         print(
             "[ORDER][STATUS] "
@@ -3905,7 +4244,8 @@ class IbkrClient(EWrapper, EClient):
             f"outsideRth={outside_rth_label} status={getattr(orderState, 'status', None)}"
         )
         row = SimpleNamespace(orderId=orderId, contract=contract, order=order, orderState=orderState)
-        self._open_orders_snapshot[orderId] = row
+        with self._lock:
+            self._open_orders_snapshot[orderId] = row
         self._publish_local_intake("openOrder",cache="_open_orders_snapshot",order_id=orderId)
         self._emit_execution_callback(
             {

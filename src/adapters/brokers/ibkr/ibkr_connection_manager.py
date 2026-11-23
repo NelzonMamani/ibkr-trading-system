@@ -209,8 +209,17 @@ class IbkrConnectionManager:
             print(f"[IBKR][MANAGER] failed_connect_cleanup error_type={type(exc).__name__}")
             return False  # No further retry/publication in this call over unknown cleanup.
 
-    def disconnect(self, reason: str = "manual") -> None:
+    def disconnect(self, reason: str = "manual", *, disconnect_admission=None) -> None:
         with self._lock:
+            if disconnect_admission is not None:
+                expected_client, finalize = disconnect_admission
+                if self._client is not expected_client or not expected_client.is_connected():
+                    raise RuntimeError("PAPER_RELEASE_SHUTDOWN_FINAL_SCOPE_CHANGED")
+                # Authorize on the same client immediately before it closes
+                # local intake. A refusal retains the published connection.
+                expected_client.disconnect(final_authorization=finalize)
+                self._client = None
+                self._connected_client_id = None
             self._last_disconnect_reason = reason
             if "shutdown" in reason.lower():
                 self._shutdown_requested = True

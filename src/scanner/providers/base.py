@@ -32,6 +32,7 @@ class QuoteData:
     request_id: Optional[int] = None
     snapshot_complete: bool = False
     snapshot_evidence: Mapping[str, Any] = field(default_factory=dict)
+    volume_evidence: Optional[dict[str, object]] = None
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,7 @@ class IntradayStats:
     volume_data_quality_flag: Optional[str]
     historical_outcome: Optional[str] = None
     historical_end_received: Optional[bool] = None
+    adv20_volume_basis: Optional[dict[str, object]] = None
 
 
 class ScannerDataProvider(Protocol):

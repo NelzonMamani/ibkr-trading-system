@@ -753,3 +753,19 @@ def test_cached_mutable_sdk_bar_cannot_replace_original_completion_facts(chain,m
         later=x.md.daily_bars_from_history(contract(),use_rth=False)
         assert later.status=='SOURCE_BAR_CONFLICT' and not later.completed and len(calls)==1
         assert later.raw_source_bars[0]['close']==10.
+
+
+def test_provider_retains_legacy_volume_without_falling_back_from_explicit_unknown_units(chain, monkeypatch):
+    provider = chain.provider
+    monkeypatch.setattr(provider, "_average_daily_volume", lambda symbol: (None, None))
+    legacy = provider.get_intraday_stats("SYNTH")
+    assert legacy.current_intraday_volume == 2000
+    assert legacy.volume_data_quality_flag == "IBKR_SNAPSHOT_UNIT_UNVERIFIED"
+
+    monkeypatch.setattr(
+        provider, "get_quote",
+        lambda symbol: NS(volume=2000, volume_evidence={"raw_value": 2000, "unit": "UNKNOWN"}),
+    )
+    unknown = provider.get_intraday_stats("SYNTH")
+    assert unknown.current_intraday_volume is None
+    assert unknown.volume_data_quality_flag == "IBKR_SNAPSHOT_UNIT_UNVERIFIED"

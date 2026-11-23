@@ -10,6 +10,7 @@ class BrokerPositionResult:
     status: str = "UNAVAILABLE"
     account: str | None = None
     completed_at: datetime | None = None
+    scope_identity: tuple[int, int, int] | None = None
 
 
 class PositionRows(list):

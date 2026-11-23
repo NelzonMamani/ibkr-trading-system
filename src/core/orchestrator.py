@@ -57,6 +57,7 @@ from src.core.faults import (
 )
 from src.core.stop_controller import StopController, StopMode
 from src.core.performance_registry import PerformanceRegistry
+from src.core.paper_release import PaperRelease
 from src.core.replay_engine import ReplayEngine
 from src.core.trace_bus import TraceBus
 from src.core.decision_trace import DecisionTraceStore, SymbolDecisionTrace
@@ -427,6 +428,10 @@ class CoreOrchestrator:
         self.selected_strategy_key = str(self.selected_strategy_key).strip().lower()
         print(f"[STRATEGY][SELECTED] key={self.selected_strategy_key}")
         self.primary_strategy_key = self.selected_strategy_key or "ross_momentum"
+        if os.environ.get("ROSS_PAPER_RELEASE_ENABLED", "0") != "0" and self.primary_strategy_key != "ross_momentum":
+            raise RuntimeError("PAPER_RELEASE_REQUIRES_PAPER_MICRO_ROSS")
+        self._paper_release = PaperRelease.from_environment(
+            self.run_mode, self.execution_enabled, self._enabled_strategy_keys())
         self._strategy_watchlist_cache: dict[str, list[str]] = {}
         self._strategy_cadence_state: dict[str, StrategyCadenceState] = {}
         self._pipeline_runtime_counts: dict[str, int] = {
@@ -597,6 +602,7 @@ class CoreOrchestrator:
             storage_engine=self.storage_engine,
             daily_risk_governor=self.daily_risk_governor,
             autonomous_recovery_authority=self.autonomous_recovery_authority,
+            **({"paper_release": self._paper_release} if self._paper_release is not None else {}),
         )
         self.execution_enabled = self.execution_engine.execution_enabled
         self.position_management_engine = PositionManagementEngine()
@@ -607,7 +613,12 @@ class CoreOrchestrator:
             persistence_adapter=self.storage_engine, state_namespace=self.run_mode.value,
         )
         self.trade_management_engine.restore_relationship_state()
-        self.trade_management_engine.bind_recovered_protection(self.execution_engine.post_fill_lifecycle)
+        if self._paper_release is None:
+            self.trade_management_engine.bind_recovered_protection(self.execution_engine.post_fill_lifecycle)
+        elif (self.trade_management_engine.snapshot_positions()
+                or self.trade_management_engine._relationship_plans
+                or self.trade_management_engine._pending_exit):
+            self.execution_engine._mark_capital_recovery_failed("PAPER_RELEASE_RETAINED_MANAGEMENT_STATE")
         self.risk_engine.relationship_manager = self.trade_management_engine
         self.execution_engine.relationship_manager = self.trade_management_engine
         for strategy in getattr(self.strategy_runner, "strategies", []):
@@ -1215,7 +1226,13 @@ class CoreOrchestrator:
                 last_price = snapshot.last or last_price
                 bid = snapshot.bid if snapshot.bid is not None else bid
                 ask = snapshot.ask if snapshot.ask is not None else ask
-                day_volume = snapshot.volume if snapshot.volume is not None else day_volume
+                evidence = getattr(snapshot, "volume_evidence", None)
+                if evidence is not None:
+                    from src.domain.volume_evidence import verified_volume_shares
+                    shares = verified_volume_shares(evidence)
+                    day_volume = shares if shares is not None else day_volume
+                elif snapshot.volume is not None:
+                    day_volume = snapshot.volume
             prep_snapshot = self.prep_engine.get_snapshot(symbol)
             data_quality_flags = list(getattr(row, "data_quality_flags", []) or [])
             if prep_snapshot is None:
@@ -3526,6 +3543,21 @@ class CoreOrchestrator:
                 )
         return []
 
+    def _collect_and_bind_position_scope(self, *, as_of, broker_connection_ready):
+        client = (self.connection_manager.get_ibkr_client(ensure_connected=False)
+                  if broker_connection_ready else None)
+        broker_positions = collect_broker_position_snapshot(
+            client, as_of=as_of,
+            config=PositionTruthConfig(
+                broker_required=self.run_mode in {RunMode.PAPER, RunMode.LIVE, RunMode.READ_ONLY},
+                run_mode=self.run_mode,
+            ),
+        )
+        self.execution_engine.bind_native_order_scope(
+            account=broker_positions.account, client=client, as_of=broker_positions.completed_at,
+            scope_identity=broker_positions.scope_identity)
+        return broker_positions
+
     def _resolve_position_truth_cycle(
         self,
         *,
@@ -3563,18 +3595,8 @@ class CoreOrchestrator:
         if broker_connection_ready and relationship_manager is not None and relationship_manager._relationship_plans:
             self.execution_engine.refresh_relationship_order_snapshot()
             as_of = max(as_of, datetime.now(timezone.utc))
-        broker_positions = collect_broker_position_snapshot(
-            self.connection_manager.get_ibkr_client(ensure_connected=False) if broker_connection_ready else None,
-            as_of=as_of,
-            config=PositionTruthConfig(
-                broker_required=broker_required,
-                run_mode=self.run_mode,
-            ),
-        )
-        self.execution_engine.bind_native_order_scope(
-            account=getattr(broker_positions, "account", None),
-            client=self.connection_manager.get_ibkr_client(ensure_connected=False) if broker_connection_ready else None,
-            as_of=getattr(broker_positions, "completed_at", None))
+        broker_positions = self._collect_and_bind_position_scope(
+            as_of=as_of, broker_connection_ready=broker_connection_ready)
         system_positions = collect_system_position_snapshot(
             self.trade_registry.snapshot(),
             as_of=as_of,
@@ -3695,6 +3717,10 @@ class CoreOrchestrator:
         forced_session_label: str | None = None,
         forced_session_source: str | None = None,
     ) -> bool:
+        release = getattr(self, "_paper_release", None)
+        if release is not None and not self._startup_recovery_allows_strategy_execution():
+            release.last_gate = self.execution_engine.startup_recovery_block_reason()
+            return False
         self._expire_selected_failure_enrollment(cycle_started_at, str(session_phase))
         self.runtime_mode_manager = RuntimeModeManager.resolve()
         mode_manager = self.runtime_mode_manager
@@ -3735,6 +3761,13 @@ class CoreOrchestrator:
             if self._stop_requested_at_boundary("CACHED_EXECUTION_UPDATES"):
                 return False
             try:
+                engine = self.execution_engine
+                if (getattr(engine, "paper_entry_capital_required", False)
+                        and (engine._native_orders or self.trade_management_engine._relationship_plans)):
+                    # Refresh the native scope for delayed fills, then reconcile
+                    # positions below after callback accounting has run.
+                    self._collect_and_bind_position_scope(
+                        as_of=datetime.now(timezone.utc), broker_connection_ready=not connectivity_failed)
                 # Non-consuming cumulative callback facts belong to the existing
                 # execution owner. Apply them before reconciling broker positions
                 # against the registry; acknowledgement is not a fill.
@@ -3763,6 +3796,9 @@ class CoreOrchestrator:
             return False
 
         if not self._startup_recovery_allows_strategy_execution():
+            release = getattr(self, "_paper_release", None)
+            if release is not None:
+                release.last_gate = self.execution_engine.startup_recovery_block_reason()
             return False
         self._run_position_management_tick(cycle_started_at)
         # Owned reductions are separate from discovery/new-entry eligibility.
@@ -3795,6 +3831,20 @@ class CoreOrchestrator:
                 return False
             if not self._run_selected_cost_tightening():
                 return False
+        paper_release = getattr(self, "_paper_release", None)
+        if paper_release is not None:
+            if paper_release.attempted:
+                return True
+            try:
+                paper_release.check_start(
+                    self.connection_manager.get_ibkr_client(ensure_connected=False),
+                    self.execution_engine, datetime.now(timezone.utc))
+            except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+                raise
+            except RuntimeError as exc:
+                paper_release.last_gate = str(exc)
+                print(f"[PAPER_RELEASE][BLOCK] reason={exc}")
+                return True
         if not self._autonomous_recovery_allows_new_entries(cycle_started_at=cycle_started_at):
             return True
         if not self._daily_risk_allows_new_entries(cycle_started_at=cycle_started_at):
@@ -4511,6 +4561,10 @@ class CoreOrchestrator:
         for symbol in self._symbols_from_candidates(strategy_watchlist):
             print(f"[STRATEGY] runner=ross_momentum symbol={symbol} stage=evaluate")
             print(f"[ROSS][SYMBOL_EVAL][START] symbol={symbol} source=orchestrator_handoff")
+        trace_collector = getattr(ross_strategy, "_failure_trace_collector", None)
+        # The collector retains previous invocations, which may share the
+        # same market timestamp. Only rows emitted by this run can fail it.
+        trace_start = len(getattr(trace_collector, "_symbols", ()))
         if strategy_watchlist:
             if session_execution_allowed:
                 print("[STRATEGY][EXECUTION] invoking StrategyRunner")
@@ -4565,10 +4619,6 @@ class CoreOrchestrator:
         self._pipeline_runtime_counts["cycles_run"] += 1
         self._pipeline_runtime_counts["watchlist_count"] += len(watchlist_symbols)
         self._pipeline_runtime_counts["trade_intents"] += len(strategy_output or [])
-        ross_strategy = next(
-            (s for s in getattr(self.strategy_runner, "strategies", []) if getattr(s, "name", "") == "RossMomentumStrategyV1"),
-            None,
-        )
         evaluated_symbols = set(getattr(ross_strategy, "last_evaluated_symbols", []) or [])
         for symbol in final_evaluation_symbols:
             if symbol.upper() not in evaluated_symbols:
@@ -4644,9 +4694,8 @@ class CoreOrchestrator:
         }
         setup_detected_symbols = set(emitted_intent_symbols)
         trace_identity_failures: set[str] = set()
-        if ross_strategy is not None:
-            collector = getattr(ross_strategy, "_failure_trace_collector", None)
-            traces = getattr(collector, "_symbols", []) if collector is not None else []
+        if strategy_watchlist and trace_collector is not None:
+            traces = getattr(trace_collector, "_symbols", ())[trace_start:]
             trace_setup_symbols, trace_identity_failures = self._setup_detected_symbols_from_current_cycle_traces(
                 traces,
                 current_cycle_id=current_cycle_id,
@@ -4790,6 +4839,13 @@ class CoreOrchestrator:
                 )
                 raise Exception("PIPELINE_BREAK_SETUP_TO_INTENT")
         gated_strategy_output = self._enforce_ross_execution_integrity(raw_strategy_output)
+        native_paper = (self.run_mode == RunMode.PAPER
+                        and getattr(self.execution_engine, "paper_entry_capital_required", False))
+        if native_paper and gated_strategy_output and not position_truth_verdict.block_new_entries:
+            # Discovery can take longer than the position evidence lifetime.
+            # Bind capital to current position truth immediately before risk.
+            position_truth_verdict = self._resolve_position_truth_cycle(
+                as_of=datetime.now(timezone.utc), broker_connection_ready=True)
         admission_gate_rejections = {}
         if self.run_mode in {RunMode.READ_ONLY, RunMode.PAPER}:
             integrity_ids = {id(intent) for intent in gated_strategy_output}
@@ -4798,6 +4854,8 @@ class CoreOrchestrator:
                 for intent in raw_strategy_output if id(intent) not in integrity_ids
             }
             if position_truth_verdict.block_new_entries:
+                if paper_release is not None:
+                    paper_release.last_gate = "POSITION_TRUTH_BLOCK_NEW_ENTRIES"
                 admission_gate_rejections.update({
                     intent.symbol.upper(): "POSITION_TRUTH_BLOCK_NEW_ENTRIES"
                     for intent in gated_strategy_output
@@ -4806,6 +4864,25 @@ class CoreOrchestrator:
             gated_strategy_output,
             position_truth_verdict,
         )
+        if native_paper:
+            from src.domain.volume_evidence import ross_entry_volume_rejection
+
+            client = self.connection_manager.get_ibkr_client(ensure_connected=False)
+            retained = []
+            for intent in gated_strategy_output:
+                reason = ross_entry_volume_rejection(
+                    intent, self.run_mode, client_id=getattr(client, "client_id", None),
+                    connection_epoch=getattr(client, "_position_connection_epoch", None))
+                if paper_release is not None and (
+                        intent.setup_family_id != "ABCD" or intent.relationship_context):
+                    reason = "PAPER_RELEASE_REQUIRES_STANDALONE_ABCD_ONE_SHARE"
+                if reason:
+                    if paper_release is not None:
+                        paper_release.last_gate = reason
+                    admission_gate_rejections[intent.symbol.upper()] = reason
+                else:
+                    retained.append(intent)
+            gated_strategy_output = retained
         if (
             self.run_mode not in {RunMode.READ_ONLY, RunMode.PAPER}
             and self._mock_scanner_mode_enabled()
@@ -4922,7 +4999,11 @@ class CoreOrchestrator:
                 self._trace_event("DECISION", artifact_payload,
                                   summary=f"decision_id={artifact.decision_id} intents={len(artifact.intents)}")
                 for intent in gated_strategy_output:
-                    decision = self.risk_engine.evaluate_trade_intent(intent)
+                    if native_paper:
+                        evidence = self.execution_engine.collect_paper_entry_capital()
+                        decision = self.risk_engine.evaluate_trade_intent(intent, paper_capital=evidence)
+                    else:
+                        decision = self.risk_engine.evaluate_trade_intent(intent)
                     approved = bool(decision.allowed) and decision.risk_level != "BLOCKED" and not decision.execution_blocked
                     reason = decision.reason_code or decision.rationale
                     print(f"[RISK][DECISION] symbol={intent.symbol} approved={approved} "
@@ -4951,8 +5032,13 @@ class CoreOrchestrator:
                         paper_decisions.append((intent, decision, approved))
                     if approved:
                         risk_allowed_symbols.append(intent.symbol)
+                        if paper_release is not None:
+                            paper_release.last_gate = None
+                            break
                     else:
                         canonical_risk_blocked_count += 1
+                        if paper_release is not None:
+                            paper_release.last_gate = reason
                         canonical_risk_rejections[intent.symbol.upper()] = reason
                         pipeline_audit.record(intent.symbol, TerminalOutcome.RISK_BLOCKED, reason, "risk")
             # READ_ONLY never dispatches orders. PAPER uses the existing
@@ -4965,6 +5051,8 @@ class CoreOrchestrator:
 
         if mode_manager.allow_orders and self.run_mode == RunMode.PAPER:
             for intent, decision, approved in paper_decisions:
+                if paper_release is not None and paper_release.attempted:
+                    break
                 if not approved:
                     continue
                 if self._stop_requested_at_boundary("PAPER_EXECUTION"):
@@ -4984,6 +5072,8 @@ class CoreOrchestrator:
                 submitted = self.execution_engine.submission_confirmed(result)
                 attempted = bool(result.attempted) or str(result.status).upper() == "SUBMISSION_UNKNOWN"
                 reason = result.rejection_reason or result.rationale or result.status
+                if paper_release is not None and not submitted:
+                    paper_release.last_gate = reason
                 self._trace_event("EXECUTION_RESULT", {
                     "strategy": strategy_key, "symbol": intent.symbol,
                     "decision_id": decision.decision_id, "status": result.status,
@@ -7702,6 +7792,60 @@ class CoreOrchestrator:
         except Exception:
             return ShutdownExecutionContext()
 
+    def _await_paper_release_shutdown(self, proof) -> str:
+        from src.ibkr.evidence_safety import write_json
+
+        directory = os.environ.get("PR1090_EVIDENCE_DIR")
+        def log(message):
+            try:
+                print(f"[PAPER_RELEASE][SHUTDOWN] {message}", flush=True)
+            except OSError:
+                pass  # Lost console output cannot terminate retained management.
+
+        last_gate = None
+        while True:
+            try:
+                ready, gate = self.execution_engine.paper_release_shutdown_step(
+                    read_positions=lambda: self._collect_and_bind_position_scope(
+                        as_of=datetime.now(timezone.utc), broker_connection_ready=True),
+                    result_processor=lambda result: self._apply_execution_results_to_trade_management([result]))
+                if ready:
+                    # Consume the last scoped observation at the execution
+                    # shutdown hook, before any evidence I/O or other cleanup.
+                    self.execution_engine.shutdown()
+            except KeyboardInterrupt:
+                ready, gate = False, "PAPER_RELEASE_SHUTDOWN_MANUAL_HANDOFF_REQUIRED"
+            except Exception as exc:
+                log(f"unresolved observation: {type(exc).__name__}: {exc}")
+                detail = str(exc)
+                known = {"PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY", "PAPER_RELEASE_SHUTDOWN_FINAL_SCOPE_CHANGED",
+                         "PAPER_RELEASE_SHUTDOWN_PROTECTION_CHANGED", "PAPER_RELEASE_SHUTDOWN_CALLBACK_IN_FLIGHT"}
+                ready, gate = False, detail if detail in known else "PAPER_RELEASE_SHUTDOWN_OBSERVATION_UNAVAILABLE"
+            if gate != last_gate:
+                status = ("PAPER_RELEASE_SHUTDOWN_RESOLVED" if ready
+                          else "PAPER_RELEASE_SHUTDOWN_HANDOFF_ACTIVE")
+                try:
+                    proof.record(status, gate=gate, management_continues=not ready)
+                except Exception as exc:
+                    log(f"event evidence unavailable: {exc}")
+                log(f"status={status} gate={gate}")
+                if directory:
+                    try:
+                        write_json(Path(directory) / "pending-entry-handoff.json", {
+                            "status": status, "gate": gate, "runtime_pid": os.getpid(),
+                            "management_continues": not ready,
+                        })
+                    except Exception as exc:
+                        log(f"evidence unavailable: {exc}")
+                last_gate = gate
+            if ready:
+                return gate
+            try:
+                time.sleep(1)
+            except KeyboardInterrupt:
+                # Repeated console control cannot certify absence of a fill.
+                continue
+
     def _shutdown(self, mode: StopMode) -> None:
         from src.ibkr.shutdown_evidence import ShutdownEvidence, reset_scanner, disconnect_manager
         from src.ibkr.evidence_safety import finish_console_protection
@@ -7720,19 +7864,48 @@ class CoreOrchestrator:
                 return
         proof = ShutdownEvidence()
         self.shutdown_evidence = proof
+        paper_gate = None
+        controlled = getattr(self, "_paper_release", None) is not None
+        def shutdown_execution():
+            nonlocal paper_gate
+            if controlled:
+                paper_gate = self._await_paper_release_shutdown(proof)
+            else:
+                self.execution_engine.shutdown()
+
+        def drain_controlled_execution():
+            # ShutdownEvidence records hook failures and continues. Controlled
+            # shutdown must never advance to another disconnect-capable hook
+            # unless the native owner has affirmatively completed its drain.
+            while paper_gate is None:
+                try:
+                    proof.attempt("execution_engine.shutdown", shutdown_execution)
+                except (Exception, KeyboardInterrupt):
+                    pass
+                if paper_gate is None:
+                    try:
+                        time.sleep(1)
+                    except KeyboardInterrupt:
+                        pass
         if resolved_mode == StopMode.PANIC:
             from src.ibkr.shutdown_evidence import REQUIRED_HOOKS
 
             # Emergency bookkeeping stays in memory: no nonessential hook or
             # blocking evidence I/O may delay the essential execution shutdown.
             # Missing durable graceful proof deliberately fails certification.
-            self._shutdown_finished = True
+            if not controlled:
+                self._shutdown_finished = True
             proof.record("PANIC_STOP_REQUESTED", mode="PANIC", completed=True)
             proof.record("SHUTDOWN_STARTED", mode="PANIC", completed=True)
             maintenance = getattr(self, "_news_maintenance", None)
             if maintenance is not None:
                 maintenance.stop.set()
-            proof.attempt("execution_engine.shutdown", self.execution_engine.shutdown)
+            if controlled:
+                drain_controlled_execution()
+                self._shutdown_finished = True
+            else:
+                proof.attempt("execution_engine.shutdown", shutdown_execution)
+            execution_shutdown_complete = proof.hooks[-1]["completed"]
             for name in REQUIRED_HOOKS:
                 if name == "execution_engine.shutdown":
                     continue
@@ -7741,7 +7914,7 @@ class CoreOrchestrator:
                 proof.hooks.append(row)
                 proof.record("SHUTDOWN_HOOK", **row)
             proof.record("SHUTDOWN_COMPLETE", mode="PANIC",
-                         completed=proof.hooks[0]["completed"])
+                         completed=execution_shutdown_complete)
             return
 
         proof.record("GRACEFUL_STOP_REQUESTED", completed=(
@@ -7762,20 +7935,31 @@ class CoreOrchestrator:
         started = emit_shutdown("SHUTDOWN_STARTED", self._stop_payload(resolved_mode))
         proof.record("SHUTDOWN_STARTED", completed=started,
                      news_maintenance_owned=getattr(self, "_news_maintenance", None) is not None)
+        if controlled:
+            drain_controlled_execution()
         maintenance = getattr(self, "_news_maintenance", None)
         if maintenance is not None:
             proof.attempt("news_maintenance.shutdown", maintenance.close)
         hooks = [
             ("ops_summary", self._emit_ops_summary),
             ("learning_scheduler", self.learning_scheduler.on_shutdown),
-            ("execution_engine.shutdown", self.execution_engine.shutdown),
-            ("trade_exit_engine.shutdown", lambda: self.trade_exit_engine.shutdown(
-                execution_context=trade_exit_context)),
-            ("storage_engine.shutdown", self.storage_engine.shutdown),
-            ("active_trade_registry.verify_empty", self.trade_registry.verify_empty),
+        ]
+        if not controlled:
+            hooks.append(("execution_engine.shutdown", shutdown_execution))
+        if paper_gate in (None, "PAPER_RELEASE_SHUTDOWN_NO_ENTRY"):
+            hooks.append(("trade_exit_engine.shutdown", lambda: self.trade_exit_engine.shutdown(
+                execution_context=trade_exit_context)))
+        else:
+            # The native drain has its own affirmative terminal/management
+            # evidence. Teaching closure has no work on retained broker state.
+            proof.record("PAPER_RELEASE_NATIVE_OWNERSHIP_RETAINED", gate=paper_gate)
+        hooks.append(("storage_engine.shutdown", self.storage_engine.shutdown))
+        if paper_gate != "PAPER_RELEASE_SHUTDOWN_FILL_PROTECTED":
+            hooks.append(("active_trade_registry.verify_empty", self.trade_registry.verify_empty))
+        hooks.extend([
             ("scanner_reset", reset_scanner),
             ("manager_disconnect", disconnect_manager),
-        ]
+        ])
         for name, function in hooks:
             proof.attempt(name, function)
             row = proof.hooks[-1]

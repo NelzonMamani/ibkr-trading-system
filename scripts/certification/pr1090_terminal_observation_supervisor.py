@@ -155,7 +155,7 @@ def is_observation_controller(args):
     executable = args[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
     names = {"natural_readonly_operator.py", "pr1090_terminal_observation_supervisor.py",
              "run_natural_readonly_observation.ps1", "invoke-readonlyobservation.ps1",
-             "read_only_local_execution_required.ps1"}
+             "read_only_local_execution_required.ps1", "ross_paper_release_operator.py"}
     if re.fullmatch(r"python(?:w)?(?:\d+(?:\.\d+)*)?(?:\.exe)?", executable):
         for arg in args[1:]:
             name = arg.replace("\\", "/").rsplit("/", 1)[-1].lower()

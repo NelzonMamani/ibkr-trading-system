@@ -282,6 +282,7 @@ def test_clean_start_native_order_query_failure_blocks_preflight(monkeypatch, st
 
     client = _FakeIbkrClient(positions=[SimpleNamespace(symbol="FIX", position=1)])
     client.snapshot_timeout_seconds = 1
+    client._lock = threading.RLock()
     client._open_orders_query_lock = threading.Lock()
     client._open_orders_unresolved = state == "COMPLETION_UNRESOLVED"
     client._open_orders_snapshot = {}

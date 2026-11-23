@@ -11,6 +11,7 @@ import uuid
 from src.core.acquisition import checkpoint
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Callable, List, Optional
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -27,10 +28,11 @@ from src.config.config_resolver import get_config
 from src.config.runtime_config import (
     RunMode,
     get_execution_enabled,
+    get_ibkr_snapshot_max_age_seconds,
     get_ibkr_readonly_enabled,
 )
 from src.core.active_trade_registry import ActiveTradeRegistry
-from src.core.capital_management_authority import CapitalDecision, CapitalManagementAuthority
+from src.core.capital_management_authority import CapitalDecision, CapitalManagementAuthority, PaperEntryCapital
 from src.core.daily_risk_governor import DailyRiskGovernor
 from src.core.event_collector import EventCollector
 from src.core.strategy_capital_allocation_authority import (
@@ -189,6 +191,7 @@ class ExecutionEngine:
         strategy_allocation_authority: Optional[StrategyCapitalAllocationAuthority] = None,
         daily_risk_governor: Optional[DailyRiskGovernor] = None,
         autonomous_recovery_authority: Optional[AutonomousRecoveryAuthority] = None,
+        paper_release=None,
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
@@ -215,6 +218,7 @@ class ExecutionEngine:
         self.position_records: dict[str, dict] = {}
         self._native_orders: dict[str, dict] = {}
         self._native_scope = None
+        self._native_position_scope_identity = None
         self._p02_local = None
         self._native_state = None
         self._native_loaded = False
@@ -257,8 +261,13 @@ class ExecutionEngine:
         self._strategy_allocation_decisions_by_order_id: dict[str, str] = {}
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
+        self._paper_release = paper_release
         self._recover_startup_state()
-        self._recover_capital_state()
+        if paper_release is None:
+            self._recover_capital_state()
+        else:
+            self.paper_release_guard = lambda request, client, contract, order, now: (
+                paper_release.authorize(request, client, contract, order, now, self))
         self.daily_risk_governor.recover(
             run_mode=self.run_mode.value,
             recovery_complete=self.startup_recovery_complete(),
@@ -932,9 +941,59 @@ class ExecutionEngine:
             and observation["journal_fingerprint"] == fresh["journal_fingerprint"]
             and fresh.assessed_at >= observation.assessed_at)
 
-    def bind_native_order_scope(self, *, account, client, as_of) -> None:
+    def bind_native_order_scope(self, *, account, client, as_of, scope_identity=None) -> None:
         # Existing complete position-snapshot authority, not a caller config flag.
         self._native_scope = (account, client, as_of) if isinstance(account, str) and account.strip() and client is not None else None
+        self._native_position_scope_identity = scope_identity if self._native_scope else None
+
+    @property
+    def paper_entry_capital_required(self) -> bool:
+        from src.brokers.ibkr_live_broker import IbkrLiveBroker
+
+        return (self.run_mode == RunMode.PAPER
+                and isinstance(self._provider, IbkrExecutionProvider)
+                and isinstance(self._provider.broker, IbkrLiveBroker))
+
+    def collect_paper_entry_capital(self) -> PaperEntryCapital | None:
+        if not self.paper_entry_capital_required:
+            return None
+        scope = self._native_scope
+        client = self._native_callback_client()
+        if scope is None or scope[1] is not client or not self._paper_order_scope_fresh(scope, datetime.now(timezone.utc)):
+            return None
+        from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+
+        position_identity = self._native_position_scope_identity
+        if (not isinstance(client, IbkrClient) or position_identity is None
+                or client.account_capital_scope(scope[0]) != position_identity):
+            return None
+        release = getattr(self, "_paper_release", None)
+        result = client.account_capital_snapshot(expected_account=scope[0], require_settled_usd=release is not None)
+        return PaperEntryCapital(client, scope[0], result, require_settled_usd=release is not None,
+                                 entry_fee_ceiling=release.entry_fee_ceiling if release is not None else None)
+
+    @staticmethod
+    def _paper_order_scope_fresh(scope, now) -> bool:
+        stamp = scope[2]
+        return (isinstance(stamp, datetime) and stamp.utcoffset() is not None
+                and 0 <= (now - stamp).total_seconds() <= get_ibkr_snapshot_max_age_seconds())
+
+    def _paper_entry_capital(self, evidence, *, now) -> tuple[str | None, dict[str, float]]:
+        if not isinstance(evidence, PaperEntryCapital):
+            return "PAPER_CAPITAL_UNAVAILABLE", {}
+        scope = self._native_scope
+        if (scope is None or scope[0] != evidence.account or scope[1] is not evidence.client
+                or self._native_callback_client() is not evidence.client):
+            return "PAPER_CAPITAL_SCOPE_CHANGED", {}
+        if not self._paper_order_scope_fresh(scope, now):
+            return "PAPER_CAPITAL_POSITION_SCOPE_STALE", {}
+        if (self._native_position_scope_identity is None
+                or evidence.client.account_capital_scope(evidence.account) != self._native_position_scope_identity):
+            return "PAPER_CAPITAL_POSITION_SCOPE_CHANGED", {}
+        return evidence.inspect(now)
+
+    def paper_entry_capital_rejection(self, evidence) -> str | None:
+        return self._paper_entry_capital(evidence, now=datetime.now(timezone.utc))[0]
 
     def _save_native_orders(self) -> None:
         from copy import deepcopy
@@ -976,7 +1035,7 @@ class ExecutionEngine:
         # Existing test/legacy boundary compatibility, not the live manager API.
         return client if client is not None else getattr(manager, "optional_client", None)
 
-    def _retain_native_request(self, request) -> dict:
+    def _retain_native_request(self, request, *, security_id=None) -> dict:
         self._load_native_orders()
         scope = self._native_scope
         client = self._native_callback_client()
@@ -994,6 +1053,10 @@ class ExecutionEngine:
             "terminal": False, "status": "DISPATCH_UNCERTAIN", "broker_order_id": None,
             "native_client_id": getattr(client, "client_id", None),
             "native_connection_epoch": getattr(client, "_position_connection_epoch", None)}
+        if type(security_id) is int and security_id > 0:
+            order["security_id"] = security_id
+        if self.paper_entry_capital_required:
+            order["native_account_scope_generation"] = self._native_position_scope_identity[2]
         self._native_orders[request.client_order_id] = order
         self._save_native_orders()  # Before dispatch; lost ack never implies absence.
         return order
@@ -1132,12 +1195,33 @@ class ExecutionEngine:
                         or not self._native_quarantined or self.startup_recovery_complete()):
                     raise
                 return  # Existing loader latched RECOVERY_FAILED; never reset it.
+        release = getattr(self, "_paper_release", None)
+
+        def check_clean_start():
+            if not self.paper_entry_capital_required:
+                raise RuntimeError("PAPER_RELEASE_NATIVE_PAPER_REQUIRED")
+            try:
+                self.broker.ensure_connection()
+            except Exception:
+                raise RuntimeError("PAPER_RELEASE_NATIVE_CONNECTION_UNAVAILABLE") from None
+            client = self._native_callback_client()
+            positions = release.check_start(client, self, datetime.now(timezone.utc),
+                                            require_recovery=False)
+            self.bind_native_order_scope(
+                account=positions.account, client=client, as_of=positions.completed_at,
+                scope_identity=positions.scope_identity)
+            evidence = self.collect_paper_entry_capital()
+            rejection = self.paper_entry_capital_rejection(evidence)
+            if rejection:
+                raise RuntimeError(rejection)
+
         authority = StartupRecoveryAuthority(
             run_mode=self.run_mode.value,
             provider=self._provider,
             post_fill_lifecycle=self.post_fill_lifecycle,
             trade_registry=self.trade_registry,
             trade_lifecycle_engine=self._trade_lifecycle_engine,
+            clean_start_check=check_clean_start if release is not None else None,
         )
         result = authority.run()
         self.startup_recovery_state = result.state
@@ -1213,6 +1297,8 @@ class ExecutionEngine:
         if direction not in {"BUY", "LONG", "SHORT"}:
             return None
         account = self._capital_account_snapshot(risk_decision)
+        if self.paper_entry_capital_required and not account["broker_truth_available"]:
+            return self._blocked_execution_from_risk_decision(risk_decision, rationale="PAPER_CAPITAL_INVALIDATED")
         context = self._strategy_allocation_context(risk_decision)
         requested_quantity = self._effective_quantity_from_risk_decision(risk_decision)
         decision = self.strategy_allocation_authority.evaluate_entry(
@@ -1221,7 +1307,7 @@ class ExecutionEngine:
             symbol=risk_decision.symbol,
             side=direction,
             requested_quantity=requested_quantity,
-            reference_price=float(getattr(risk_decision, "entry_price", 0.0) or 0.0),
+            reference_price=self._entry_reservation_price(risk_decision),
             available_capital=account.get("available_capital"),
             account_equity=account.get("account_equity"),
             current_strategy_exposure=context["current_strategy_exposure"],
@@ -1368,6 +1454,8 @@ class ExecutionEngine:
         if direction not in {"BUY", "LONG", "SHORT"}:
             return None
         account = self._capital_account_snapshot(risk_decision)
+        if self.paper_entry_capital_required and not account["broker_truth_available"]:
+            return self._blocked_execution_from_risk_decision(risk_decision, rationale="PAPER_CAPITAL_INVALIDATED")
         context = self._capital_portfolio_context(risk_decision.symbol)
         requested_quantity = self._effective_quantity_from_risk_decision(risk_decision)
         decision = self.capital_authority.evaluate_entry(
@@ -1376,7 +1464,7 @@ class ExecutionEngine:
             symbol=risk_decision.symbol,
             side=direction,
             requested_quantity=requested_quantity,
-            reference_price=float(getattr(risk_decision, "entry_price", 0.0) or 0.0),
+            reference_price=self._entry_reservation_price(risk_decision),
             account_equity=account.get("account_equity"),
             available_capital=account.get("available_capital"),
             buying_power=account.get("buying_power"),
@@ -1458,7 +1546,23 @@ class ExecutionEngine:
             "current_symbol_position_exists": symbol_position_exists,
         }
 
+    @staticmethod
+    def _entry_reservation_price(risk_decision: RiskDecision) -> float:
+        spend = getattr(risk_decision, "paper_entry_spend", None)
+        if spend is None:
+            return float(getattr(risk_decision, "entry_price", 0.0) or 0.0)
+        price = float(spend)
+        return math.nextafter(price, math.inf) if Decimal(str(price)) < spend else price
+
     def _capital_account_snapshot(self, risk_decision: RiskDecision) -> dict[str, float | bool | None]:
+        if self.paper_entry_capital_required:
+            reason, values = self._paper_entry_capital(
+                getattr(risk_decision, "paper_entry_capital", None), now=datetime.now(timezone.utc),
+            )
+            if reason:
+                return {"broker_truth_available": False}
+            return {**values, "broker_truth_available": True,
+                    "available_capital": max(0.0, min(values.values()))}
         evaluated = getattr(risk_decision, "evaluated_limits", {}) or {}
         equity = self._float_or_none(
             evaluated.get("account_equity")
@@ -1843,6 +1947,9 @@ class ExecutionEngine:
                 rationale="No risk decision provided; nothing to execute in teaching mode.",
             )
 
+        if self.paper_entry_capital_required and str(risk_decision.direction).upper() == "SHORT":
+            return self._blocked_execution_from_risk_decision(
+                risk_decision, rationale="PAPER_NATIVE_SHORT_LIFECYCLE_UNSUPPORTED")
         if (self.run_mode == RunMode.PAPER and self._provider is not None and self._provider.is_live()
                 and str(risk_decision.direction).upper() in {"LONG", "BUY", "SHORT"}):
             try:
@@ -1887,6 +1994,15 @@ class ExecutionEngine:
         if gate_result is not None:
             return gate_result
 
+        paper_entry = self.paper_entry_capital_required and str(risk_decision.direction).upper() in {"LONG", "BUY", "SHORT"}
+        if paper_entry:
+            reason = self.paper_entry_capital_rejection(getattr(risk_decision, "paper_entry_capital", None))
+            if reason:
+                return self._blocked_execution_from_risk_decision(risk_decision, rationale=reason)
+            if (getattr(self, "_paper_release", None) is not None
+                    and getattr(risk_decision, "paper_entry_spend", None) is None):
+                return self._blocked_execution_from_risk_decision(risk_decision, rationale="PAPER_RELEASE_CASH_BOUND_UNAVAILABLE")
+
         strategy_allocation_result = self._strategy_allocation_admission_check(risk_decision)
         if strategy_allocation_result is not None:
             return strategy_allocation_result
@@ -1902,6 +2018,8 @@ class ExecutionEngine:
             self._release_strategy_allocation_for_order(order, reason="ORDER_FIELD_VALIDATION_FAILED")
             self._release_capital_for_order(order, reason="ORDER_FIELD_VALIDATION_FAILED")
             return required_fields_check
+        if paper_entry:
+            return self._route_order(order, paper_entry_risk=risk_decision)
         return self._route_order(order)
 
     def _session_gate_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
@@ -2296,16 +2414,19 @@ class ExecutionEngine:
         context = getattr(risk_decision, "relationship_context", None) or {}
         if context.get("management_action_id"):
             client_order_id = context["management_action_id"]
+        bounded_entry = getattr(risk_decision, "paper_entry_spend", None) is not None
+        order_type = "LMT" if bounded_entry else "MKT"
         print(
             "[ORDER][BUILD] "
-            f"symbol={risk_decision.symbol} order_type=MKT qty={requested_quantity} side=BUY"
+            f"symbol={risk_decision.symbol} order_type={order_type} qty={requested_quantity} side=BUY"
         )
         request = BrokerOrderRequest(
             client_order_id=client_order_id,
             symbol=risk_decision.symbol,
             direction=risk_decision.direction,
             quantity=requested_quantity,
-            order_type="MKT",
+            order_type=order_type,
+            limit_price=float(risk_decision.entry_price) if bounded_entry else None,
             trader_type=risk_decision.trader_type,
             strategy_name=risk_decision.strategy_name,
             attempt_number=1,
@@ -2365,7 +2486,103 @@ class ExecutionEngine:
         """Accepted native result with retained callback acknowledgement evidence."""
         return ExecutionResult.submission_confirmed(result)
 
-    def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
+    def _check_native_paper_entry(self, request, risk_decision, client, contract, native_order, *, prepare=False):
+        evidence = getattr(risk_decision, "paper_entry_capital", None)
+        now = datetime.now(timezone.utc)
+        reason, values = self._paper_entry_capital(evidence, now=now)
+        if reason or client is not evidence.client:
+            raise RuntimeError(reason or "PAPER_CAPITAL_CLIENT_CHANGED")
+
+        side = "SELL" if request.direction.upper() == "SHORT" else "BUY"
+        if (contract.symbol != request.symbol.upper() or contract.secType != "STK" or contract.currency != "USD"
+                or native_order.action != side or native_order.totalQuantity != request.quantity
+                or native_order.orderType != request.order_type):
+            raise RuntimeError("PAPER_NATIVE_ENTRY_MISMATCH")
+        if prepare:
+            if (native_order.account not in ("", evidence.account)
+                    or native_order.orderRef not in ("", request.client_order_id)):
+                raise RuntimeError("PAPER_NATIVE_ENTRY_IDENTITY_CONFLICT")
+            native_order.account = evidence.account
+            native_order.orderRef = request.client_order_id
+        elif native_order.account != evidence.account or native_order.orderRef != request.client_order_id:
+            raise RuntimeError("PAPER_NATIVE_ENTRY_IDENTITY_CONFLICT")
+
+        from src.domain.volume_evidence import ross_entry_volume_rejection
+
+        volume = getattr(risk_decision, "volume_evidence", None)
+        context = {"symbol": request.symbol, "strategy_name": request.strategy_name, "volume_evidence": volume}
+        reason = ross_entry_volume_rejection(
+            context, self.run_mode, client_id=client.client_id, connection_epoch=client._position_connection_epoch,
+            con_id=contract.conId if not prepare or contract.conId else None,
+        )
+        if reason:
+            raise RuntimeError(reason)
+        if volume is not None:
+            if not client.ross_volume_source_current(volume):
+                raise RuntimeError("ROSS_VOLUME_SOURCE_INVALIDATED")
+            if prepare:
+                contract.conId = volume["con_id"]
+
+        price = getattr(risk_decision, "entry_price", None)
+        if (isinstance(price, bool) or not isinstance(price, (int, float)) or not math.isfinite(price)
+                or price <= 0 or request.quantity * price > min(values.values())):
+            raise RuntimeError("INSUFFICIENT_CAPITAL")
+        required_spend = request.quantity * price
+        if getattr(self, "_paper_release", None) is not None:
+            if prepare:
+                native_order.outsideRth = False
+            if not evidence.require_settled_usd:
+                raise RuntimeError("PAPER_RELEASE_CASH_BOUND_UNAVAILABLE")
+            reason, spend = evidence.bounded_entry_spend(price, request.quantity, request.direction, now=now)
+            if reason:
+                raise RuntimeError(reason)
+            try:
+                limit = Decimal(str(price))
+                native_matches_limit = (Decimal(str(native_order.lmtPrice)) == limit
+                                        and Decimal(str(request.limit_price)) == limit)
+            except InvalidOperation:
+                native_matches_limit = False
+            if (not native_matches_limit or native_order.orderType != "LMT"
+                    or contract.exchange != "SMART" or native_order.overridePercentageConstraints
+                    or native_order.parentId != 0 or native_order.outsideRth is not False
+                    or native_order.notHeld or native_order.algoStrategy or native_order.discretionaryAmt
+                    or native_order.whatIf or not native_order.transmit or native_order.tif != "DAY"
+                    or native_order.adjustedOrderType or native_order.trailingPercent != sys.float_info.max
+                    or spend != getattr(risk_decision, "paper_entry_spend", None)):
+                raise RuntimeError("PAPER_RELEASE_NATIVE_LIMIT_PRICE_MISMATCH")
+            required_spend = self._entry_reservation_price(risk_decision)
+            if spend > min(Decimal(str(value)) for value in values.values()):
+                raise RuntimeError("PAPER_RELEASE_CASH_ONLY_SPEND_UNAVAILABLE")
+        owners = (
+            (self.capital_authority, self._capital_decisions_by_order_id),
+            (self.strategy_allocation_authority, self._strategy_allocation_decisions_by_order_id),
+        )
+        for owner, decisions in owners:
+            decision_id = decisions.get(request.client_order_id)
+            if not decision_id or not any(
+                reservation.decision_id == decision_id
+                and reservation.order_id == request.client_order_id
+                and reservation.symbol == request.symbol
+                and reservation.remaining_quantity >= request.quantity
+                and reservation.remaining_notional >= required_spend
+                for reservation in owner.active_reservations.values()
+            ):
+                raise RuntimeError("PAPER_CAPITAL_RESERVATION_UNAVAILABLE")
+
+    def _route_order(self, request: BrokerOrderRequest, *, paper_entry_risk=None) -> ExecutionResult:
+        paper_entry = self.paper_entry_capital_required and request.direction.upper() in {"LONG", "BUY", "SHORT"}
+        if paper_entry and request.direction.upper() == "SHORT":
+            reason = "PAPER_NATIVE_SHORT_LIFECYCLE_UNSUPPORTED"
+            self._release_strategy_allocation_for_order(request, reason=reason)
+            self._release_capital_for_order(request, reason=reason)
+            return self._blocked_execution_from_request(request, rationale=reason)
+        evidence = getattr(paper_entry_risk, "paper_entry_capital", None)
+        if paper_entry:
+            reason = self.paper_entry_capital_rejection(evidence)
+            if reason:
+                self._release_strategy_allocation_for_order(request, reason=reason)
+                self._release_capital_for_order(request, reason=reason)
+                return self._blocked_execution_from_request(request, rationale=reason)
         # Recheck at the actual route, after order construction/preflight and
         # before native ownership/reservation or any provider dispatch.
         if (str(request.direction).upper() in {"BUY", "LONG"}
@@ -2478,16 +2695,52 @@ class ExecutionEngine:
                 self._retain_relationship_unit_request(request, plan)
             decisions.pop(request.client_order_id, None)
         standalone = None
-        if (not context and self.run_mode == RunMode.PAPER and self._provider.is_live()
-                and request.direction.upper() in {"LONG", "BUY"}):
+        retain_standalone = (not context and self.run_mode == RunMode.PAPER and self._provider.is_live()
+                             and request.direction.upper() in {"LONG", "BUY"})
+        before_dispatch = None
+        dispatch_committed = False
+        consume_release = None
+        if paper_entry:
+            def prepare(client, _order_id, contract, native_order):
+                nonlocal before_dispatch, consume_release
+                try:
+                    self._check_native_paper_entry(request, paper_entry_risk, client, contract, native_order, prepare=True)
+                    guard = getattr(self, "paper_release_guard", None)
+                    if guard is not None:
+                        consume_release = guard(
+                            request, client, contract, native_order, datetime.now(timezone.utc))
+                except RuntimeError as exc:
+                    before_dispatch = str(exc)
+                    raise
+
+            def commit(client, _order_id, contract, native_order):
+                nonlocal before_dispatch, dispatch_committed, standalone
+                try:
+                    self._check_native_paper_entry(request, paper_entry_risk, client, contract, native_order)
+                except RuntimeError as exc:
+                    before_dispatch = str(exc)
+                    raise
+                # This durable local preparation precedes the only native send.
+                # Any failure after this point remains uncertain.
+                dispatch_committed = True
+                if retain_standalone:
+                    standalone = self._retain_native_request(request, security_id=contract.conId)
+                    self._check_native_paper_entry(request, paper_entry_risk, client, contract, native_order)
+                if consume_release is not None:
+                    consume_release()
+
+        elif retain_standalone:
             standalone = self._retain_native_request(request)
         try:
-            result = self._provider.place_order(request)
+            if paper_entry:
+                result = self._provider.place_order(request, entry_admission=(prepare, commit))
+            else:
+                result = self._provider.place_order(request)
         except Exception as exc:
             if context:
                 plan.orders[request.client_order_id]["submission_uncertain_at"] = datetime.now(timezone.utc).isoformat()
                 manager._save_relationship_state()
-            elif standalone is not None:
+            elif standalone is not None or dispatch_committed:
                 self._failsafe_block_new_entries = True
             else:
                 self._release_strategy_allocation_for_order(request, reason="ENTRY_SUBMISSION_FAILURE")
@@ -2496,7 +2749,7 @@ class ExecutionEngine:
                 symbol=request.symbol,
                 trader_type=request.trader_type or "UNKNOWN",
                 attempted=False,
-                status="SUBMISSION_UNKNOWN" if context or standalone is not None else "FAILED",
+                status="SUBMISSION_UNKNOWN" if context or standalone is not None or dispatch_committed else "FAILED",
                 relationship_context=request.relationship_context,
                 rationale=f"ENTRY_SUBMISSION_FAILURE:{exc}",
                 direction=request.direction,
@@ -2512,6 +2765,19 @@ class ExecutionEngine:
                 attempt_number=request.attempt_number,
                 client_order_id=request.client_order_id,
             )
+        if paper_entry and not dispatch_committed:
+            reason = before_dispatch or result.rejection_reason or result.rationale or "PAPER_FINAL_ADMISSION_UNAVAILABLE"
+            self._release_strategy_allocation_for_order(request, reason=reason)
+            self._release_capital_for_order(request, reason=reason)
+            if context:
+                manager.on_relationship_order_update(relationship_id=plan.relationship_id, order_id=request.client_order_id,
+                    cumulative_quantity=0, average_price=None, terminal=True, status="PRE_DISPATCH_BLOCKED")
+            return self._blocked_execution_from_request(request, rationale=reason)
+        if paper_entry and retain_standalone and standalone is None:
+            # The callback attempted to retain the request before submitting.
+            # Persistence failure is quarantined by the same native owner.
+            self._failsafe_block_new_entries = True
+            return self._blocked_execution_from_request(request, rationale="NATIVE_ORDER_RECOVERY_OR_STORAGE_BLOCKED")
         if standalone is not None:
             native = getattr(result, "ibkr_order_id", None)
             if native is not None:
@@ -2526,7 +2792,17 @@ class ExecutionEngine:
             if not standalone.get("broker_order_id"):
                 self._failsafe_block_new_entries = True
             standalone["last_response"] = {"status": str(result.status), "filled": result.filled_quantity, "remaining": result.remaining_quantity}
+            if paper_entry:
+                standalone["last_response"]["acknowledged"] = self.submission_confirmed(result)
             self._save_native_orders()  # Failure retains pre-dispatch uncertainty.
+            if paper_entry:
+                # The route response can report a synchronous fill. Account
+                # ownership still requires the attributable native callback.
+                result.filled_quantity = 0
+                result.remaining_quantity = request.quantity
+                result.fill_status = "NONE"
+                result.average_fill_price = None
+                result.entry_price = None
         from src.brokers.sim_broker import SimBroker
         deterministic_result = (isinstance(self._provider, PaperExecutionProvider)
             and isinstance(self._provider.broker, SimBroker)
@@ -2571,7 +2847,8 @@ class ExecutionEngine:
         if standalone is None:
             self._record_fill_and_position(request, result)
         self._run_live_probe_exit_if_needed(request, result)
-        self._validate_trace_integrity(request.client_order_id)
+        if not paper_entry:
+            self._validate_trace_integrity(request.client_order_id)
         if not self._provider.is_live():
             print(
                 f"[EXECUTION] {self.run_mode.value} mode active — "
@@ -2697,6 +2974,49 @@ class ExecutionEngine:
             "delta_quantity": delta, "average_price": float(result.average_fill_price or result.entry_price or 0), "delta_price": price}
         self._storage_engine._owner_effect_record(binding, phase="PREPARED")
         return binding
+
+    def _qualified_abcd_initial_stop(self, request):
+        return (self.paper_entry_capital_required and request.setup_family_id == "ABCD"
+                and request.quantity == 1 and not request.relationship_context
+                and not request.selected_stop_units)
+
+    def _submit_qualified_abcd_stop(self, parent, **stop_request):
+        client = self._native_callback_client()
+        scope = self._native_scope
+        con_id = parent.get("security_id")
+        if (scope is None or scope[1] is not client or scope[0] != parent.get("account")
+                or type(con_id) is not int or con_id <= 0 or client is None):
+            raise RuntimeError("ABCD_INITIAL_STOP_SCOPE_UNAVAILABLE")
+        account = scope[0]
+        parent_key = parent["request"]["client_order_id"]
+        parent_id = int(parent["broker_order_id"])
+        stop_price = parent["request"]["stop_loss_price"]
+
+        def authorize(dispatch_client, _, contract, native_order):
+            exposure = self.position_records.get(parent_key, {})
+            if (dispatch_client is not client or self._native_callback_client() is not client
+                    or self._native_scope != scope or self._native_orders.get(parent_key) is not parent
+                    or parent.get("quarantine") or self._native_quarantined
+                    or parent.get("account") != account or parent.get("security_id") != con_id
+                    or parent.get("side") not in {"LONG", "BUY"}
+                    or exposure.get("filled_qty") != 1
+                    or int(parent["broker_order_id"]) != parent_id
+                    or parent["request"]["stop_loss_price"] != stop_price
+                    or client.account_capital_scope(account) != (
+                        parent.get("native_client_id"), parent.get("native_connection_epoch"),
+                        parent.get("native_account_scope_generation"))
+                    or contract.conId != con_id or contract.symbol != parent["symbol"]
+                    or contract.secType != "STK" or contract.currency != "USD"
+                    or native_order.account not in ("", account)
+                    or native_order.orderRef != "PROTECT|" + parent_key
+                    or native_order.parentId != parent_id
+                    or native_order.action != "SELL" or native_order.totalQuantity != 1
+                    or native_order.orderType != "STP" or native_order.auxPrice != stop_price):
+                raise RuntimeError("ABCD_INITIAL_STOP_BINDING_CHANGED")
+            native_order.account = account
+
+        return self._provider.place_stop_order(
+            **stop_request, final_entry_admission=authorize, con_id=con_id)
 
     def _record_fill_and_position(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
         # The broker callback carries fill facts; protection belongs to the
@@ -2848,6 +3168,11 @@ class ExecutionEngine:
             self._failsafe_block_new_entries = self._failsafe_block_new_entries or bool(plan and plan.pending_stop_resize) or not protection_result["success"]
             self.position_records[request.client_order_id]["lifecycle"] = protection_result
         elif direction_upper in {"LONG", "BUY"}:
+            initial_stop_submitter = None
+            if native_owned is not None and self._qualified_abcd_initial_stop(request):
+                from functools import partial
+
+                initial_stop_submitter = partial(self._submit_qualified_abcd_stop, native_owned)
             protection_result = self.post_fill_lifecycle.activate_trade_management_after_fill(
                 trade_id=protection_id,
                 symbol=request.symbol,
@@ -2862,6 +3187,7 @@ class ExecutionEngine:
                 preserve_selected_protection="ROSS" in str(request.strategy_name or "").upper(),
                 target_model=request.target_model,
                 entry_broker_order_id=str(ibkr_order_id) if ibkr_order_id is not None else None,
+                **({"initial_stop_submitter": initial_stop_submitter} if initial_stop_submitter else {}),
                 **({"selected_stop_units": True,
                     "unit_stop_submitter": lambda trade, leg: self._submit_selected_unit_stop(request.client_order_id, trade, leg)}
                     if request.selected_stop_units else {}),
@@ -3051,6 +3377,12 @@ class ExecutionEngine:
 
     def _native_feedback_blocks_new_entries(self):
         try:
+            if any(
+                order.get("status") == "DISPATCH_UNCERTAIN"
+                and order.get("last_response", {}).get("acknowledged") is False
+                for order in self._native_orders.values()
+            ):
+                return True
             progress = [row for _,_,order in self._native_feedback_orders()
                 for row in order.get("canonical_feedback", [])]
             if any(row.get("state") != "COMPLETE" for row in progress):
@@ -3508,8 +3840,26 @@ class ExecutionEngine:
                         order["last_accounted_entry_fill_at"] = datetime.now(timezone.utc).isoformat()
                     else:
                         life = self.post_fill_lifecycle.get_trade(order.get("protection_trade_id") or order_id)
-                        inventory = self._pmh_complete_inventory() if request.selected_stop_units else list(self._provider.get_open_orders())
+                        qualified_stop = self._qualified_abcd_initial_stop(request)
+                        try:
+                            inventory = (self._pmh_complete_inventory() if qualified_stop
+                                else list(self._provider.get_open_orders()))
+                        except Exception:
+                            if (qualified_stop and life is not None and life.stop is not None
+                                    and life.stop.status != "SUBMISSION_UNKNOWN"):
+                                life.stop.status = "UNVERIFIED"
+                            raise
                         self.post_fill_lifecycle.reconcile_orders(inventory, repair=False)
+                        if qualified_stop and life is not None and life.stop is not None:
+                            child = {"broker_order_id": life.stop.broker_order_id, "requested": 1, "filled": 0}
+                            observed = [row for row in inventory if
+                                str(row.order_id) == str(child["broker_order_id"])]
+                            if (self._pmh_working_close(order, child, life, inventory) != "STP"
+                                    or observed[0].metadata.get("account") != order["account"]
+                                    or observed[0].metadata.get("client_id") != order["native_client_id"]):
+                                if life.stop.status != "SUBMISSION_UNKNOWN":
+                                    life.stop.status = "UNVERIFIED"
+                                raise RuntimeError("NATIVE_ORDER_PROTECTION_UNVERIFIED")
                         if (life is None or self._confirmed_stop_quantity(symbol=request.symbol, life=life, orders=inventory) is None
                                 or not self.post_fill_lifecycle.assess_trade_stop_protection(order_id)["protected"]):
                             raise RuntimeError("NATIVE_ORDER_PROTECTION_UNVERIFIED")
@@ -3575,6 +3925,13 @@ class ExecutionEngine:
                 or request["client_order_id"] != order_id or not order.get("decision_id")
                 or not order_id.startswith(order["decision_id"]+"-")):
             raise ValueError("NATIVE_ORDER_BINDING_INVALID")
+        if "native_account_scope_generation" in order:
+            order_identity = (
+                order["native_client_id"], order["native_connection_epoch"], order["native_account_scope_generation"],
+            )
+            if (order_identity != self._native_position_scope_identity
+                    or order_identity != client.account_capital_scope(order["account"])):
+                raise ValueError("NATIVE_ORDER_CALLBACK_SCOPE_CHANGED")
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         if (RunMode(get_config("RUN_MODE_EFFECTIVE")) != self.run_mode or self.run_mode != RunMode.PAPER
                 or (not accounting_only and not 0 <= (datetime.now(timezone.utc) - scope[2]).total_seconds() <= get_ibkr_snapshot_max_age_seconds())):
@@ -3594,7 +3951,7 @@ class ExecutionEngine:
         committed = self._selected_committed_order(order_id)
         if any(order.get(key) != committed.get(key) for key in
                ("request", "decision_id", "account", "mode", "symbol", "side", "broker_order_id", "requested", "action", "owner_effect_version",
-                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "last_accounted_exit_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role", "unit_profit_exit", "unit_amendment", "unit_close_coverage_confirmed", "unit_connection_epoch", "unit_client_id", "unit_initial_protection_profile", "stop_price_revision", "native_client_id", "native_connection_epoch", "canonical_feedback")):
+                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "last_accounted_exit_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role", "unit_profit_exit", "unit_amendment", "unit_close_coverage_confirmed", "unit_connection_epoch", "unit_client_id", "unit_initial_protection_profile", "stop_price_revision", "native_client_id", "native_connection_epoch", "native_account_scope_generation", "canonical_feedback", "shutdown_cancel_sent")):
             raise ValueError("NATIVE_ORDER_RETAINED_BINDING_CHANGED")
         facets = {"symbol": order["symbol"], "account": order["account"], "side": order["side"],
             "client_order_id": order_id, "orderId": order["broker_order_id"], "decision_id": order["decision_id"]}
@@ -3626,6 +3983,11 @@ class ExecutionEngine:
             raise RuntimeError("NATIVE_ORDER_RECOVERY_REQUIRED")
         if not order.get("broker_order_id"):
             return True  # Uncertain transport retains ownership, never a fill.
+        if "native_account_scope_generation" in order:
+            # A true native order response reports submission, even if its
+            # first status says Filled. It owns neither cumulative accounting
+            # nor the protection lifecycle.
+            return True
         facts = {"filled": result.filled_quantity, "remaining": result.remaining_quantity,
             "status": result.status, "avgFillPrice": result.average_fill_price or result.entry_price,
             "symbol": result.symbol, "side": result.direction, "orderId": str(result.ibkr_order_id)}
@@ -4513,7 +4875,7 @@ class ExecutionEngine:
             # Neither uncertainty nor capital/failsafe latches are cleared.
             self._native_revision_fill_drain = self._native_unit_update_batch = False
 
-    def collect_relationship_updates(self, *, result_processor=None):
+    def collect_relationship_updates(self, *, result_processor=None, shutdown_entry=None):
         # One live owner/frame across normal and quarantined factual accounting.
         # Atomic setdefault also supports existing __new__ inspection fixtures;
         # never clear quarantine or wait on another callback frame.
@@ -4524,6 +4886,10 @@ class ExecutionEngine:
         if not lock.acquire(blocking=False):
             raise RuntimeError("NATIVE_UNIT_CALLBACK_REENTRANCY")
         try:
+            if shutdown_entry is not None:
+                order_id, facts = shutdown_entry
+                return self._collect_relationship_updates(
+                    result_processor=result_processor, cached_updates={order_id: facts})
             return self._collect_selected_order_updates(result_processor=result_processor)
         finally:
             lock.release()
@@ -4666,6 +5032,15 @@ class ExecutionEngine:
                             or self._native_orders[order["protection_parent_order_id"]].get("pmh_failure_exit"))):
                         _, life = self._native_protection_owner(order)
                         self._verify_native_remaining_stop(order, life, order["filled"])
+                    continue
+                if (getattr(self, "_paper_release", None) is not None and plan is None
+                        and not order.get("protection_parent_order_id") and not order["terminal"]
+                        and (cached_updates is None or order_id not in cached_updates)
+                        and str(facts.get("status") or "").upper() in {
+                            "CANCELLED", "CANCELED", "APICANCELLED", "REJECTED", "INACTIVE"
+                        } and facts.get("filled") == 0):
+                    # Keep the reservation and the entry owner alive. A zero
+                    # cancellation status alone cannot settle a late fill.
                     continue
                 if plan is None or order.get("protection_parent_order_id") or order.get("request", {}).get("selected_stop_units"):
                     self._validate_native_binding(order_id, order, facts)
@@ -5133,6 +5508,177 @@ class ExecutionEngine:
         )
         return closed_trades
 
+    def paper_release_shutdown_step(self, *, read_positions, result_processor):
+        """Drain the controlled entry with its existing financial/protection owners.
+
+        Only scoped observational agreement can permit disconnect. Missing or
+        contradictory evidence leaves this process in management-only hold.
+        """
+        release = getattr(self, "_paper_release", None)
+        if release is None:
+            return True, "PAPER_RELEASE_SHUTDOWN_NOT_ENROLLED"
+        self._failsafe_block_new_entries = True
+        self._paper_shutdown_finalize = None
+        if not self._native_orders and not self._native_quarantined and not release.attempted:
+            return True, "PAPER_RELEASE_SHUTDOWN_NO_ENTRY"
+        roots = [(key, row) for key, row in self._native_orders.items()
+                 if not row.get("protection_parent_order_id")]
+        if len(roots) != 1 or self._native_quarantined:
+            return False, "PAPER_RELEASE_SHUTDOWN_OWNERSHIP_UNRESOLVED"
+
+        root_id, entry = roots[0]
+        request = BrokerOrderRequest(**entry["request"])
+        native_id = entry.get("broker_order_id")
+        if not self._qualified_abcd_initial_stop(request) or not native_id:
+            return False, "PAPER_RELEASE_SHUTDOWN_ENTRY_ID_UNAVAILABLE"
+        native_id = int(native_id)
+        client = self._native_callback_client()
+        positions = read_positions()
+        if positions.status != "COMPLETE" or positions.account != entry["account"]:
+            return False, "PAPER_RELEASE_SHUTDOWN_POSITION_TRUTH_UNAVAILABLE"
+        self._validate_native_binding(root_id, entry, {})
+        if client.account_capital_scope(entry["account"], request_ids=(native_id,)) != positions.scope_identity:
+            return False, "PAPER_RELEASE_SHUTDOWN_ENTRY_ID_UNAVAILABLE"
+        owned = positions.get(entry["symbol"])
+        if positions and (len(positions) != 1 or owned is None or owned.con_id != entry["security_id"]
+                          or owned.quantity != 1):
+            return False, "PAPER_RELEASE_SHUTDOWN_POSITION_CONFLICT"
+
+        facts = client.cached_order_status(native_id)
+        self._validate_native_binding(root_id, entry, facts)
+        if facts and (facts.get("status_client_id") != entry["native_client_id"]
+                      or facts.get("status_parent_id") != 0
+                      or facts.get("status_connection_epoch") != entry["native_connection_epoch"]
+                      or facts.get("status_account_generation") != entry["native_account_scope_generation"]):
+            return False, "PAPER_RELEASE_SHUTDOWN_CALLBACK_SCOPE_CONFLICT"
+        executions = client.cached_native_executions(native_id)
+        status = str(facts.get("status") or "").upper()
+        if executions or entry["filled"]:
+            if len(executions) != 1:
+                return False, "PAPER_RELEASE_SHUTDOWN_EXECUTION_CONFLICT"
+            execution = executions[0]
+            if (execution["account"] != entry["account"] or execution["conId"] != entry["security_id"]
+                    or execution["symbol"] != entry["symbol"] or execution["side"] != "BOT"
+                    or execution["clientId"] != entry["native_client_id"]
+                    or execution["connection_epoch"] != entry["native_connection_epoch"]
+                    or execution["shares"] != 1 or execution["cumQty"] != 1
+                    or execution["price"] != execution["avgPrice"]
+                    or execution["timestamp_utc"] > datetime.now(timezone.utc)
+                    or isinstance(facts.get("filled"), bool) or facts.get("filled") not in (None, 0, 1)
+                    or (facts.get("filled") == 1 and
+                        float(facts["avgFillPrice"]) != float(execution["avgPrice"]))):
+                return False, "PAPER_RELEASE_SHUTDOWN_EXECUTION_CONFLICT"
+            if not entry["filled"] and owned is None:
+                return False, "PAPER_RELEASE_SHUTDOWN_FILL_POSITION_UNCONFIRMED"
+            # One attributable share from the actual native execution stream
+            # exhausts the request. An older zero-status frame cannot erase it.
+            fill = {"status": "FILLED", "filled": 1, "remaining": 0,
+                    "avgFillPrice": execution["avgPrice"]}
+            self.collect_relationship_updates(result_processor=result_processor,
+                shutdown_entry=(root_id, fill))
+            life = self.post_fill_lifecycle.get_trade(root_id)
+            canonical = self._trade_lifecycle_engine.get_trade(root_id)
+            inventory = self._pmh_complete_inventory()
+            self._validate_native_binding(root_id, entry, {})
+            if (life is not None and life.filled_qty == 0 and canonical is not None
+                    and canonical.quantity_open == 0 and canonical.quantity_closed == 1
+                    and not positions and not inventory and not self.trade_registry.snapshot()):
+                def finalize_closed():
+                    self._validate_native_binding(root_id, entry, {})
+                    if self._provider.cached_open_orders(client):
+                        raise RuntimeError("PAPER_RELEASE_SHUTDOWN_PROTECTION_CHANGED")
+
+                self._paper_shutdown_finalize = (client, finalize_closed)
+                return True, "PAPER_RELEASE_SHUTDOWN_FILL_CLOSED"
+            if life is not None and life.stop is not None and owned is not None and len(inventory) == 1:
+                child = {"broker_order_id": life.stop.broker_order_id, "requested": 1, "filled": 0}
+                row = inventory[0]
+                if (entry.get("protection_confirmed") and canonical is not None and canonical.quantity_open == 1
+                        and self._pmh_working_close(entry, child, life, inventory) == "STP"
+                        and row.metadata.get("account") == entry["account"]
+                        and row.metadata.get("client_id") == entry["native_client_id"]):
+                    stop_id = int(child["broker_order_id"])
+                    observed_status = client.cached_order_status(stop_id)
+                    if (client.cached_native_executions(stop_id) or (observed_status
+                            and (str(observed_status.get("status") or "").upper() not in {"SUBMITTED", "PRESUBMITTED"}
+                                 or observed_status.get("filled") != 0
+                                 or observed_status.get("status_client_id") != entry["native_client_id"]
+                                 or observed_status.get("status_parent_id") != native_id
+                                 or observed_status.get("status_connection_epoch") != entry["native_connection_epoch"]
+                                 or observed_status.get("status_account_generation") != entry["native_account_scope_generation"]))):
+                        return False, "PAPER_RELEASE_SHUTDOWN_PROTECTION_UNCONFIRMED"
+
+                    def finalize_protected():
+                        with client._lock:
+                            self._validate_native_binding(root_id, entry, {})
+                            if (client.cached_order_status(stop_id) != observed_status
+                                    or client.cached_native_executions(stop_id)
+                                    or self._provider.cached_open_orders(client) != inventory):
+                                raise RuntimeError("PAPER_RELEASE_SHUTDOWN_PROTECTION_CHANGED")
+
+                    self._paper_shutdown_finalize = (client, finalize_protected)
+                    return True, "PAPER_RELEASE_SHUTDOWN_FILL_PROTECTED"
+            return False, "PAPER_RELEASE_SHUTDOWN_PROTECTION_UNCONFIRMED"
+
+        if owned is not None or facts.get("filled") != 0 or isinstance(facts.get("filled"), bool):
+            return False, "PAPER_RELEASE_SHUTDOWN_FILL_EVIDENCE_PENDING"
+        inventory = self._pmh_complete_inventory()
+        if status in {"CANCELLED", "CANCELED", "APICANCELLED"}:
+            history = client.execution_snapshot(account=entry["account"], order_id=native_id,
+                con_id=entry["security_id"], symbol=entry["symbol"], side="BUY")
+            positions = read_positions()
+            if (history.status != "COMPLETE" or history.rows or inventory or positions
+                    or history.account != entry["account"] or history.con_id != entry["security_id"]
+                    or history.order_id != native_id or history.symbol != entry["symbol"] or history.side != "BUY"
+                    or type(history.request_id) is not int or history.request_id < 0
+                    or history.client_id != entry["native_client_id"]
+                    or history.connection_epoch != entry["native_connection_epoch"]
+                    or positions.status != "COMPLETE" or positions.account != entry["account"]
+                    or self._pmh_complete_inventory()):
+                return False, "PAPER_RELEASE_SHUTDOWN_CANCELLATION_UNCONFIRMED"
+            def finalize_cancelled():
+                with client._lock:
+                    self._validate_native_binding(root_id, entry, facts)
+                    if (client.account_capital_scope(entry["account"], request_ids=(native_id, history.request_id)) != positions.scope_identity
+                            or not self._paper_order_scope_fresh((entry["account"], client, history.completed_at),
+                                datetime.now(timezone.utc))
+                            or client.cached_order_status(native_id) != facts or client.cached_native_executions(native_id)
+                            or self._provider.cached_open_orders(client)):
+                        raise RuntimeError("PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY")
+                    self.collect_relationship_updates(result_processor=result_processor,
+                        shutdown_entry=(root_id, {**facts, "status": "CANCELLED"}))
+
+            self._paper_shutdown_finalize = (client, finalize_cancelled)
+            return True, "PAPER_RELEASE_SHUTDOWN_CANCELLED_UNFILLED"
+
+        if not entry.get("shutdown_cancel_sent") and status not in {"SUBMITTED", "PRESUBMITTED"}:
+            return False, "PAPER_RELEASE_SHUTDOWN_CANCELLATION_STATUS_CONFLICT"
+        if not entry.get("shutdown_cancel_sent") and len(inventory) == 1:
+            order = inventory[0]
+            meta = order.metadata
+            if (str(order.order_id) == str(native_id) and order.symbol == entry["symbol"]
+                    and order.status.upper() in {"SUBMITTED", "PRESUBMITTED"}
+                    and order.parent_order_id is None and order.order_type == request.order_type
+                    and meta.get("side") == "BUY" and meta.get("account") == entry["account"]
+                    and meta.get("client_id") == entry["native_client_id"] and meta.get("con_id") == entry["security_id"]
+                    and meta.get("native_quantity") == 1 and meta.get("order_ref") == root_id
+                    and (request.order_type != "LMT" or meta.get("limit_price") == request.limit_price)):
+                from src.ibkr.read_only_guard import assert_read_only_allows
+
+                with client._lock:
+                    self._validate_native_binding(root_id, entry, facts)
+                    if (client.account_capital_scope(entry["account"], request_ids=(native_id,)) != positions.scope_identity
+                            or client.cached_order_status(native_id) != facts or client.cached_native_executions(native_id)
+                            or self._provider.cached_open_orders(client) != inventory):
+                        return False, "PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY"
+                    if client.readonly_enabled:
+                        return False, "PAPER_RELEASE_SHUTDOWN_CANCEL_WRITE_DISABLED"
+                    assert_read_only_allows("CANCEL_ORDER")
+                    entry["shutdown_cancel_sent"] = True
+                    self._save_native_orders()
+                    client.cancelOrder(native_id)
+        return False, "PAPER_RELEASE_SHUTDOWN_ENTRY_STILL_PENDING"
+
     def shutdown(self) -> None:
         """
         Idempotent shutdown placeholder.
@@ -5142,9 +5688,22 @@ class ExecutionEngine:
         safe orchestrator shutdown sequencing.
         """
 
+        controlled = getattr(self, "_paper_release", None) is not None
+        admission = None
+        if controlled:
+            if getattr(self, "_paper_shutdown_complete", False):
+                return
+            if self._native_orders or self._native_quarantined:
+                admission = getattr(self, "_paper_shutdown_finalize", None)
+                self._paper_shutdown_finalize = None
+                if admission is None:
+                    raise RuntimeError("PAPER_RELEASE_SHUTDOWN_HANDOFF_ACTIVE")
         broker = getattr(self._provider, "broker", None)
         if broker is not None and hasattr(broker, "disconnect"):
-            broker.disconnect(reason="execution_engine_shutdown")
+            broker.disconnect(reason="execution_engine_shutdown", **(
+                {"disconnect_admission": admission} if admission is not None else {}))
+        if controlled:
+            self._paper_shutdown_complete = True
         print("[EXECUTION] Shutdown requested — broker cleanup complete.")
 
 

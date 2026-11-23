@@ -23,6 +23,7 @@ if ibkr_available:
         ORDER_SUBMISSION_BLOCKED,
         ORDER_SUBMISSION_FAILED,
         ORDER_SUBMITTED_ACK,
+        ORDER_FILL_RECORDED,
     )
 else:  # pragma: no cover - executed only when dependency missing
     pytest.skip("ibapi dependency missing; skipping IBKR order submission tests", allow_module_level=True)
@@ -233,3 +234,43 @@ def test_placeOrder_exception_does_not_mark_submitted(capsys):
     assert event_bus.count(ORDER_SUBMISSION_FAILED) == 1
     out = capsys.readouterr().out
     assert "[IBKR][ORDER_ERROR]" in out
+
+
+@pytest.mark.parametrize("reject", [False, True])
+def test_guarded_paper_submission_emits_attempt_only_after_admission_and_ack_owns_no_fill(reject):
+    class MemoryClient(FakeIbkrClient):
+        wait_calls = 0
+        dispatches = []
+
+        def submit_order(self, contract, order, *, before_submit, final_entry_admission):
+            native_id = self.next_order_id
+            before_submit(native_id, contract, order)
+            final_entry_admission(self, native_id, contract, order)
+            self.dispatches.append(native_id)
+            return native_id
+
+        def wait_for_order_status(self, order_id, timeout_seconds=5):
+            self.wait_calls += 1
+            return {"status": "Filled", "filled": 1, "remaining": 0, "avgFillPrice": 20.0}
+
+    def prepare(client, native_id, contract, order):
+        order.account = "DU10001"
+
+    def commit(client, native_id, contract, order):
+        assert order.account == "DU10001"
+        if reject:
+            raise RuntimeError("PAPER_CAPITAL_STALE")
+
+    client = MemoryClient()
+    event_bus = EventCollector()
+    submitter = make_submitter(make_settings(), client=client, event_bus=event_bus)
+    result = submitter.submit_once(make_order(), entry_admission=(prepare, commit))
+    assert event_bus.count(ORDER_FILL_RECORDED) == 0
+    if reject:
+        assert not client.dispatches and client.wait_calls == 0
+        assert event_bus.count(ORDER_SUBMISSION_ATTEMPTED) == 0
+        assert result.status == "FAILED" and "PAPER_CAPITAL_STALE" in result.error
+    else:
+        assert client.dispatches == [1001] and client.wait_calls == 1
+        assert event_bus.count(ORDER_SUBMISSION_ATTEMPTED) == event_bus.count(ORDER_SUBMITTED_ACK) == 1
+        assert result.status == "Filled" and result.filled_quantity is None

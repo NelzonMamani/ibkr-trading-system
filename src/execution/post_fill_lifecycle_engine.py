@@ -377,6 +377,12 @@ class PostFillLifecycleEngine:
         if trade.selected_exit_pending and trade.selected_exit_pending.get("status") != "STP":
             return {"status": "EXIT_PENDING", "protected": False,
                 "reason_code": "SELECTED_ORDER_EXIT_PENDING_NOT_STP_CERTIFIED"}
+        if trade.filled_qty > 0 and trade.stop and trade.stop.status == "SUBMISSION_UNKNOWN":
+            return {"status": "UNSAFE", "protected": False,
+                "reason_code": "SELECTED_STOP_SUBMISSION_UNKNOWN"}
+        if trade.filled_qty > 0 and trade.stop and trade.stop.status == "UNVERIFIED":
+            return {"status": "UNSAFE", "protected": False,
+                "reason_code": "SELECTED_STOP_WORKING_ORDER_UNVERIFIED"}
         evidence = StopProtectionEvidence(
             symbol=trade.symbol,
             state="OPEN" if self._is_open_trade_state(trade.state) and int(trade.filled_qty or 0) > 0 else "CLOSED",
@@ -857,6 +863,7 @@ class PostFillLifecycleEngine:
         entry_broker_order_id: str | None = None,
         selected_stop_units: bool = False,
         unit_stop_submitter=None,
+        initial_stop_submitter=None,
     ) -> dict[str, Any]:
         parent_order_id = str(entry_broker_order_id) if entry_broker_order_id is not None else str(trade_id)
         side_u = str(side).upper()
@@ -923,6 +930,7 @@ class PostFillLifecycleEngine:
         for attempt in range(1, self.policy.install_retry_limit + 1):
             self._transition(trade, PositionLifecycleState.PROTECTION_PENDING, f"install_attempt_{attempt}")
             target_decision: TakeProfitDecision | None = None
+            stop_dispatch_attempted = False
             try:
                 stop, target_decision = self._compute_stop_target(trade)
                 if target_decision is not None:
@@ -979,7 +987,9 @@ class PostFillLifecycleEngine:
                     f"trade_id={trade.trade_id} symbol={trade.symbol} entry_order_id={trade.trade_id}"
                 )
                 if self.execution_provider is not None and self.run_mode in {"PAPER", "LIVE"}:
-                    stop_result = self.execution_provider.place_stop_order(
+                    stop_dispatch_attempted = True
+                    submit_stop = initial_stop_submitter or self.execution_provider.place_stop_order
+                    stop_result = submit_stop(
                         symbol=trade.symbol,
                         side=trade.stop.side,
                         quantity=trade.filled_qty,
@@ -1047,6 +1057,13 @@ class PostFillLifecycleEngine:
                     reason=failure_reason,
                 )
                 print(f"[LIFECYCLE][POLICY_INVALID] trade_id={trade.trade_id} reason={failure_reason}")
+                if (stop_dispatch_attempted and self.run_mode == "PAPER"
+                        and trade.preserve_selected_protection and trade.intended_qty == 1
+                        and trade.selected_target_price is None):
+                    # An exception after crossing the provider boundary does
+                    # not prove that the order failed to reach the broker.
+                    trade.stop.status = "SUBMISSION_UNKNOWN"
+                    break
                 print(f"[LIFECYCLE][FAILSAFE][RETRY] trade_id={trade.trade_id} attempt={attempt}")
 
         if not installed:
@@ -1738,6 +1755,9 @@ class PostFillLifecycleEngine:
     def _repair_missing_stop(self, trade: ManagedTradeLifecycle, reason: str) -> bool:
         if trade.selected_stop_units:
             return False  # A generic whole-quantity replacement would overlap units.
+        if (self.run_mode == "PAPER" and trade.preserve_selected_protection
+                and trade.intended_qty == 1 and trade.selected_target_price is None):
+            return False  # Missing broker evidence cannot authorize a second protective order.
         if self.execution_provider is None or self.run_mode not in {"PAPER", "LIVE"}:
             return False
         if trade.stop is None:

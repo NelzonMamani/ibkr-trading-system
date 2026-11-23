@@ -551,6 +551,37 @@ def test_native_abcd_later_fill_reconciles_selected_initial_c_stop(reassessment,
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
+def test_abcd_uncertain_initial_stop_dispatch_is_never_retried(
+        reassessment, monkeypatch, tmp_path, capsys, no_external_activity):
+    h = late_abcd(reassessment, monkeypatch, tmp_path)
+    try:
+        request = acknowledge_abcd(h, capsys)
+        stop_writes = []
+
+        def uncertain_stop(**kwargs):
+            stop_writes.append(kwargs)
+            raise OSError("native stop reply lost after dispatch")
+
+        monkeypatch.setattr(h.core.execution_engine.provider.broker, 'place_stop_order', uncertain_stop)
+        h.facts[71] = dict(status='Filled', filled=1, remaining=0, avgFillPrice=11.02)
+        h.native_quantity[0] = 1
+        h.native_open_orders.clear()
+        h.life.clock.current += timedelta(seconds=1)
+        assert not h.core.run_once()
+        engine = h.core.execution_engine
+        assert engine._native_quarantined and engine._failsafe_block_new_entries
+        assert len(stop_writes) == 1
+        assert stop_writes[0]['quantity'] == 1 and stop_writes[0]['stop_price'] == 10.35
+        life = engine.post_fill_lifecycle.get_trade(request.client_order_id)
+        assert life.filled_qty == 1 and life.stop.status == 'SUBMISSION_UNKNOWN'
+        assert not engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+        h.life.clock.current += timedelta(seconds=1)
+        assert not h.core.run_once()
+        assert len(stop_writes) == 1 and len(h.sent_native) == 1
+    finally:
+        teardown_unsent_fixture(h, no_external_activity)
+
+
 def late_key(reassessment,monkeypatch,tmp_path,*,market_fault='none'):
     from test_joined_core_pmh_readonly import key_joined
     def joined_factory(*args,**kwargs):

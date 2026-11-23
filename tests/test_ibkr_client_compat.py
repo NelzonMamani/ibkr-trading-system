@@ -150,6 +150,7 @@ def test_req_historical_data_requires_end_after_bar_arrival(monkeypatch):
     client = _build_client()
     client.snapshot_timeout_seconds = 0.2
     monkeypatch.setattr(client, "isConnected", lambda: True)
+    monkeypatch.setattr(client, "readonly_enabled", False)
 
     contract = Contract()
     contract.symbol = "AAPL"
@@ -574,6 +575,8 @@ def test_execution_history_without_request_owner_is_not_a_live_fill(strict_execu
 # NET, equity conversion, capital, risk or order authority.
 _NATIVE_REQ_ACCOUNT_SUMMARY = EClient.reqAccountSummary
 _NATIVE_CANCEL_ACCOUNT_SUMMARY = EClient.cancelAccountSummary
+_NATIVE_REQ_ACCOUNT_UPDATES_MULTI = EClient.reqAccountUpdatesMulti
+_NATIVE_CANCEL_ACCOUNT_UPDATES_MULTI = EClient.cancelAccountUpdatesMulti
 
 
 @pytest.fixture
@@ -1083,3 +1086,218 @@ def test_account_capital_never_dispatches_without_valid_ledger_dependency(accoun
         assert result.status == "TIMEOUT"
     assert [tags for _, _, tags in facts.requests] == ["$LEDGER"]
     assert not result.facts
+
+
+@pytest.mark.parametrize(("fault", "expected"), [
+    ("zero", "INSUFFICIENT_CAPITAL"),
+    ("missing", "PAPER_CAPITAL_MISSING_CAPITAL"),
+    ("conflict", "PAPER_CAPITAL_CONFLICTING_VALUE"),
+    ("wrong_account", "PAPER_CAPITAL_WRONG_ACCOUNT"),
+    ("other_currency", "PAPER_CAPITAL_UNSUPPORTED_CURRENCY"),
+    ("stale", "PAPER_CAPITAL_STALE"),
+    ("reconnected", "PAPER_CAPITAL_SCOPE_CHANGED"),
+    ("unqualified", "PAPER_CAPITAL_UNAVAILABLE"),
+])
+def test_native_paper_risk_and_allocation_require_completed_same_scope_capital(
+    account_currency_client, monkeypatch, fault, expected,
+):
+    from datetime import datetime, timedelta
+
+    from src.brokers.ibkr_live_broker import IbkrLiveBroker
+    from src.config.runtime_config import RunMode
+    from src.execution import execution_engine
+    from src.execution.execution_providers import IbkrExecutionProvider
+    from src.models.data_models import TradeIntent
+    from src.risk import risk_engine
+
+    facts = account_currency_client
+    client = facts.client
+    account = "SYNTHETIC_TEST"
+
+    def dispatch(req_id):
+        currency = "EUR" if fault == "other_currency" else "USD"
+        if facts.requests[-1][2] == "$LEDGER":
+            _currency_rows(client, req_id, currency)
+            return
+        for tag, value in (("NetLiquidation", "10000"), ("AvailableFunds", "0" if fault == "zero" else "1200"),
+                           ("BuyingPower", "9999")):
+            if fault != "missing" or tag != "AvailableFunds":
+                client.accountSummary(req_id, "OTHER" if fault == "wrong_account" else account, tag, value, currency)
+        if fault == "conflict":
+            client.accountSummary(req_id, account, "AvailableFunds", "9876", currency)
+        client.accountSummaryEnd(req_id)
+
+    facts.on_request = dispatch
+
+    class ClockType(type):
+        def __instancecheck__(cls, value):
+            return isinstance(value, datetime)
+
+    class Clock(datetime, metaclass=ClockType):
+        @classmethod
+        def now(cls, tz=None):
+            return facts.clock.now
+
+    monkeypatch.setattr(execution_engine, "datetime", Clock)
+    monkeypatch.setattr(risk_engine, "utc_now", lambda: facts.clock.now)
+    get_config = risk_engine.get_config
+    monkeypatch.setattr(risk_engine, "get_config", lambda key: "PAPER" if key == "RUN_MODE_EFFECTIVE" else get_config(key))
+    broker = IbkrLiveBroker.__new__(IbkrLiveBroker)
+    broker.connection_manager = NS(existing_client=client)
+    broker.account_summary = {"NetLiquidation": 50_000, "AvailableFunds": 50_000, "BuyingPower": 50_000}
+    engine = execution_engine.ExecutionEngine.__new__(execution_engine.ExecutionEngine)
+    engine.run_mode = RunMode.PAPER
+    engine._provider = IbkrExecutionProvider(broker=broker, trade_registry=None, run_mode=RunMode.PAPER)
+    engine.bind_native_order_scope(account=account, client=client, as_of=facts.clock.now,
+                                   scope_identity=client.account_capital_scope(account))
+    evidence = engine.collect_paper_entry_capital() if fault != "unqualified" else None
+    if fault == "stale":
+        facts.clock.now += timedelta(days=1)
+        engine.bind_native_order_scope(account=account, client=client, as_of=facts.clock.now,
+                                       scope_identity=client.account_capital_scope(account))
+    elif fault == "reconnected":
+        client._position_connection_epoch += 1
+        engine.bind_native_order_scope(account=account, client=client, as_of=facts.clock.now,
+                                       scope_identity=client.account_capital_scope(account))
+    trade = TradeIntent("SYNTH", "LONG", "TEST", 1.0, "scoped-capital negative control")
+    decision = risk_engine.RiskEngine().evaluate_trade_intent(trade, paper_capital=evidence)
+    assert not decision.allowed and decision.reason_code == expected
+    config_summary = {"account_equity": 50_000, "available_capital": 50_000, "buying_power": 50_000}
+    bound = engine._capital_account_snapshot(NS(paper_entry_capital=evidence, evaluated_limits=config_summary))
+    if fault == "zero":
+        assert decision.evaluated_limits["available_capital"] == bound["available_capital"] == 0
+        assert bound["broker_truth_available"] is True
+    else:
+        assert decision.evaluated_limits["available_capital"] is None
+        assert bound == {"broker_truth_available": False}
+
+
+@pytest.mark.parametrize("invalidation", [None, "account-generation", "transport-stop"])
+def test_abcd_stop_rechecks_local_scope_under_dispatch_lock(
+    strict_execution_client, monkeypatch, invalidation,
+):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from src.brokers.ibkr_live_broker import IbkrLiveBroker
+    from src.config.runtime_config import RunMode
+    from src.execution.execution_engine import ExecutionEngine
+    from src.execution.execution_providers import IbkrExecutionProvider
+
+    client = strict_execution_client
+    monkeypatch.setattr(client, "isConnected", lambda: True)
+    monkeypatch.setattr(client, "readonly_enabled", False)
+    broker = object.__new__(IbkrLiveBroker)
+    broker.run_mode = RunMode.PAPER
+    broker.connection_manager = SimpleNamespace(existing_client=client)
+    engine = object.__new__(ExecutionEngine)
+    engine._provider = IbkrExecutionProvider(broker, None, RunMode.PAPER)
+    account = "SYNTHETIC_TEST"
+    parent = {
+        "security_id": 901, "account": account, "side": "LONG",
+        "symbol": "SYNTH", "broker_order_id": "70", "native_client_id": client.client_id,
+        "native_connection_epoch": client._position_connection_epoch,
+        "native_account_scope_generation": client._managed_accounts_generation,
+        "request": {"client_order_id": "entry", "stop_loss_price": 10.35},
+    }
+    engine._native_scope = (account, client, datetime.now(timezone.utc))
+    engine._native_orders = {"entry": parent}
+    engine._native_quarantined = False
+    engine.position_records = {"entry": {"filled_qty": 1}}
+    sent = []
+
+    def wire(order_id, contract, order):
+        sent.append((order_id, contract.conId, order.account, order.parentId, order.auxPrice,
+                     client._lock._is_owned()))
+
+    monkeypatch.setattr(client, "placeOrder", wire)
+    submit = client.submit_order
+
+    def inject_between_prepare_and_send(contract, order, **kwargs):
+        previous = kwargs.pop("before_submit", None)
+
+        def prepare(order_id, contract, order):
+            if previous is not None:
+                previous(order_id, contract, order)
+            if invalidation == "account-generation":
+                client.managedAccounts("OTHER")
+                client.managedAccounts(account)
+            elif invalidation == "transport-stop":
+                client._stop_event.set()
+
+        return submit(contract, order, before_submit=prepare, **kwargs)
+
+    monkeypatch.setattr(client, "submit_order", inject_between_prepare_and_send)
+    request = dict(symbol="SYNTH", side="SELL", quantity=1, stop_price=10.35,
+                   trade_id="entry", parent_order_id="70")
+    if invalidation:
+        with pytest.raises(RuntimeError, match="ABCD_INITIAL_STOP_BINDING_CHANGED"):
+            engine._submit_qualified_abcd_stop(parent, **request)
+        assert sent == []
+    else:
+        engine._submit_qualified_abcd_stop(parent, **request)
+        assert sent == [(71, 901, account, 70, 10.35, True)]
+
+
+@pytest.mark.parametrize(("fault", "status"), [
+    ("forward_debit", "COMPLETE"),
+    ("zero", "COMPLETE"),
+    ("wrong_account", "SETTLED_CASH_SCOPE_MISMATCH"),
+    ("wrong_model", "SETTLED_CASH_SCOPE_MISMATCH"),
+    ("base_only", "SETTLED_CASH_UNAVAILABLE"),
+    ("no_securities_segment", "SETTLED_CASH_UNAVAILABLE"),
+    ("contradiction", "SETTLED_CASH_CONFLICTING"),
+    ("previous_date", "SETTLED_CASH_INVALID"),
+    ("unready", "SETTLED_CASH_ACCOUNT_NOT_READY"),
+    ("wrong_end", "TIMEOUT"),
+    ("epoch_during_cleanup", "DISCONNECTED"),
+])
+def test_usd_settled_securities_cash_requires_scoped_callback_end(account_currency_client, monkeypatch, fault, status):
+    client = account_currency_client.client
+    account = "SYNTHETIC_TEST"
+    owner = client.sendMsg
+    cash_calls = []
+
+    def send(message):
+        fields = message.split("\0")
+        if fields[0] not in {"76", "77"}:
+            return owner(message)
+        req_id = int(fields[2])
+        cash_calls.append((fields[0], req_id))
+        if fields[0] == "77":
+            assert "account_currency_query" not in client._request_context_by_req_id[req_id]
+            if fault == "epoch_during_cleanup":
+                client._position_connection_epoch += 1
+            return
+        assert fields[3:6] == [account, "", "1"]
+        client.accountSummary(req_id, account, "SettledCash", "999999", "USD")
+        client.accountSummaryEnd(req_id)  # The wrong callback owner cannot complete the request.
+        if fault == "unready":
+            client.accountUpdateMulti(req_id, account, "", "AccountReady", "false", "")
+        client.accountUpdateMulti(
+            req_id, "OTHER" if fault == "wrong_account" else account,
+            "OTHER" if fault == "wrong_model" else "",
+            "SettledCashByDate" if fault == "no_securities_segment" else "$LEDGER-SettledCashByDate-S",
+            {"zero": "20261111:0", "previous_date": "20261110:20"}.get(fault, "20261111:20;20261112:15"),
+            "BASE" if fault == "base_only" else "USD",
+        )
+        if fault == "contradiction":
+            client.accountUpdateMulti(req_id, account, "", "SettledCashByDate-S", "20261111:30", "USD")
+        client.accountUpdateMultiEnd(req_id + 1 if fault == "wrong_end" else req_id)
+
+    monkeypatch.setattr(client, "sendMsg", send)
+    monkeypatch.setattr(client, "reqAccountUpdatesMulti", lambda *args: _NATIVE_REQ_ACCOUNT_UPDATES_MULTI(client, *args))
+    monkeypatch.setattr(client, "cancelAccountUpdatesMulti", lambda *args: _NATIVE_CANCEL_ACCOUNT_UPDATES_MULTI(client, *args))
+    account_currency_client.on_request = lambda req_id: [
+        client.accountSummary(req_id, account, tag, "999999", "USD")
+        for tag in ("NetLiquidation", "AvailableFunds", "BuyingPower")
+    ] and client.accountSummaryEnd(req_id)
+    result = client.account_capital_snapshot(expected_account=account, timeout_seconds=.05, require_settled_usd=True)
+    assert result.status == status
+    assert [code for code, _ in cash_calls] == ["76", "77"]
+    assert cash_calls[0][1] == cash_calls[1][1]
+    if status == "COMPLETE":
+        assert result.currency_evidence.settled_cash == Decimal("0" if fault == "zero" else "15")
+        assert result.currency_evidence.source == "IBKR_ACCOUNT_UPDATES_MULTI_USD_SECURITIES"
+    else:
+        assert not account_currency_client.requests and result.currency_evidence.settled_cash is None

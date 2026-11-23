@@ -290,7 +290,7 @@ def _run_and_report(orchestrator, max_cycles) -> None:
         _report_shutdown(orchestrator.stop_controller.stop_mode())
 
 
-def main() -> None:
+def main() -> CoreOrchestrator | None:
     """Run the minimal teaching-first entry point."""
     from src.ibkr.evidence_safety import install_console_protection
     install_console_protection()
@@ -462,6 +462,7 @@ def main() -> None:
     print("[LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.")
 
     _run_and_report(orchestrator, args.cycles)
+    return orchestrator
 
 
 if __name__ == "__main__":

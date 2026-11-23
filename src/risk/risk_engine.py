@@ -26,6 +26,7 @@ from src.config.runtime_config import (
 )
 from src.config.risk_profiles import RISK_PROFILES, RiskProfile
 from src.core.active_trade_registry import ActiveTradeRegistry
+from src.core.capital_management_authority import PaperEntryCapital
 from src.core.event_collector import EventCollector
 from src.core.stop_controller import StopController
 from src.core.take_profit_authority import TakeProfitAuthority
@@ -65,6 +66,7 @@ from src.strategies.strategy_contracts import StrategyRiskPayload, TradeIntent a
 from src.utils.time_utils import utc_now
 
 
+_PAPER_CAPITAL_NOT_REQUESTED = object()
 
 
 @dataclass(frozen=True)
@@ -615,6 +617,7 @@ class RiskEngine:
         trade_intent: TradeIntent,
         *,
         risk_multiplier: float | None = None,
+        paper_capital: PaperEntryCapital | None | object = _PAPER_CAPITAL_NOT_REQUESTED,
     ) -> RiskDecision:
         """
         Evaluate a TradeIntent using deterministic, conservative rules.
@@ -625,7 +628,8 @@ class RiskEngine:
 
         print(f"[RISK] Evaluating TradeIntent for symbol={trade_intent.symbol}")
         run_mode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
-        timestamp = utc_now().isoformat()
+        now = utc_now()
+        timestamp = now.isoformat()
         execution_enabled = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
         decision_id = getattr(trade_intent, "decision_id", None)
         risk_profile = self._resolve_risk_profile()
@@ -639,11 +643,28 @@ class RiskEngine:
         max_open_positions = int(get_config("RISK_MAX_OPEN_POSITIONS"))
         total_exposure = self._total_exposure()
         total_exposure_limit = self._total_exposure_limit()
-        available_capital = float(get_default_capital())
-        print(f"[RISK][CAPITAL] source=CONFIG default_available_capital={available_capital}")
+        account_bound = (run_mode == RunMode.PAPER and paper_capital is not _PAPER_CAPITAL_NOT_REQUESTED
+                         and str(trade_intent.direction).upper() in {"LONG", "BUY", "SHORT"})
+        capital_rejection = None
+        bounded_entry_spend = None
+        if account_bound:
+            capital_rejection, values = (paper_capital.inspect(now) if isinstance(paper_capital, PaperEntryCapital)
+                                         else ("PAPER_CAPITAL_UNAVAILABLE", {}))
+            available_capital = (max(0.0, min(values[name] for name in ("account_equity", "buying_power", "available_capital")))
+                                 if values else None)
+            capital_source = "IBKR_ACCOUNT_CAPITAL" if values else "UNAVAILABLE"
+            if values and paper_capital.require_settled_usd:
+                capital_rejection, bounded_entry_spend = paper_capital.bounded_entry_spend(
+                    getattr(trade_intent, "entry_price", None), self._resolve_profile_size(risk_profile),
+                    trade_intent.direction, now=now)
+        else:
+            available_capital = float(get_default_capital())
+            capital_source = "CONFIG"
+        print(f"[RISK][CAPITAL] source={capital_source}")
         evaluated_limits = {
             "profile": risk_profile.name,
             "available_capital": available_capital,
+            "capital_source": capital_source,
             "max_position_size": self._resolve_profile_size(risk_profile),
             "max_open_positions": max_open_positions,
             "open_positions": open_positions,
@@ -659,6 +680,19 @@ class RiskEngine:
             "execution_enabled": execution_enabled,
             "run_mode": run_mode.value,
         }
+        if capital_rejection or (account_bound and available_capital == 0):
+            reason = capital_rejection or "INSUFFICIENT_CAPITAL"
+            decision = RiskDecision(
+                symbol=trade_intent.symbol, allowed=False, max_position_size=0, risk_level="BLOCKED",
+                rationale=f"Broker capital rejected: {reason}",
+                trader_type=trade_intent.trader_type, strategy_name=trade_intent.strategy_name,
+                direction=trade_intent.direction, reason_code=reason,
+                overall_action="BLOCK", decision_code="REJECT", risk_reasons=[reason],
+                execution_blocked=True, run_mode=run_mode.value,
+                evaluated_limits=evaluated_limits,
+                timestamp=timestamp,
+            )
+            return self._finalize_decision(decision, decision_id)
         from src.domain.quote_freshness import ross_intent_quote_rejection
         quote_rejection = ross_intent_quote_rejection(trade_intent, run_mode)
         if quote_rejection:
@@ -1457,6 +1491,13 @@ class RiskEngine:
             decision.risk_reasons.append(
                 f"REGIME_RISK_MULTIPLIER:{applied_multiplier:.2f}"
             )
+        if account_bound and decision.allowed:
+            # Process-local input; never put the client or raw evidence into
+            # the serialized decision/audit payload.
+            decision.paper_entry_capital = paper_capital
+            decision.volume_evidence = getattr(trade_intent, "volume_evidence", None)
+            decision.entry_price = entry_price
+            decision.paper_entry_spend = bounded_entry_spend
         return self._finalize_decision(decision, decision_id)
 
 

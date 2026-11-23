@@ -220,3 +220,71 @@ def test_final_orders_operator_filesystem_sealing_no_acquisition_or_operator_wri
                    and b'PRIVATE_SHUTDOWN_ACCOUNT_ORDER_ADDRESS' not in z.read(n) for n in z.namelist())
         assert not any('state' in n or n.startswith('quote-trace') for n in z.namelist())
     assert calls==[True]  # Packaging is filesystem only, never another audit.
+
+
+def test_live_volume_probe_keeps_raw_callback_outside_general_artifacts(monkeypatch):
+    f = Fake()
+    def wait(event, timeout):
+        assert timeout == 12
+        return True
+    monkeypatch.setattr(acquisition, 'wait_event', wait)
+    now = datetime.now(timezone.utc).isoformat()
+    raw = {
+        'source': 'IBKR_NATIVE_TICK_SIZE', 'sdk_distribution': '9.81.1.post1',
+        'session_basis': 'IBKR_CURRENT_TRADING_DAY_CUMULATIVE',
+        'security_type': 'STK', 'currency': 'USD', 'primary_exchange': 'NASDAQ',
+        'market_data_status': 'LIVE', 'tick_type': 8, 'con_id': 123, 'client_id': 71,
+        'server_version': 157, 'connection_epoch': 0, 'request_id': 1,
+        'market_timestamp_utc': now, 'received_at_utc': now, 'raw_value': 39018,
+        'unit': 'UNKNOWN',
+    }
+    f.snapshot_volume_evidence = lambda ticker: raw
+    regular, private = {}, {}
+    observation = payload.acquire(f, regular.__setitem__, put_private=private.__setitem__, requested_type='LIVE')
+    assert private == {'native-volume.json': raw}
+    assert observation['native_volume_sample_status'] == 'LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED'
+    assert observation['quotes'][0]['requested_type'] == 'LIVE'
+    assert '39018' not in repr(regular)
+    assert not f._market_events
+
+
+@pytest.mark.parametrize('history_complete', [True, False])
+def test_live_volume_probe_uses_exact_contract_and_keeps_paired_sources_private(monkeypatch, history_complete):
+    f = Fake()
+    monkeypatch.setattr(acquisition, 'wait_event', lambda event, timeout: True)
+    symbol = 'SYNTH'
+    contract = Contract()
+    contract.symbol, contract.conId, contract.secType, contract.currency = symbol, 123, 'STK', 'USD'
+    f.resolve_contract = lambda requested: NS(contract=contract) if requested == symbol else pytest.fail(requested)
+    now = datetime.now(timezone.utc).isoformat()
+    watch = {
+        'source': 'IBKR_NATIVE_TICK_SIZE', 'sdk_distribution': '9.81.1.post1',
+        'session_basis': 'IBKR_CURRENT_TRADING_DAY_CUMULATIVE', 'security_type': 'STK',
+        'currency': 'USD', 'primary_exchange': 'NASDAQ', 'market_data_status': 'LIVE', 'tick_type': 8,
+        'con_id': 123, 'client_id': 71, 'server_version': 157, 'connection_epoch': 0, 'request_id': 1,
+        'market_timestamp_utc': now, 'received_at_utc': now, 'raw_value': 39018, 'unit': 'UNKNOWN',
+    }
+    f.snapshot_volume_evidence = lambda ticker: watch
+    history_calls = []
+    def history(target, **parameters):
+        assert target is contract
+        assert parameters == dict(durationStr='20 D', barSizeSetting='1 day',
+                                  whatToShow='TRADES', useRTH=1, formatDate=1)
+        history_calls.append(target)
+        return NS(volume_basis={'unit': 'UNKNOWN'} if history_complete else None,
+                  raw_source_bars=({'date': '20261019', 'volume': 81234},))
+    f.reqHistoricalData = history
+
+    regular, private = {}, {}
+    outcome = payload.acquire(f, regular.__setitem__, put_private=private.__setitem__,
+                              requested_type='LIVE', volume_symbol=symbol)
+    assert f.scans == 0 and f.requests == [(symbol, 123)] and history_calls == [contract]
+    assert f.cancelled == [1] and not f._market_events
+    assert '39018' not in repr(regular) and '81234' not in repr(regular)
+    if history_complete:
+        assert private['volume-probe.json'] == {
+            'watchlist': watch, 'history': {'unit': 'UNKNOWN', 'bars': [['20261019', 81234]]},
+        }
+    else:
+        assert 'volume-probe.json' not in private
+        assert outcome['native_volume_sample_status'] == 'PAPER_RELEASE_VOLUME_HISTORICAL_PROBE_UNVERIFIED'

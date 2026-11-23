@@ -46,3 +46,4 @@ class MarketSnapshot:
     con_id: Optional[int] = None
     client_id: Optional[int] = None
     connection_epoch: Optional[int] = None
+    volume_evidence: Optional[dict[str, object]] = None
