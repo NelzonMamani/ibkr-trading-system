@@ -2891,6 +2891,38 @@ class ExecutionEngine:
         self._storage_engine._owner_effect_record(binding, phase="PREPARED")
         return binding
 
+    def _qualified_abcd_initial_stop(self, request):
+        return (self.paper_entry_capital_required and request.setup_family_id == "ABCD"
+                and request.quantity == 1 and not request.relationship_context
+                and not request.selected_stop_units)
+
+    def _submit_qualified_abcd_stop(self, parent, **stop_request):
+        client = self._native_callback_client()
+        scope = self._native_scope
+        con_id = parent.get("security_id")
+        if (scope is None or scope[1] is not client or scope[0] != parent.get("account")
+                or type(con_id) is not int or con_id <= 0 or client is None):
+            raise RuntimeError("ABCD_INITIAL_STOP_SCOPE_UNAVAILABLE")
+        account = scope[0]
+
+        def authorize(_, contract, native_order):
+            if (self._native_callback_client() is not client or not client.is_connected()
+                    or tuple(client._managed_accounts) != (account,)
+                    or client.client_id != parent.get("native_client_id")
+                    or client._position_connection_epoch != parent.get("native_connection_epoch")
+                    or contract.conId != con_id or contract.symbol != parent["symbol"]
+                    or contract.secType != "STK" or contract.currency != "USD"
+                    or native_order.account not in ("", account)
+                    or native_order.orderRef != "PROTECT|" + parent["request"]["client_order_id"]
+                    or native_order.parentId != int(parent["broker_order_id"])
+                    or native_order.action != "SELL" or native_order.totalQuantity != 1
+                    or native_order.orderType != "STP"
+                    or native_order.auxPrice != parent["request"]["stop_loss_price"]):
+                raise RuntimeError("ABCD_INITIAL_STOP_BINDING_CHANGED")
+            native_order.account = account
+
+        return self._provider.place_stop_order(**stop_request, before_submit=authorize, con_id=con_id)
+
     def _record_fill_and_position(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
         # The broker callback carries fill facts; protection belongs to the
         # risk-approved request and must survive into recurring management.
@@ -3041,6 +3073,11 @@ class ExecutionEngine:
             self._failsafe_block_new_entries = self._failsafe_block_new_entries or bool(plan and plan.pending_stop_resize) or not protection_result["success"]
             self.position_records[request.client_order_id]["lifecycle"] = protection_result
         elif direction_upper in {"LONG", "BUY"}:
+            initial_stop_submitter = None
+            if native_owned is not None and self._qualified_abcd_initial_stop(request):
+                from functools import partial
+
+                initial_stop_submitter = partial(self._submit_qualified_abcd_stop, native_owned)
             protection_result = self.post_fill_lifecycle.activate_trade_management_after_fill(
                 trade_id=protection_id,
                 symbol=request.symbol,
@@ -3055,6 +3092,7 @@ class ExecutionEngine:
                 preserve_selected_protection="ROSS" in str(request.strategy_name or "").upper(),
                 target_model=request.target_model,
                 entry_broker_order_id=str(ibkr_order_id) if ibkr_order_id is not None else None,
+                **({"initial_stop_submitter": initial_stop_submitter} if initial_stop_submitter else {}),
                 **({"selected_stop_units": True,
                     "unit_stop_submitter": lambda trade, leg: self._submit_selected_unit_stop(request.client_order_id, trade, leg)}
                     if request.selected_stop_units else {}),
@@ -3701,8 +3739,26 @@ class ExecutionEngine:
                         order["last_accounted_entry_fill_at"] = datetime.now(timezone.utc).isoformat()
                     else:
                         life = self.post_fill_lifecycle.get_trade(order.get("protection_trade_id") or order_id)
-                        inventory = self._pmh_complete_inventory() if request.selected_stop_units else list(self._provider.get_open_orders())
+                        qualified_stop = self._qualified_abcd_initial_stop(request)
+                        try:
+                            inventory = (self._pmh_complete_inventory() if qualified_stop
+                                else list(self._provider.get_open_orders()))
+                        except Exception:
+                            if (qualified_stop and life is not None and life.stop is not None
+                                    and life.stop.status != "SUBMISSION_UNKNOWN"):
+                                life.stop.status = "UNVERIFIED"
+                            raise
                         self.post_fill_lifecycle.reconcile_orders(inventory, repair=False)
+                        if qualified_stop and life is not None and life.stop is not None:
+                            child = {"broker_order_id": life.stop.broker_order_id, "requested": 1, "filled": 0}
+                            observed = [row for row in inventory if
+                                str(row.order_id) == str(child["broker_order_id"])]
+                            if (self._pmh_working_close(order, child, life, inventory) != "STP"
+                                    or observed[0].metadata.get("account") != order["account"]
+                                    or observed[0].metadata.get("client_id") != order["native_client_id"]):
+                                if life.stop.status != "SUBMISSION_UNKNOWN":
+                                    life.stop.status = "UNVERIFIED"
+                                raise RuntimeError("NATIVE_ORDER_PROTECTION_UNVERIFIED")
                         if (life is None or self._confirmed_stop_quantity(symbol=request.symbol, life=life, orders=inventory) is None
                                 or not self.post_fill_lifecycle.assess_trade_stop_protection(order_id)["protected"]):
                             raise RuntimeError("NATIVE_ORDER_PROTECTION_UNVERIFIED")
