@@ -487,10 +487,10 @@ def validate_pristine_paper_memory_write(*, actual_client, expected_client, core
         and parent['native_connection_epoch'] == plan['epoch']
         and request['client_order_id'] == root_id and request['symbol'] == plan['symbol']
         and request['quantity'] == parent['requested'] == quantity
-        and request['setup_family_id'] == 'PREMARKET_HIGH_BREAK'
+        and request['setup_family_id'] == plan.get('setup_family', 'PREMARKET_HIGH_BREAK')
         and not request['relationship_context'] and request['setup_metadata']
         and request['stop_loss_price'] == plan['stop_price']
-        and request['invalidation_level'] == plan['entry_price']
+        and request['invalidation_level'] == plan.get('invalidation_price', plan['entry_price'])
         and request['take_profit_price'] is None and request['target_model'], 'REQUEST')
     matched = [row for row in risk_rows if row['decision']['decision_id'] == parent['decision_id']]
     require(len(matched) == 1 and matched[0]['decision']['allowed'] is True
@@ -565,7 +565,9 @@ def validate_pristine_paper_memory_write(*, actual_client, expected_client, core
             and execution['timestamp_utc'] <= now, 'EXECUTION_BINDING')
         positions = expected_client.positions()
         require(len(positions) == 1 and positions[0].symbol == plan['symbol']
-            and positions[0].position == quantity and positions[0].con_id == plan['con_id']
+            and positions[0].position == quantity
+            and getattr(positions[0], 'con_id', getattr(getattr(positions[0], 'contract', None),
+                'conId', None)) == plan['con_id']
             and positions[0].account == plan['account'] and positions[0].avgCost == plan['fill_price'], 'POSITION_FACT')
         role = 'stop'
     return root_id, role
@@ -1088,10 +1090,12 @@ def validate_pristine_paper_history_read(*, actual_client, expected_client, core
         and parent.get('protection_confirmed') and not parent.get('cached_update_in_progress')
         and parent.get('account') == plan['account'] and parent.get('native_client_id') == plan['client_id']
         and parent.get('native_connection_epoch') == plan['epoch'] and parent.get('security_id') == plan['con_id']
-        and request.get('setup_family_id') == 'PREMARKET_HIGH_BREAK' and not request.get('relationship_context')
+        and request.get('setup_family_id') == plan.get('setup_family', 'PREMARKET_HIGH_BREAK')
+        and not request.get('relationship_context')
         and request.get('symbol') == plan['symbol'] and request.get('client_order_id') == root_id
         and request.get('stop_loss_price') == plan['stop_price']
-        and request.get('invalidation_level') == plan['entry_price'] and request.get('take_profit_price') is None
+        and request.get('invalidation_level') == plan.get('invalidation_price', plan['entry_price'])
+        and request.get('take_profit_price') is None
         and stream.get('execution_trigger_timeframe') == timeframe_request.logical_timeframe == '10s', 'ROOT')
     if quantity == 2:
         life = engine.post_fill_lifecycle.get_trade(root_id)
@@ -1339,10 +1343,11 @@ try:
             raise RuntimeError('SYNTHETIC_OPEN_ORDER_INVENTORY_UNAVAILABLE')
         return copy.deepcopy(orders)
 
-    client.positions = position_rows
-    client.openOrders = open_orders
-    client.position_snapshot = lambda **kw: BrokerPositionResult(
-        tuple(position_rows()), current_external_facts.get('position_status', 'COMPLETE'), account, observed)
+    if not facts.get('observe_pristine_native_scanner'):
+        client.positions = position_rows
+        client.openOrders = open_orders
+        client.position_snapshot = lambda **kw: BrokerPositionResult(
+            tuple(position_rows()), current_external_facts.get('position_status', 'COMPLETE'), account, observed)
     active_cycle = [None]
     active_scenario = [None]
     cached_order_status = client.cached_order_status
@@ -1622,6 +1627,7 @@ try:
     owned_currency_reads = {}
     owned_capital_reads = set()
     owned_scanner_reads = set()
+    owned_position_reads = set()
     def send_message(message):
         fields = str(message).split('\0')
         opcode = fields[0]
@@ -1666,6 +1672,29 @@ try:
                         query_retired=context.get('account_currency_query') is None))
                 return  # Synthetic read cleanup, never an order cancellation.
             if facts.get('observe_pristine_native_scanner'):
+                if opcode == str(OUT.REQ_OPEN_ORDERS):
+                    for row in orders:
+                        client.openOrder(row.orderId, row.contract, row.order, row.orderState)
+                    client.openOrderEnd()
+                    report['native_read_requests'].append(dict(opcode=opcode,
+                        request_type='CURRENT_CLIENT_OPEN_ORDERS', rows=len(orders)))
+                    return
+                if opcode == str(OUT.REQ_POSITIONS_MULTI):
+                    request_id = int(fields[2])
+                    if (client._request_type_by_req_id.get(request_id) != 'POSITIONS_MULTI'
+                            or fields[3] != account or fields[4]):
+                        raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_POSITION_REQUEST')
+                    owned_position_reads.add(request_id)
+                    for row in positions:
+                        contract = scanner_contract_details(row.symbol, candidates[row.symbol]).contract
+                        client.positionMulti(request_id, row.account, '', contract, row.position, row.avgCost)
+                    client.positionMultiEnd(request_id)
+                    report['native_read_requests'].append(dict(opcode=opcode, request_id=request_id,
+                        request_type='POSITIONS_MULTI', rows=len(positions)))
+                    return
+                if opcode == str(OUT.CANCEL_POSITIONS_MULTI) and int(fields[2]) in owned_position_reads:
+                    owned_position_reads.remove(int(fields[2]))
+                    return
                 if opcode == str(OUT.REQ_SCANNER_SUBSCRIPTION):
                     request_id = int(fields[1])  # SDK omits version on this server.
                     if (client._request_type_by_req_id.get(request_id) != 'SCANNER_DATA'

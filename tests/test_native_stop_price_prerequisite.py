@@ -1480,17 +1480,24 @@ def _pristine_native_quote_facts(h, monkeypatch, row):
         snapshot = native.get_market_snapshot('JPM')
     assert snapshot.returned_market_data_type == 'LIVE' and snapshot.market_data_type_confirmed
     assert snapshot.snapshot_complete and snapshot.market_timestamp_utc.isoformat() == row['quote_timestamp_utc']
-    assert snapshot.last == 10.53 and snapshot.close == 9.4
+    assert snapshot.last == row['last_price'] and snapshot.close == row['prev_close']
     return asdict(snapshot), dict(company_name=supplied.longName,long_name=supplied.longName,
         aliases=CANDIDATE.aliases,con_id=supplied.contract.conId,exchange=supplied.contract.exchange,
         currency=supplied.contract.currency,instrument_type=supplied.contract.secType,
         local_symbol=supplied.contract.localSymbol), transport
 
-def _pristine_native_cycle_facts(reassessment, monkeypatch, tmp_path):
-    """Reuse raw PMH observations; child owners determine selection/admission."""
+def _pristine_native_cycle_facts(reassessment, monkeypatch, tmp_path, *, candidate='PMH'):
+    """Reuse raw source observations; child owners determine selection and admission."""
     import json
     from test_joined_core_pmh_readonly import pmh_joined
-    h = pmh_joined(reassessment, monkeypatch, tmp_path / 'external-facts', position_case='complete_empty')
+    if candidate == 'ABCD':
+        from test_abcd_production_handoff import abcd_joined
+        raw_facts = abcd_joined
+        last, previous, bid, ask = 11.02, 9.8, 11.01, 11.03
+    else:
+        raw_facts = pmh_joined
+        last, previous, bid, ask = 10.53, 9.4, 10.52, 10.54
+    h = raw_facts(reassessment, monkeypatch, tmp_path / 'external-facts', position_case='complete_empty')
     from src.strategies.ross_momentum.patterns import pattern_trace
     from src.scanner import scanner_runner
     from test_ross_pr1051_readonly_catalyst_wiring import _RuntimeProvider
@@ -1499,8 +1506,8 @@ def _pristine_native_cycle_facts(reassessment, monkeypatch, tmp_path):
     # from a desired percentage/RVOL score: PMH PAPER's previous9.4 and the
     # PR1051 external provider's explicit ADV200000/window20.
     external_rows = deepcopy(h.rows)
-    raw_provider = _RuntimeProvider([dict(symbol='JPM',last=10.53,prev_close=9.4,
-        bid=10.52,ask=10.54,volume=2_000_000,avg_volume=200_000,float_shares=8_000_000)])
+    raw_provider = _RuntimeProvider([dict(symbol='JPM',last=last,prev_close=previous,
+        bid=bid,ask=ask,volume=2_000_000,avg_volume=200_000,float_shares=8_000_000)])
     quote = h.c.provider.refresh_quote('JPM')
     row = external_rows['JPM']
     adv,window = raw_provider.get_average_daily_volume('JPM',20)
@@ -2938,9 +2945,11 @@ def test_pristine_fresh_process_pmh_paper_ack_then_later_accounted_protected_fil
     assert no_external_activity==[]
 
 
-def _pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,*,loss_limit=.20):
+def _pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,*,loss_limit=.20,candidate='PMH',
+        account='SYNTHETIC_TEST'):
     """Shared external five-step tape; every application owner remains real."""
-    facts=_pristine_native_cycle_facts(reassessment,monkeypatch,tmp_path)
+    facts=_pristine_native_cycle_facts(reassessment,monkeypatch,tmp_path,candidate=candidate)
+    facts['account'] = account
     facts.pop('observe_pristine_readonly_cycle')
     facts['observe_pristine_paper_cycle']=True
     facts['observe_pristine_paper_loss_feedback']=True
@@ -2949,25 +2958,29 @@ def _pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,*,loss_limit=.2
         IBKR_ORDER_TRANSLATION_ENABLED=True,IBKR_API_WRITE_ALLOWED=True,IBKR_KILL_SWITCH=False,
         DAILY_RISK_GOVERNOR_ENABLED=True,DAILY_RISK_INCLUDE_UNREALIZED=False,
         DAILY_RISK_MAX_LOSS_AMOUNT=loss_limit)
-    facts['paper_memory_plan']=dict(account='SYNTHETIC_TEST',client_id=999,epoch=0,symbol='JPM',
-        con_id=123,currency='USD',exchange='SMART',entry_price=10.3,stop_price=10.2897,
-        fill_price=10.53,stop_fill_price=10.28)
+    entry_price, stop_price, fill_price, stop_fill_price = (
+        (11.0, 10.35, 11.02, 10.34) if candidate == 'ABCD' else (10.3, 10.2897, 10.53, 10.28))
+    facts['paper_memory_plan']=dict(account=account,client_id=999,epoch=0,symbol='JPM',
+        con_id=123,currency='USD',exchange='SMART',entry_price=entry_price,stop_price=stop_price,
+        fill_price=fill_price,stop_fill_price=stop_fill_price)
+    if candidate == 'ABCD':
+        facts['paper_memory_plan'].update(setup_family='ABCD', invalidation_price=stop_price)
     stamp=datetime.fromisoformat(facts['now'])
     contract=dict(symbol='JPM',conId=123,exchange='SMART',currency='USD',secType='STK')
-    position=dict(symbol='JPM',position=1,con_id=123,avgCost=10.53,account='SYNTHETIC_TEST')
+    position=dict(symbol='JPM',position=1,con_id=123,avgCost=fill_price,account=account)
     stop=dict(leg='stop',contract=contract,
         order=dict(orderType='STP',parentId='$ENTRY_NATIVE_ID',orderRef='PROTECT|$RETAINED_ROOT',
-            action='SELL',totalQuantity=1,auxPrice=10.2897,account='SYNTHETIC_TEST',clientId=999),
+            action='SELL',totalQuantity=1,auxPrice=stop_price,account=account,clientId=999),
         orderState=dict(status='Submitted'))
     def supplied_execution(leg,identifier,side,price,second):
         return dict(leg=leg,contract=contract,
-            execution=dict(execId=identifier,acctNumber='SYNTHETIC_TEST',clientId=999,side=side,
+            execution=dict(execId=identifier,acctNumber=account,clientId=999,side=side,
                 shares=1,cumQty=1,price=price,avgPrice=price,
                 time=(stamp+timedelta(seconds=second)).isoformat()),
             status=dict(status='Filled',filled=1,remaining=0,avgFillPrice=price))
-    entry=supplied_execution('entry','pristine-loss-entry','BOT',10.53,1)
-    protective=supplied_execution('stop','pristine-loss-stop','SLD',10.28,3)
-    def step(name,second,*,owned,open_orders,executions=(),last=10.53):
+    entry=supplied_execution('entry','pristine-loss-entry','BOT',fill_price,1)
+    protective=supplied_execution('stop','pristine-loss-stop','SLD',stop_fill_price,3)
+    def step(name,second,*,owned,open_orders,executions=(),last=fill_price):
         now=(stamp+timedelta(seconds=second)).isoformat()
         return dict(name=name,now=now,positions=[position] if owned else [],open_orders=open_orders,
             executions=list(executions),market_quote=dict(symbol='JPM',con_id=123,
@@ -2976,22 +2989,23 @@ def _pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,*,loss_limit=.2
         step('ACK_ONLY',0,owned=False,open_orders=[]),
         step('LATER_ENTRY_FILL',1,owned=True,open_orders=[],executions=[entry]),
         step('PROTECTED_REPEAT',2,owned=True,open_orders=[stop]),
-        step('LATER_PROTECTIVE_FILL',3,owned=False,open_orders=[],executions=[protective],last=10.28),
+        step('LATER_PROTECTIVE_FILL',3,owned=False,open_orders=[],executions=[protective],last=stop_fill_price),
         # Exact authoritative execution identity/time is replayed; observation
         # time advances without renewing the economic fill timestamp.
-        step('FLAT_DUPLICATE_REPLAY',4,owned=False,open_orders=[],executions=[protective],last=10.28),
+        step('FLAT_DUPLICATE_REPLAY',4,owned=False,open_orders=[],executions=[protective],last=stop_fill_price),
     ]
     return facts
 
 
-def test_ordinary_paper_micro_premarket_high_break_native_lifecycle(
+def test_ordinary_paper_micro_abcd_native_lifecycle(
         reassessment, monkeypatch, tmp_path, no_external_activity, runtime_schema_template):
-    """Discover a PMH in RTH and account a one-share MICRO round trip."""
+    """Discover ABCD in RTH and account a one-share MICRO round trip."""
     import json
     import shutil
     from test_startup_recovery_and_stop_protection import run_native_core_cold_start
 
-    facts = _pristine_paper_loss_facts(reassessment, monkeypatch, tmp_path)
+    facts = _pristine_paper_loss_facts(reassessment, monkeypatch, tmp_path,
+        candidate='ABCD', account='DU10001')
     facts['config']['RISK_PROFILE'] = 'MICRO'
     facts['observe_pristine_native_scanner'] = True
     facts['paper_capital_response'] = {
@@ -3018,6 +3032,10 @@ def test_ordinary_paper_micro_premarket_high_break_native_lifecycle(
     assert len(report['cycles']) == 5 and all(cycle['result'] for cycle in report['cycles']), summary
     assert any(row['request_type'] == 'SCANNER_DATA' and row['rows'] == 1
         for row in report['native_read_requests'])
+    assert any(row['request_type'] == 'POSITIONS_MULTI' and row['rows'] == 0
+        for row in report['native_read_requests'])
+    assert any(row['request_type'] == 'CURRENT_CLIENT_OPEN_ORDERS' and row['rows'] == 1
+        for row in report['native_read_requests'])
     assert not report['capital_enrollment_attempts']
     assert not report['network_attempts'] and not report['sdk_attempts'] and not no_external_activity
 
@@ -3026,20 +3044,21 @@ def test_ordinary_paper_micro_premarket_high_break_native_lifecycle(
     root = buy['root_id']
     ack, filled, protected, closed, replayed = report['cycles']
     request = ack['engine']['native_orders'][root]['request']
-    assert request['setup_family_id'] == 'PREMARKET_HIGH_BREAK'
+    assert request['setup_family_id'] == 'ABCD'
+    assert request['setup_metadata']['anchor_c_price'] == 10.35
     assert request['quantity'] == buy['order']['totalQuantity'] == stop['order']['totalQuantity'] == 1
-    assert request['stop_loss_price'] == stop['order']['auxPrice'] == 10.2897
+    assert request['stop_loss_price'] == stop['order']['auxPrice'] == 10.35
     assert stop['order']['parentId'] == buy['native_id']
     admission = [row for row in report['risk_evaluations'] if row['decision']['allowed']]
     assert len(admission) == 1
     assert admission[0]['intent']['decision_id'] == admission[0]['decision']['decision_id']
     assert root.startswith(admission[0]['decision']['decision_id'])
-    assert ack['engine']['capital_reserved'] == 10.3 and ack['engine']['capital_used'] == 0
+    assert ack['engine']['capital_reserved'] == 11 and ack['engine']['capital_used'] == 0
     assert not ack['engine']['post_fill'] and not ack['engine']['position_records']
     for cycle in (filled, protected):
         assert cycle['engine']['protection'][root]['protected']
         assert cycle['engine']['canonical_trades'][root]['quantity_open'] == 1
-        assert cycle['engine']['capital_used'] == 10.53
+        assert cycle['engine']['capital_used'] == 11.02
     for cycle in (closed, replayed):
         assert cycle['engine']['canonical_trades'][root]['quantity_open'] == 0
         assert not cycle['engine']['registry'] and not cycle['engine']['managed_positions']
