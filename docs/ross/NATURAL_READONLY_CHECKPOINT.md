@@ -22122,3 +22122,30 @@ head `ccb8311beec3d4ca888d712bd58db91a1b10cfc3`. Its Linux and Windows
 controlled-process jobs passed on run 45216779844. The Windows offline job was
 still running at this checkpoint. No accepted release pin has been issued.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### Candidate compatibility verification (2026-11-23)
+
+PR1250 draft was published at `cfbab94bdbdd31e6f983a599da45b37811c12ba9`.
+Its initial run 45224533001 failed the Windows quote diagnostic AST contract,
+which assumed there was only one explicit profile. The updated test checks
+both profiles, rejects a missing tree for both, and verifies that live-volume
+returns before packaging. The launcher and diagnostic AST parsed locally under
+PowerShell 7 without acquisition. Windows PowerShell 5.1 remains a required
+new-head check.
+
+Source `e7c0a8869eda9c6ebedbed164c96dad89da22034`, tree
+`9cee340b6c04e1274aac128c02a8c37d86e48be0`, also isolates invariant checking
+to the traces emitted during the current strategy invocation. A blocked
+candidate cannot reuse a prior detected trace with an equal market timestamp.
+The isolated native wire fixtures explicitly keep their unrelated capital-read
+owner inactive. On this source, 52 focused offline tests passed, covering the
+joined PAPER paths, restored READ_ONLY diagnostics, profile, capital and late
+mark cases. Independent verification passed 65 adjacent trace and native wire
+tests on the same source. The receipts overlap.
+
+D04 required exact-head CI 45216779844 completed successfully in every job.
+The attempt to merge PR1249 against expected head
+`ccb8311beec3d4ca888d712bd58db91a1b10cfc3` was rejected by automatic approval
+review because the reviewer requires explicit authorization to merge into
+`main`. The repository was left at its accepted head pending that approval.
+No laptop result or accepted PAPER source pin is asserted.
