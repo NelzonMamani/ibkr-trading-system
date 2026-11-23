@@ -101,7 +101,12 @@ def acquire(client, put, *, put_private=None, requested_type="DELAYED"):
                     'canonical_qualification': 'NOT_PERFORMED',
                     'completion_reason': reason})
                 if put_private is not None:
-                    put_private("native-volume.json", client.snapshot_volume_evidence(t))
+                    from src.domain.volume_evidence import native_stock_volume_rejection
+                    volume_sample = client.snapshot_volume_evidence(t)
+                    put_private("native-volume.json", volume_sample)
+                    result["native_volume_sample_status"] = (
+                        native_stock_volume_rejection(volume_sample) or "LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED"
+                    )
             finally:
                 client.record_quote_completion(req, reason)
                 client.cancelMktData(req)
@@ -159,6 +164,8 @@ def main():
     def put(name, value):
         write_json(evidence/name, value)
     if phase in ('package', 'seal'):
+        if profile == "live-volume":
+            raise RuntimeError("Live volume diagnostics are laptop-private")
         # Filesystem only. All quote writers must have exited before this phase.
         proof = json.loads((evidence/'privacy-probe.json').read_text(encoding='utf-8'))
         if not proof.get('passed'):
@@ -175,7 +182,6 @@ def main():
         if phase == 'package':
             return 0
         archive = root/{"final-orders": "final-orders-diagnostic-upload.zip",
-                        "live-volume": "live-volume-diagnostic-upload.zip",
                         "quotes": "quote-diagnostic-upload.zip"}[profile]
         with zipfile.ZipFile(archive, 'x', zipfile.ZIP_DEFLATED) as z:
             for path in sorted(evidence.rglob('*')):
@@ -310,11 +316,16 @@ def main():
                                          put_private=lambda name, value: write_json(root/name, value))
                     else:
                         result = acquire(client, put)
+                    if profile == "live-volume":
+                        report["native_volume_sample_status"] = result.get(
+                            "native_volume_sample_status", "ROSS_VOLUME_EVIDENCE_MISSING",
+                        )
                 stage('acquisition_finished')
                 complete = bool(result['selected'] and len(result['quotes']) == len(result['selected'])
                                 and all(q['diagnostic_fields_available']
-                                    and (profile != "live-volume" or q["returned_type"] == "LIVE")
-                                    for q in result['quotes']))
+                                    for q in result['quotes'])
+                                and (profile != "live-volume" or report["native_volume_sample_status"] ==
+                                     "LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED"))
                 report['status'] = 'DIAGNOSTIC_COMPLETE' if complete else 'DIAGNOSTIC_ONLY'
                 rc = 0 if complete else 2
         except BaseException as exc:

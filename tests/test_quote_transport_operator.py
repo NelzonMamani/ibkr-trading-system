@@ -220,3 +220,29 @@ def test_final_orders_operator_filesystem_sealing_no_acquisition_or_operator_wri
                    and b'PRIVATE_SHUTDOWN_ACCOUNT_ORDER_ADDRESS' not in z.read(n) for n in z.namelist())
         assert not any('state' in n or n.startswith('quote-trace') for n in z.namelist())
     assert calls==[True]  # Packaging is filesystem only, never another audit.
+
+
+def test_live_volume_probe_keeps_raw_callback_outside_general_artifacts(monkeypatch):
+    f = Fake()
+    def wait(event, timeout):
+        assert timeout == 12
+        return True
+    monkeypatch.setattr(acquisition, 'wait_event', wait)
+    now = datetime.now(timezone.utc).isoformat()
+    raw = {
+        'source': 'IBKR_NATIVE_TICK_SIZE', 'sdk_distribution': '9.81.1.post1',
+        'session_basis': 'IBKR_CURRENT_TRADING_DAY_CUMULATIVE',
+        'security_type': 'STK', 'currency': 'USD', 'primary_exchange': 'NASDAQ',
+        'market_data_status': 'LIVE', 'tick_type': 8, 'con_id': 123, 'client_id': 71,
+        'server_version': 157, 'connection_epoch': 0, 'request_id': 1,
+        'market_timestamp_utc': now, 'received_at_utc': now, 'raw_value': 39018,
+        'unit': 'UNKNOWN',
+    }
+    f.snapshot_volume_evidence = lambda ticker: raw
+    regular, private = {}, {}
+    observation = payload.acquire(f, regular.__setitem__, put_private=private.__setitem__, requested_type='LIVE')
+    assert private == {'native-volume.json': raw}
+    assert observation['native_volume_sample_status'] == 'LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED'
+    assert observation['quotes'][0]['requested_type'] == 'LIVE'
+    assert '39018' not in repr(regular)
+    assert not f._market_events

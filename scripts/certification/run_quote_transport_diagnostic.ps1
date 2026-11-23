@@ -67,6 +67,12 @@ if ($DiagnosticProfile -ne 'quotes' -and !$ExpectedTree) { throw 'This profile r
     @{ probe_exit=$probe.ExitCode; probe_timed_out=$probe.TimedOut; final_exit=$exitCode;
        scope=$scope; PAPER_READY=$false; PAPER_READINESS_GATE='FAIL' } |
         ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $evidence 'outer-status.json')
+    if ($DiagnosticProfile -eq 'live-volume') {
+        Write-Host "Probe effective exit: $exitCode. PAPER_READY=NO."
+        Write-Host "Private native volume: $root\native-volume.json. Keep this root on the laptop."
+        if ($exitCode -ne 0) { throw "Volume diagnostic exit $exitCode. Inspect local result.json and outer-status.json." }
+        return
+    }
     $packagePrefix = Join-Path $root 'package-process'
     $package = Invoke-ObservationChild -Python $python `
         -ChildArguments (@('-E','-u',$payload,'package',$root,$pin) + $profileArgs) `
@@ -84,7 +90,6 @@ if ($DiagnosticProfile -ne 'quotes' -and !$ExpectedTree) { throw 'This profile r
         -StopPath (Join-Path $evidence 'PACKAGE_STOP_REQUESTED') -BudgetSeconds 90 -StopSeconds 30
     $zipName = switch ($DiagnosticProfile) {
         'final-orders' { 'final-orders-diagnostic-upload.zip' }
-        'live-volume'  { 'live-volume-diagnostic-upload.zip' }
         default        { 'quote-diagnostic-upload.zip' }
     }
     $zip = Join-Path $root $zipName
@@ -93,9 +98,6 @@ if ($DiagnosticProfile -ne 'quotes' -and !$ExpectedTree) { throw 'This profile r
     }
     Write-Host "PRIVACY-VERIFIED DIAGNOSTIC ZIP: $zip"
     Write-Host "Probe effective exit: $exitCode. Inspect result.json and outer-status.json separately."
-    if ($DiagnosticProfile -eq 'live-volume') {
-        Write-Host "Private native volume: $root\native-volume.json. Keep this file on the laptop."
-    }
     Write-Host 'Exit0 means this bounded diagnostic completed; it is not natural Ross acceptance.'
     Write-Host "Retained root: $root; PAPER_READY=NO. Do not retry automatically."
     if ($exitCode -ne 0) { throw "Diagnostic nonzero exit $exitCode; preserve the archive and all local evidence." }
