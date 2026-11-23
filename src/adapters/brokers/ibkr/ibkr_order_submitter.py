@@ -263,10 +263,9 @@ class IbkrOrderSubmitter:
                 self._log(
                     f"[ACK] Order acknowledged ibkr_order_id={ibkr_order_id} status={ack_status}"
                 )
-                fill_payload = self._capture_fill_details(
-                    client,
-                    internal_order,
-                    ibkr_order_id,
+                fill_payload = (
+                    self._capture_fill_details(client, internal_order, ibkr_order_id)
+                    if entry_admission is None else {}
                 )
                 return self._result(
                     internal_order,

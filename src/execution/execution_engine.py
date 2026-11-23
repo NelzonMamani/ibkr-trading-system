@@ -1046,6 +1046,8 @@ class ExecutionEngine:
             "native_connection_epoch": getattr(client, "_position_connection_epoch", None)}
         if type(security_id) is int and security_id > 0:
             order["security_id"] = security_id
+        if self.paper_entry_capital_required:
+            order["native_account_scope_generation"] = self._native_position_scope_identity[2]
         self._native_orders[request.client_order_id] = order
         self._save_native_orders()  # Before dispatch; lost ack never implies absence.
         return order
@@ -2711,6 +2713,8 @@ class ExecutionEngine:
             if not standalone.get("broker_order_id"):
                 self._failsafe_block_new_entries = True
             standalone["last_response"] = {"status": str(result.status), "filled": result.filled_quantity, "remaining": result.remaining_quantity}
+            if paper_entry:
+                standalone["last_response"]["acknowledged"] = self.submission_confirmed(result)
             self._save_native_orders()  # Failure retains pre-dispatch uncertainty.
             if paper_entry:
                 # The route response can report a synchronous fill. Account
@@ -2764,7 +2768,8 @@ class ExecutionEngine:
         if standalone is None:
             self._record_fill_and_position(request, result)
         self._run_live_probe_exit_if_needed(request, result)
-        self._validate_trace_integrity(request.client_order_id)
+        if not paper_entry:
+            self._validate_trace_integrity(request.client_order_id)
         if not self._provider.is_live():
             print(
                 f"[EXECUTION] {self.run_mode.value} mode active — "
@@ -3282,6 +3287,12 @@ class ExecutionEngine:
 
     def _native_feedback_blocks_new_entries(self):
         try:
+            if any(
+                order.get("status") == "DISPATCH_UNCERTAIN"
+                and order.get("last_response", {}).get("acknowledged") is False
+                for order in self._native_orders.values()
+            ):
+                return True
             progress = [row for _,_,order in self._native_feedback_orders()
                 for row in order.get("canonical_feedback", [])]
             if any(row.get("state") != "COMPLETE" for row in progress):
@@ -3824,6 +3835,13 @@ class ExecutionEngine:
                 or request["client_order_id"] != order_id or not order.get("decision_id")
                 or not order_id.startswith(order["decision_id"]+"-")):
             raise ValueError("NATIVE_ORDER_BINDING_INVALID")
+        if "native_account_scope_generation" in order:
+            order_identity = (
+                order["native_client_id"], order["native_connection_epoch"], order["native_account_scope_generation"],
+            )
+            if (order_identity != self._native_position_scope_identity
+                    or order_identity != client.account_capital_scope(order["account"])):
+                raise ValueError("NATIVE_ORDER_CALLBACK_SCOPE_CHANGED")
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         if (RunMode(get_config("RUN_MODE_EFFECTIVE")) != self.run_mode or self.run_mode != RunMode.PAPER
                 or (not accounting_only and not 0 <= (datetime.now(timezone.utc) - scope[2]).total_seconds() <= get_ibkr_snapshot_max_age_seconds())):
@@ -3843,7 +3861,7 @@ class ExecutionEngine:
         committed = self._selected_committed_order(order_id)
         if any(order.get(key) != committed.get(key) for key in
                ("request", "decision_id", "account", "mode", "symbol", "side", "broker_order_id", "requested", "action", "owner_effect_version",
-                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "last_accounted_exit_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role", "unit_profit_exit", "unit_amendment", "unit_close_coverage_confirmed", "unit_connection_epoch", "unit_client_id", "unit_initial_protection_profile", "stop_price_revision", "native_client_id", "native_connection_epoch", "canonical_feedback")):
+                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "last_accounted_exit_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role", "unit_profit_exit", "unit_amendment", "unit_close_coverage_confirmed", "unit_connection_epoch", "unit_client_id", "unit_initial_protection_profile", "stop_price_revision", "native_client_id", "native_connection_epoch", "native_account_scope_generation", "canonical_feedback")):
             raise ValueError("NATIVE_ORDER_RETAINED_BINDING_CHANGED")
         facets = {"symbol": order["symbol"], "account": order["account"], "side": order["side"],
             "client_order_id": order_id, "orderId": order["broker_order_id"], "decision_id": order["decision_id"]}
@@ -3875,6 +3893,11 @@ class ExecutionEngine:
             raise RuntimeError("NATIVE_ORDER_RECOVERY_REQUIRED")
         if not order.get("broker_order_id"):
             return True  # Uncertain transport retains ownership, never a fill.
+        if "native_account_scope_generation" in order:
+            # A true native order response reports submission, even if its
+            # first status says Filled. It owns neither cumulative accounting
+            # nor the protection lifecycle.
+            return True
         facts = {"filled": result.filled_quantity, "remaining": result.remaining_quantity,
             "status": result.status, "avgFillPrice": result.average_fill_price or result.entry_price,
             "symbol": result.symbol, "side": result.direction, "orderId": str(result.ibkr_order_id)}
