@@ -3541,6 +3541,21 @@ class CoreOrchestrator:
                 )
         return []
 
+    def _collect_and_bind_position_scope(self, *, as_of, broker_connection_ready):
+        client = (self.connection_manager.get_ibkr_client(ensure_connected=False)
+                  if broker_connection_ready else None)
+        broker_positions = collect_broker_position_snapshot(
+            client, as_of=as_of,
+            config=PositionTruthConfig(
+                broker_required=self.run_mode in {RunMode.PAPER, RunMode.LIVE, RunMode.READ_ONLY},
+                run_mode=self.run_mode,
+            ),
+        )
+        self.execution_engine.bind_native_order_scope(
+            account=broker_positions.account, client=client, as_of=broker_positions.completed_at,
+            scope_identity=broker_positions.scope_identity)
+        return broker_positions
+
     def _resolve_position_truth_cycle(
         self,
         *,
@@ -3578,19 +3593,8 @@ class CoreOrchestrator:
         if broker_connection_ready and relationship_manager is not None and relationship_manager._relationship_plans:
             self.execution_engine.refresh_relationship_order_snapshot()
             as_of = max(as_of, datetime.now(timezone.utc))
-        broker_positions = collect_broker_position_snapshot(
-            self.connection_manager.get_ibkr_client(ensure_connected=False) if broker_connection_ready else None,
-            as_of=as_of,
-            config=PositionTruthConfig(
-                broker_required=broker_required,
-                run_mode=self.run_mode,
-            ),
-        )
-        self.execution_engine.bind_native_order_scope(
-            account=getattr(broker_positions, "account", None),
-            client=self.connection_manager.get_ibkr_client(ensure_connected=False) if broker_connection_ready else None,
-            as_of=getattr(broker_positions, "completed_at", None),
-            scope_identity=getattr(broker_positions, "scope_identity", None))
+        broker_positions = self._collect_and_bind_position_scope(
+            as_of=as_of, broker_connection_ready=broker_connection_ready)
         system_positions = collect_system_position_snapshot(
             self.trade_registry.snapshot(),
             as_of=as_of,
@@ -3751,6 +3755,13 @@ class CoreOrchestrator:
             if self._stop_requested_at_boundary("CACHED_EXECUTION_UPDATES"):
                 return False
             try:
+                engine = self.execution_engine
+                if (getattr(engine, "paper_entry_capital_required", False)
+                        and (engine._native_orders or self.trade_management_engine._relationship_plans)):
+                    # Refresh the native scope for delayed fills, then reconcile
+                    # positions below after callback accounting has run.
+                    self._collect_and_bind_position_scope(
+                        as_of=datetime.now(timezone.utc), broker_connection_ready=not connectivity_failed)
                 # Non-consuming cumulative callback facts belong to the existing
                 # execution owner. Apply them before reconciling broker positions
                 # against the registry; acknowledgement is not a fill.
