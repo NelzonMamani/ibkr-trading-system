@@ -1936,6 +1936,9 @@ class ExecutionEngine:
                 rationale="No risk decision provided; nothing to execute in teaching mode.",
             )
 
+        if self.paper_entry_capital_required and str(risk_decision.direction).upper() == "SHORT":
+            return self._blocked_execution_from_risk_decision(
+                risk_decision, rationale="PAPER_NATIVE_SHORT_LIFECYCLE_UNSUPPORTED")
         if (self.run_mode == RunMode.PAPER and self._provider is not None and self._provider.is_live()
                 and str(risk_decision.direction).upper() in {"LONG", "BUY", "SHORT"}):
             try:
@@ -2524,6 +2527,11 @@ class ExecutionEngine:
 
     def _route_order(self, request: BrokerOrderRequest, *, paper_entry_risk=None) -> ExecutionResult:
         paper_entry = self.paper_entry_capital_required and request.direction.upper() in {"LONG", "BUY", "SHORT"}
+        if paper_entry and request.direction.upper() == "SHORT":
+            reason = "PAPER_NATIVE_SHORT_LIFECYCLE_UNSUPPORTED"
+            self._release_strategy_allocation_for_order(request, reason=reason)
+            self._release_capital_for_order(request, reason=reason)
+            return self._blocked_execution_from_request(request, rationale=reason)
         evidence = getattr(paper_entry_risk, "paper_entry_capital", None)
         if paper_entry:
             reason = self.paper_entry_capital_rejection(evidence)

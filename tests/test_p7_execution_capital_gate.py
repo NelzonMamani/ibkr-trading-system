@@ -342,3 +342,37 @@ def test_ordinary_rejection_and_cancel_still_release_reservation() -> None:
     assert len(cancelled_provider.submitted_orders) == 1
     assert cancelled_engine.pending_book.count() == 0
     assert cancelled_engine.capital_authority.active_reservations == {}
+
+
+def test_native_paper_short_refuses_before_admission():
+    from types import SimpleNamespace
+    from src.brokers.base_broker import BrokerOrderRequest
+    from src.brokers.ibkr_live_broker import IbkrLiveBroker
+    from src.config.runtime_config import RunMode
+    from src.execution.execution_providers import IbkrExecutionProvider
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("unsupported native PAPER short reached admission or wire")
+
+    broker = object.__new__(IbkrLiveBroker)
+    broker.health = lambda: {"connected": False}
+    broker.place_order = forbidden
+    engine = object.__new__(ExecutionEngine)
+    engine.run_mode = RunMode.PAPER
+    engine._provider = IbkrExecutionProvider(broker, ActiveTradeRegistry(), RunMode.PAPER)
+    engine.execution_enabled = True
+    engine.max_shares_per_order = 1
+    engine.event_collector = EventCollector()
+    engine._execution_log = lambda *args, **kwargs: None
+    engine._load_native_orders = forbidden
+    engine.paper_entry_capital_rejection = forbidden
+    engine._strategy_allocation_decisions_by_order_id = {}
+    engine._capital_decisions_by_order_id = {}
+    decision = SimpleNamespace(symbol="ABC", direction="SHORT", strategy_name="test",
+                               trader_type="TEST", max_position_size=1, allowed=True)
+
+    risk_result = engine.execute_trade(decision)
+    route_result = engine._route_order(BrokerOrderRequest("test", "ABC", "SHORT", 1))
+    for result in (risk_result, route_result):
+        assert result.status == "BLOCKED" and not result.attempted
+        assert "PAPER_NATIVE_SHORT_LIFECYCLE_UNSUPPORTED" in result.rationale
