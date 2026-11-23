@@ -156,6 +156,7 @@ class BrokerPositionCollection(dict):
         self.status = status
         self.completed_at = completed_at
         self.account = None
+        self.scope_identity = None
 
 
 def collect_broker_position_snapshot(ibkr_client: Any, *, as_of: datetime,
@@ -202,6 +203,7 @@ def collect_broker_position_snapshot(ibkr_client: Any, *, as_of: datetime,
                 source="ibkr.positions", as_of=result.completed_at,
                 con_id=con_id)
         collection.account = result.account
+        collection.scope_identity = result.scope_identity
     except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
         raise
     except Exception:

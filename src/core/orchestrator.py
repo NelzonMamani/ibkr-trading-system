@@ -1224,7 +1224,13 @@ class CoreOrchestrator:
                 last_price = snapshot.last or last_price
                 bid = snapshot.bid if snapshot.bid is not None else bid
                 ask = snapshot.ask if snapshot.ask is not None else ask
-                day_volume = snapshot.volume if snapshot.volume is not None else day_volume
+                evidence = getattr(snapshot, "volume_evidence", None)
+                if evidence is not None:
+                    from src.domain.volume_evidence import verified_volume_shares
+                    shares = verified_volume_shares(evidence)
+                    day_volume = shares if shares is not None else day_volume
+                elif snapshot.volume is not None:
+                    day_volume = snapshot.volume
             prep_snapshot = self.prep_engine.get_snapshot(symbol)
             data_quality_flags = list(getattr(row, "data_quality_flags", []) or [])
             if prep_snapshot is None:
@@ -3583,7 +3589,8 @@ class CoreOrchestrator:
         self.execution_engine.bind_native_order_scope(
             account=getattr(broker_positions, "account", None),
             client=self.connection_manager.get_ibkr_client(ensure_connected=False) if broker_connection_ready else None,
-            as_of=getattr(broker_positions, "completed_at", None))
+            as_of=getattr(broker_positions, "completed_at", None),
+            scope_identity=getattr(broker_positions, "scope_identity", None))
         system_positions = collect_system_position_snapshot(
             self.trade_registry.snapshot(),
             as_of=as_of,
@@ -4828,7 +4835,9 @@ class CoreOrchestrator:
             gated_strategy_output,
             position_truth_verdict,
         )
-        if self.run_mode == RunMode.PAPER and self.execution_engine.paper_entry_capital_required:
+        native_paper = (self.run_mode == RunMode.PAPER
+                        and getattr(self.execution_engine, "paper_entry_capital_required", False))
+        if native_paper:
             from src.domain.volume_evidence import ross_entry_volume_rejection
 
             client = self.connection_manager.get_ibkr_client(ensure_connected=False)
@@ -4961,7 +4970,7 @@ class CoreOrchestrator:
                 self._trace_event("DECISION", artifact_payload,
                                   summary=f"decision_id={artifact.decision_id} intents={len(artifact.intents)}")
                 for intent in gated_strategy_output:
-                    if self.run_mode == RunMode.PAPER and self.execution_engine.paper_entry_capital_required:
+                    if native_paper:
                         evidence = self.execution_engine.collect_paper_entry_capital()
                         decision = self.risk_engine.evaluate_trade_intent(intent, paper_capital=evidence)
                     else:

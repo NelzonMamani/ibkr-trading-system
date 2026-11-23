@@ -2062,9 +2062,11 @@ class IbkrClient(EWrapper, EClient):
             if len(accounts) != 1 or not accounts[0]:
                 return BrokerPositionResult(status="ACCOUNT_SCOPE_UNAVAILABLE")
             epoch = self._position_connection_epoch
+            client_id = self.client_id
+            generation = getattr(self, "_managed_accounts_generation", 0)
         req_id = self._next_req_id()
         timeout = self.snapshot_timeout_seconds if timeout_seconds is None else timeout_seconds
-        context = {"account": accounts[0], "client_id": self.client_id, "rows": {}, "event": threading.Event(),
+        context = {"account": accounts[0], "client_id": client_id, "rows": {}, "event": threading.Event(),
                    "status": "PARTIAL", "completed_at": None, "epoch": epoch,
                    "deadline": time.monotonic() + max(0, timeout)}
         with self._lock:
@@ -2087,7 +2089,8 @@ class IbkrClient(EWrapper, EClient):
             with self._lock:
                 if epoch != self._position_connection_epoch or not self.is_connected():
                     context["status"] = "DISCONNECTED"
-                elif tuple(self._managed_accounts) != accounts:
+                elif (tuple(self._managed_accounts) != accounts or client_id != self.client_id
+                      or generation != getattr(self, "_managed_accounts_generation", 0)):
                     context["status"] = "WRONG_ACCOUNT"
                 elif context["status"] == "PARTIAL":
                     context["status"] = "TIMEOUT"
@@ -2096,8 +2099,9 @@ class IbkrClient(EWrapper, EClient):
                     age = (datetime.now(timezone.utc) - context["completed_at"]).total_seconds()
                     if not 0 <= age <= get_ibkr_snapshot_max_age_seconds():
                         context["status"] = "STALE"
+                scope = (client_id, epoch, generation) if context["status"] == "COMPLETE" else None
                 return BrokerPositionResult(tuple(context["rows"].values()), context["status"],
-                                            context["account"], context["completed_at"])
+                                            context["account"], context["completed_at"], scope)
         except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
             raise
         except Exception:
