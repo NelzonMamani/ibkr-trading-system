@@ -2953,16 +2953,14 @@ class ExecutionEngine:
             if (dispatch_client is not client or self._native_callback_client() is not client
                     or self._native_scope != scope or self._native_orders.get(parent_key) is not parent
                     or parent.get("quarantine") or self._native_quarantined
+                    or parent.get("account") != account or parent.get("security_id") != con_id
                     or parent.get("side") not in {"LONG", "BUY"}
                     or exposure.get("filled_qty") != 1
                     or int(parent["broker_order_id"]) != parent_id
                     or parent["request"]["stop_loss_price"] != stop_price
-                    or not client.is_connected()
-                    or tuple(client._managed_accounts) != (account,)
-                    or getattr(client, "_managed_accounts_generation", 0)
-                        != parent.get("native_account_scope_generation")
-                    or client.client_id != parent.get("native_client_id")
-                    or client._position_connection_epoch != parent.get("native_connection_epoch")
+                    or client.account_capital_scope(account) != (
+                        parent.get("native_client_id"), parent.get("native_connection_epoch"),
+                        parent.get("native_account_scope_generation"))
                     or contract.conId != con_id or contract.symbol != parent["symbol"]
                     or contract.secType != "STK" or contract.currency != "USD"
                     or native_order.account not in ("", account)
