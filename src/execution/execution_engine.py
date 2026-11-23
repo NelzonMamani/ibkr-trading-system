@@ -2542,6 +2542,7 @@ class ExecutionEngine:
                 native_matches_limit = False
             if (not native_matches_limit or native_order.orderType != "LMT"
                     or contract.exchange != "SMART" or native_order.overridePercentageConstraints
+                    or native_order.parentId != 0
                     or native_order.notHeld or native_order.algoStrategy or native_order.discretionaryAmt
                     or native_order.whatIf or not native_order.transmit or native_order.tif != "DAY"
                     or native_order.adjustedOrderType or native_order.trailingPercent != sys.float_info.max
