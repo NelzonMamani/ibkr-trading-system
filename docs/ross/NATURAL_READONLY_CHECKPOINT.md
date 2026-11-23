@@ -22387,3 +22387,19 @@ fixture lacking its retained request's explicit MKT type. Follow-up
 The existing certificate checks and production code stay as reviewed.
 The affected legacy certificate and joined shutdown slice passed all 55 cases.
 Required exact-head CI still controls integration.
+
+At `cedd3d9c77870c408d8b22a178e6ab9c2434a9f5`, required CI
+[45262896401](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/45262896401)
+passed full Linux (8,684 passed, three skipped and 39 subtests) and native
+Windows controlled-process verification. The Windows offline job exceeded
+its 60-minute limit at 89 percent. Its final progress included a failure marker
+without a traceback before cancellation. The required aggregate failed.
+Earlier Windows runs 45258964426 and 45259799358 also exhausted the job budget.
+
+The existing Windows aggregate now requires complementary offline jobs and
+the unchanged native Windows controlled-process job. The offline jobs retain
+the existing per-job limit, state setup and offline guards. The native stop
+and standalone late-fill modules run with named test output in their own
+job. Independent collection verified full coverage across the two jobs
+(1,501 and 7,187 distinct cases) and five aggregate gate tests passed.
+The repaired workflow still requires a passing exact-head run before integration.

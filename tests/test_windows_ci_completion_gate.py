@@ -1,4 +1,4 @@
-"""The required Windows check must fail when either verification owner is incomplete."""
+"""The required Windows check must fail when any verification owner is incomplete."""
 from contextlib import redirect_stdout
 from io import StringIO
 from itertools import product
@@ -34,14 +34,15 @@ def _evaluate(monkeypatch, needs):
 
 def test_actual_aggregate_requires_all_authoritative_results(monkeypatch):
     statuses = ('success', 'failure', 'cancelled', 'skipped')
-    for scope_result, flag, suite_result, harness_result in product(statuses, ('true', 'false'), statuses, statuses):
+    for scope_result, flag, suite_result, lifecycle_result, harness_result in product(statuses, ('true', 'false'), statuses, statuses, statuses):
         needs = {
             'verification-scope': {'result': scope_result, 'outputs': {'harness_only': flag}},
             'windows-offline-suite': {'result': suite_result},
+            'windows-lifecycle-suite': {'result': lifecycle_result},
             'windows-controlled-process': {'result': harness_result},
         }
         allowed = (scope_result == 'success' and harness_result == 'success'
-                   and suite_result == ('skipped' if flag == 'true' else 'success'))
+                   and suite_result == lifecycle_result == ('skipped' if flag == 'true' else 'success'))
         if allowed:
             _evaluate(monkeypatch, needs)
         else:
@@ -55,6 +56,7 @@ def test_missing_or_ambiguous_scope_cannot_authorize_a_skipped_suite(monkeypatch
             _evaluate(monkeypatch, {
                 'verification-scope': {'result': 'success', 'outputs': {'harness_only': flag}},
                 'windows-offline-suite': {'result': 'skipped'},
+                'windows-lifecycle-suite': {'result': 'skipped'},
                 'windows-controlled-process': {'result': 'success'},
             })
     with pytest.raises(SystemExit):
@@ -62,10 +64,11 @@ def test_missing_or_ambiguous_scope_cannot_authorize_a_skipped_suite(monkeypatch
 
 
 def test_missing_or_malformed_job_results_fail_closed(monkeypatch):
-    for missing in ('windows-offline-suite', 'windows-controlled-process', 'verification-scope'):
+    for missing in ('windows-offline-suite', 'windows-lifecycle-suite', 'windows-controlled-process', 'verification-scope'):
         needs = {
             'verification-scope': {'result': 'success', 'outputs': {'harness_only': 'false'}},
             'windows-offline-suite': {'result': 'success'},
+            'windows-lifecycle-suite': {'result': 'success'},
             'windows-controlled-process': {'result': 'success'},
         }
         del needs[missing]
@@ -78,10 +81,10 @@ def test_missing_or_malformed_job_results_fail_closed(monkeypatch):
 
 def test_windows_split_preserves_required_owners_budgets_and_guards():
     jobs = _jobs()
-    suite, controlled, gate = (jobs[name] for name in
-                              ('windows-offline-suite', 'windows-controlled-process', 'windows-offline'))
+    suite, lifecycle, controlled, gate = (jobs[name] for name in
+                              ('windows-offline-suite', 'windows-lifecycle-suite', 'windows-controlled-process', 'windows-offline'))
     assert '    timeout-minutes: 30\n' in jobs['test']
-    for owner in (suite, controlled):
+    for owner in (suite, lifecycle, controlled):
         assert '    timeout-minutes: 60\n' in owner
         assert '    needs: verification-scope\n' in owner
         assert '    runs-on: windows-latest\n' in owner
@@ -90,19 +93,22 @@ def test_windows_split_preserves_required_owners_budgets_and_guards():
         assert 'python -m pip install -r requirements.txt' in owner
         assert '"last_reserved_order_id":361' in owner
         assert 'IBKR_ORDER_ID_STATE_PATH=$state' in owner
+    for owner in (suite, controlled):
         assert 'if-no-files-found: error' in owner
         assert 'if: always()' in owner
         assert 'continue-on-error' not in owner
-    assert "    if: needs.verification-scope.outputs.harness_only != 'true'\n" in suite
+    for owner in (suite, lifecycle):
+        assert "    if: needs.verification-scope.outputs.harness_only != 'true'\n" in owner
+        assert '${{ github.workspace }}/tests/offline;${{ github.workspace }}' in owner
+        assert 'continue-on-error' not in owner
     assert '    if: always()\n' in gate
-    assert 'needs: [verification-scope, windows-offline-suite, windows-controlled-process]' in gate
+    assert 'needs: [verification-scope, windows-offline-suite, windows-lifecycle-suite, windows-controlled-process]' in gate
     assert 'NEEDS_CONTEXT: ${{ toJSON(needs) }}' in gate
     assert 'continue-on-error' not in gate
     for command in (
         'python -m pytest -q tests/test_quote_sdk_transport_probe.py tests/test_quote_transport_operator.py tests/test_final_order_audit_completion.py',
         'python -m pytest -q tests/test_independent_news_maintenance.py',
         'python -m pytest -q -s tests/test_float_cache_concurrency.py',
-        '        run: python -m pytest -q\n',
     ):
         assert command in suite
     assert 'name: windows-final-order-evidence' in suite
@@ -124,3 +130,17 @@ def test_windows_split_preserves_required_owners_budgets_and_guards():
     assert 'name: windows-powershell-status-evidence' in controlled
     assert '${{ runner.temp }}/ps-status-*/' in controlled
     assert '${{ runner.temp }}/ps-observation-*/' in controlled
+
+
+def test_full_windows_jobs_select_complementary_tests():
+    jobs = _jobs()
+    modules = (
+        'tests/test_native_stop_price_prerequisite.py',
+        'tests/test_standalone_pmh_late_fill_protection.py',
+    )
+    remaining = next(line for line in jobs['windows-offline-suite'].splitlines()
+                     if line.startswith('        run: python -m pytest -q --ignore='))
+    lifecycle = next(line for line in jobs['windows-lifecycle-suite'].splitlines()
+                     if line.startswith('        run: python -m pytest -v '))
+    assert remaining.split()[5:] == [f'--ignore={module}' for module in modules]
+    assert lifecycle.split()[5:] == list(modules)
