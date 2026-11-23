@@ -48,6 +48,7 @@ class IntradayStats:
     volume_data_quality_flag: Optional[str]
     historical_outcome: Optional[str] = None
     historical_end_received: Optional[bool] = None
+    adv20_volume_basis: Optional[dict[str, object]] = None
 
 
 class ScannerDataProvider(Protocol):

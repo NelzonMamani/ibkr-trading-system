@@ -518,6 +518,7 @@ class IbkrScannerProvider(ScannerDataProvider):
             volume_data_quality_flag="IBKR_SNAPSHOT" if shares is not None else "IBKR_SNAPSHOT_UNIT_UNVERIFIED",
             historical_outcome=history.status if history is not None else None,
             historical_end_received=history.end_received if history is not None else None,
+            adv20_volume_basis=history.volume_basis if history is not None and avg_volume is not None else None,
         )
 
     def get_float(self, symbol: str) -> Optional[int]:

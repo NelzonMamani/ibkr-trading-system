@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from math import isfinite
+import os
 
 from src.domain.quote_freshness import quote_time_rejection
 
@@ -60,6 +61,19 @@ def verified_volume_shares(evidence):
     return None
 
 
+def ross_adv20_volume_rejection(evidence, basis):
+    if not isinstance(evidence, Mapping) or not evidence.get("calibration_id"):
+        return "ROSS_VOLUME_CALIBRATION_UNAVAILABLE"
+    if not isinstance(basis, Mapping) or basis.get("unit") != VERIFIED_SHARE_UNIT:
+        return "ROSS_RVOL_ADV20_UNIT_UNVERIFIED"
+    if (basis.get("basis") != "IBKR_RTH_TRADES_DAILY" or basis.get("end_received") is not True
+            or type(basis.get("request_id")) is not int
+            or any(basis.get(field) != evidence.get(field) for field in
+                   ("con_id", "client_id", "connection_epoch", "server_version", "calibration_id"))):
+        return "ROSS_RVOL_ADV20_BASIS_MISMATCH"
+    return None
+
+
 def ross_entry_volume_rejection(intent, mode, *, client_id=None, connection_epoch=None, con_id=None):
     if str(getattr(mode, "value", mode)).upper() != "PAPER":
         return None
@@ -90,6 +104,10 @@ def ross_entry_volume_rejection(intent, mode, *, client_id=None, connection_epoc
             return "ROSS_VOLUME_BELOW_STOCK_SELECTION_MINIMUM"
     elif session not in {"PRE", "PREMARKET", "AH"}:
         return "ROSS_VOLUME_SESSION_UNSUPPORTED"
+    if os.environ.get("ROSS_PAPER_RELEASE_ENABLED") == "1":
+        rvol_rejection = ross_adv20_volume_rejection(evidence, evidence.get("adv20_volume_basis"))
+        if rvol_rejection:
+            return rvol_rejection
     if evidence.get("scanner_execution_eligible") is not True:
         return "ROSS_VOLUME_SCANNER_EXECUTION_INELIGIBLE"
     return None

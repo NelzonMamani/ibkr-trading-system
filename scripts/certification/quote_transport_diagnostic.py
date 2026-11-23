@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -23,7 +24,7 @@ def manifest(repo):
     return {name: digest(repo/name) for name in names if name}
 
 
-def acquire(client, put, *, put_private=None, requested_type="DELAYED"):
+def acquire(client, put, *, put_private=None, requested_type="DELAYED", volume_symbol=None):
     from ibapi.scanner import ScannerSubscription
     from src.core.acquisition import acquisition_deadline, checkpoint, wait_event
     from src.ibkr.market_data_client import _clean, _returned_market_data_type, _resolve_snapshot_timestamp
@@ -33,40 +34,48 @@ def acquire(client, put, *, put_private=None, requested_type="DELAYED"):
     subscription.numberOfRows, subscription.abovePrice, subscription.belowPrice = 50, 1, 20
     result = {'scan_outcome': 'UNAVAILABLE', 'selected': [], 'quotes': [], 'PAPER_READY': False}
     with acquisition_deadline(time.monotonic() + 25):
-        try:
-            rows = client.reqScannerData(subscription)  # Exactly ONE; never robust_scan.
-        finally:
-            scan_receipt = dict(client.last_scanner_request)
-            error = scan_receipt.pop('error', None)
-            scan_receipt['error_present'] = error is not None
-            scan_receipt['error_code'] = (error[0] if isinstance(error, tuple) and
-                                          error and type(error[0]) is int else None)
-            put('scanner.json', scan_receipt)
-        receipt = client.last_scanner_request
-        if not (receipt.get('completion_status') == 'COMPLETE' and receipt.get('end_received')
-                and receipt.get('wait_signalled') and receipt.get('error') is None
-                and receipt.get('connected') and client.is_connected()
-                and receipt.get('row_count') == len(rows)):
-            raise RuntimeError('Scanner completion/ownership proof unavailable')
-        result['scan_outcome'] = 'CONFIRMED_EMPTY' if not rows else 'COMPLETE_NONEMPTY'
-        put('acquisition.json', result)
-        if not rows:
-            return result  # No quote, retry, substitute or fallback.
-        selected, seen = [], set()
-        for row in sorted(rows, key=lambda r: r.rank):
-            c = row.contractDetails.contract
-            if (c.secType != 'STK' or c.currency != 'USD' or type(c.conId) is not int
-                    or c.conId <= 0 or not c.symbol or len(c.symbol) > 64 or c.conId in seen):
-                continue
-            seen.add(c.conId)
-            c = copy.copy(c)
-            c.exchange = 'SMART'  # Normal routing instruction, not issuer identity.
-            selected.append(c)
-            result['selected'].append({'rank': row.rank, 'symbol': c.symbol, 'con_id': c.conId,
-                                       'primary_exchange': c.primaryExchange, 'route': c.exchange})
-            if len(selected) == 1:
-                break
-        put('acquisition.json', result)
+        if volume_symbol:
+            contract = client.resolve_contract(volume_symbol).contract
+            if (contract.symbol != volume_symbol or contract.secType != "STK"
+                    or contract.currency != "USD" or type(contract.conId) is not int or contract.conId <= 0):
+                raise RuntimeError("PAPER_RELEASE_VOLUME_CALIBRATION_CONTRACT_UNSUPPORTED")
+            selected = [contract]
+            result["selected"].append({"symbol": volume_symbol, "con_id": contract.conId})
+        else:
+            try:
+                rows = client.reqScannerData(subscription)  # Exactly ONE; never robust_scan.
+            finally:
+                scan_receipt = dict(client.last_scanner_request)
+                error = scan_receipt.pop('error', None)
+                scan_receipt['error_present'] = error is not None
+                scan_receipt['error_code'] = (error[0] if isinstance(error, tuple) and
+                                              error and type(error[0]) is int else None)
+                put('scanner.json', scan_receipt)
+            receipt = client.last_scanner_request
+            if not (receipt.get('completion_status') == 'COMPLETE' and receipt.get('end_received')
+                    and receipt.get('wait_signalled') and receipt.get('error') is None
+                    and receipt.get('connected') and client.is_connected()
+                    and receipt.get('row_count') == len(rows)):
+                raise RuntimeError('Scanner completion/ownership proof unavailable')
+            result['scan_outcome'] = 'CONFIRMED_EMPTY' if not rows else 'COMPLETE_NONEMPTY'
+            put('acquisition.json', result)
+            if not rows:
+                return result  # No quote, retry, substitute or fallback.
+            selected, seen = [], set()
+            for row in sorted(rows, key=lambda r: r.rank):
+                c = row.contractDetails.contract
+                if (c.secType != 'STK' or c.currency != 'USD' or type(c.conId) is not int
+                        or c.conId <= 0 or not c.symbol or len(c.symbol) > 64 or c.conId in seen):
+                    continue
+                seen.add(c.conId)
+                c = copy.copy(c)
+                c.exchange = 'SMART'  # Normal routing instruction, not issuer identity.
+                selected.append(c)
+                result['selected'].append({'rank': row.rank, 'symbol': c.symbol, 'con_id': c.conId,
+                                           'primary_exchange': c.primaryExchange, 'route': c.exchange})
+                if len(selected) == 1:
+                    break
+            put('acquisition.json', result)
         for c in selected:
             checkpoint()
             ticker = client.reqMktData(c, genericTickList='', snapshot=True, regulatorySnapshot=False)
@@ -111,6 +120,18 @@ def acquire(client, put, *, put_private=None, requested_type="DELAYED"):
                 client.record_quote_completion(req, reason)
                 client.cancelMktData(req)
                 put('acquisition.json', result)
+            if volume_symbol and result.get("native_volume_sample_status") == "LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED":
+                history = client.reqHistoricalData(c, durationStr="20 D", barSizeSetting="1 day",
+                                                  whatToShow="TRADES", useRTH=1, formatDate=1)
+                if history.volume_basis is None:
+                    result["native_volume_sample_status"] = "PAPER_RELEASE_VOLUME_HISTORICAL_PROBE_UNVERIFIED"
+                else:
+                    put_private("volume-probe.json", {
+                        "watchlist": volume_sample,
+                        "history": {**history.volume_basis,
+                                    "bars": [[row["date"], row["volume"]] for row in history.raw_source_bars]},
+                    })
+                put('acquisition.json', result)
     return result
 
 
@@ -147,10 +168,27 @@ def final_orders(put, observer_factory=None):
 
 def main():
     args = sys.argv[1:]
-    if len(args) not in (3, 5):
-        raise RuntimeError('Expected phase/root/commit and optional explicit profile/tree')
+    if len(args) == 4 and args[0] == "prepare-volume":
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from src.ibkr.volume_calibration import prepare_paper_volume_calibration
+        try:
+            prepare_paper_volume_calibration(*map(Path, args[1:]))
+        except RuntimeError as exc:
+            print(str(exc))
+            return 2
+        except OSError:
+            print("PAPER_RELEASE_VOLUME_CALIBRATION_OUTPUT_UNAVAILABLE")
+            return 2
+        print("PAPER_RELEASE_VOLUME_CALIBRATION_PREPARED")
+        return 0
+    if len(args) not in (3, 5, 6):
+        raise RuntimeError('Expected phase/root/commit and optional explicit profile/tree/volume symbol')
     phase, root_text, expected = args[:3]
-    profile, expected_tree = args[3:] if len(args) == 5 else ('quotes', None)
+    profile, expected_tree = args[3:5] if len(args) >= 5 else ('quotes', None)
+    volume_symbol = args[5] if len(args) == 6 else None
+    if (profile == "live-volume" and (not volume_symbol or not re.fullmatch(r"[A-Z][A-Z0-9. -]{0,14}", volume_symbol))) or (
+            profile != "live-volume" and volume_symbol):
+        raise RuntimeError("PAPER_RELEASE_VOLUME_CALIBRATION_CONTRACT_REQUIRED")
     if profile not in ('quotes', 'final-orders', 'live-volume'):
         raise RuntimeError('Unknown diagnostic profile')
     if profile != 'quotes' and (not expected_tree or len(expected_tree) != 40 or
@@ -310,9 +348,9 @@ def main():
                     client.connect()  # One connection, no manager/reconnect wrapper.
                     diagnostic.record('negotiated', server_version=client.serverVersion())
                     stage('connected_acquisition_begin')
-                    report['scanner_attempted'] = True
+                    report['scanner_attempted'] = profile != "live-volume"
                     if profile == "live-volume":
-                        result = acquire(client, put, requested_type=requested_type,
+                        result = acquire(client, put, requested_type=requested_type, volume_symbol=volume_symbol,
                                          put_private=lambda name, value: write_json(root/name, value))
                     else:
                         result = acquire(client, put)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from src.domain.quote_freshness import quote_time_rejection, quote_evidence
 from src.domain.volume_evidence import (
-    READ_ONLY_VOLUME_DIAGNOSTIC, native_stock_volume_rejection, verified_volume_shares,
+    READ_ONLY_VOLUME_DIAGNOSTIC, native_stock_volume_rejection, ross_adv20_volume_rejection, verified_volume_shares,
 )
 
 from src.core.acquisition import history_enrichment, acquisition_cycle, checkpoint, acquisition_deadline, cycle_cache
@@ -1792,7 +1792,8 @@ def _populate_pct_change(
             context[key] = None
         context.update(historical_outcome=failure, historical_end_received=False,
                        adv20_outcome=failure, adv20_resolved=False,
-                       adv20_source="UNAVAILABLE", rvol_status="UNKNOWN", rvol_failure_reason=failure)
+                       adv20_source="UNAVAILABLE", adv20_volume_basis=None,
+                       rvol_status="UNKNOWN", rvol_failure_reason=failure)
         if context.get("reference_source") not in {"IBKR_PREV_CLOSE", "QUOTE_CLOSE_FALLBACK",
                 "SCANNER_PCT_SYNTHETIC_FALLBACK", "SNAPSHOT_LAST_PRICE_FALLBACK"}:
             for key in ("prev_close", "ref_close_rth", "reference_price", "pct_change", "pct_change_resolved"):
@@ -2305,6 +2306,10 @@ def _evaluate_focus_gates(
             context["volume_rejection"] = "ROSS_VOLUME_UNIT_UNVERIFIED"
         elif session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"} and volume is not None and volume < thresholds.min_volume:
             context["volume_rejection"] = "ROSS_VOLUME_BELOW_STOCK_SELECTION_MINIMUM"
+        if not context.get("volume_rejection") and os.environ.get("ROSS_PAPER_RELEASE_ENABLED") == "1":
+            context["volume_rejection"] = ross_adv20_volume_rejection(
+                volume_evidence, context.get("adv20_volume_basis"),
+            )
         _apply_degraded_contract(context)
     spread_pct = _safe_float(context.get("spread_pct"), None)
     bid = _safe_float(context.get("bid"), None)
@@ -4178,7 +4183,10 @@ def _candidate_from_context(
         float_cache_hit=context.get("float_cache_hit"),
         float_millions=float_millions,
         volume=volume,
-        volume_evidence=context.get("volume_evidence"),
+        volume_evidence=(
+            {**context["volume_evidence"], "adv20_volume_basis": context.get("adv20_volume_basis")}
+            if isinstance(context.get("volume_evidence"), dict) else None
+        ),
         premarket_volume=premarket_volume,
         dollar_volume=context.get("dollar_volume"),
         bid=context.get("bid"),
@@ -4725,6 +4733,10 @@ def _build_symbol_context(
         "ibkr_change_pct": ibkr_change_pct,
         "volume": volume,
         "volume_evidence": volume_evidence,
+        "adv20_volume_basis": (
+            getattr(intraday, "adv20_volume_basis", None)
+            if intraday_history_end_received is True and intraday.average_daily_volume_20d is not None else None
+        ),
         "_enrichment_reference_snapshot": reference_snapshot,
         "avg_volume_20d": avg_volume_20d,
         "average_daily_volume_window_days": avg_volume_window_days,

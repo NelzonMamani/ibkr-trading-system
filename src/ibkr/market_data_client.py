@@ -118,6 +118,7 @@ class HistoricalDataResult(Sequence):
     normalization_selected_count: int | None = None
     normalization_rejected_count: int | None = None
     normalized_raw_bar_timestamps: tuple = ()
+    volume_basis: dict | None = None
 
     def __post_init__(self):
         if self.status in {"COMPLETE_BARS", "COMPLETE_EMPTY"} and not self.end_received:

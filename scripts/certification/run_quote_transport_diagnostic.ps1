@@ -1,8 +1,13 @@
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedCommit,
       [ValidateSet('quotes','final-orders','live-volume')][string]$DiagnosticProfile = 'quotes',
-      [ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedTree)
+      [ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedTree,
+      [ValidatePattern('^[A-Z][A-Z0-9. -]{0,14}$')][string]$VolumeSymbol)
 if ($DiagnosticProfile -ne 'quotes' -and !$ExpectedTree) { throw 'This profile requires the reviewed tree.' }
+if (($DiagnosticProfile -eq 'live-volume' -and !$VolumeSymbol) -or
+    ($DiagnosticProfile -ne 'live-volume' -and $VolumeSymbol)) {
+    throw 'An exact US stock symbol applies only to the live-volume profile.'
+}
 & {
     $ErrorActionPreference = 'Stop'
     $pin = $ExpectedCommit
@@ -52,6 +57,7 @@ if ($DiagnosticProfile -ne 'quotes' -and !$ExpectedTree) { throw 'This profile r
     Write-Host "Cooperative stop: New-Item -ItemType File -Force '$evidence\STOP_REQUESTED'"
     $profileArgs = @()
     if ($DiagnosticProfile -ne 'quotes') { $profileArgs = @($DiagnosticProfile,$ExpectedTree) }
+    if ($DiagnosticProfile -eq 'live-volume') { $profileArgs += @($VolumeSymbol) }
     $scope = switch ($DiagnosticProfile) {
         'final-orders' { 'FINAL_ORDERS_DIAGNOSTIC_ONLY' }
         'live-volume'  { 'LIVE_VOLUME_DIAGNOSTIC_ONLY' }
@@ -69,7 +75,7 @@ if ($DiagnosticProfile -ne 'quotes' -and !$ExpectedTree) { throw 'This profile r
         ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $evidence 'outer-status.json')
     if ($DiagnosticProfile -eq 'live-volume') {
         Write-Host "Probe effective exit: $exitCode. PAPER_READY=NO."
-        Write-Host "Private native volume: $root\native-volume.json. Keep this root on the laptop."
+        Write-Host "Private native volume probe: $root\volume-probe.json. Keep this root on the laptop."
         if ($exitCode -ne 0) { throw "Volume diagnostic exit $exitCode. Inspect local result.json and outer-status.json." }
         return
     }

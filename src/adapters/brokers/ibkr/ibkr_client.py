@@ -53,6 +53,7 @@ from src.ibkr.market_data_client import (
 )
 from src.ibkr.read_only_guard import assert_read_only_allows
 from src.ibkr.evidence_safety import register_account, sanitize
+from src.ibkr.volume_calibration import HISTORICAL_BASIS, load_paper_volume_calibration
 
 
 
@@ -1393,9 +1394,12 @@ class IbkrClient(EWrapper, EClient):
         self._connection_event.clear()
         self._position_upstream_lost = False
         with self._lock:
+            if getattr(self, "_volume_calibration_binding", None) is not None:
+                self._volume_calibration_invalidated = True
             self._volume_unit_witness = None
             self._last_native_volume_sample = None
             self._native_volume_evidence = {}
+            self._calibrated_history_requests = {}
             attempts = getattr(self, "_commission_connection_attempts", None)
             if type(attempts) is not int or not hasattr(self, "_commission_constructor_queue"):
                 self._commission_zero_disabled = True
@@ -2171,9 +2175,12 @@ class IbkrClient(EWrapper, EClient):
             for query in getattr(self, "_price_rule_requests", {}).values():
                 self._finish_price_rule(query, "DISCONNECTED")
             self._position_connection_epoch += 1
+            if getattr(self, "_volume_calibration_binding", None) is not None:
+                self._volume_calibration_invalidated = True
             self._volume_unit_witness = None
             self._last_native_volume_sample = None
             self._native_volume_evidence = {}
+            self._calibrated_history_requests = {}
             self._position_transport_available = False
             self._position_upstream_lost = True
             if clear_account_scope:
@@ -3037,6 +3044,7 @@ class IbkrClient(EWrapper, EClient):
                         use_rth=int(bool(useRTH)), format_date=int(formatDate),
                         keep_up_to_date=bool(keepUpToDate), chart_options=chartOptions or [])
                     state["contract_identity"] = CandidateIdentity.from_contract(contract)
+                    state["volume_scope"] = (self.client_id, self._position_connection_epoch, self.serverVersion())
                     state["request_dispatched_at_utc"] = datetime.now(timezone.utc).isoformat()
                     state["sent"] = True
                     super().reqHistoricalData(req_id, contract, endDateTime, durationStr,
@@ -3066,6 +3074,7 @@ class IbkrClient(EWrapper, EClient):
         finally:
             self._retire_historical_request(req_id, state)
         from src.ibkr.market_data_client import historical_bar_facts
+        volume_basis = self._historical_volume_basis(state, req_id)
         return HistoricalDataResult(state["status"], tuple(state["bars"]),
             state["end_received"], req_id, state["error_code"], len(state["bars"]) if not state["end_received"] else 0,
             contract_identity=state.get("contract_identity"),
@@ -3074,7 +3083,8 @@ class IbkrClient(EWrapper, EClient):
             completed_at_utc=state.get("completed_at_utc"),
             callback_start=state.get("callback_start"), callback_end=state.get("callback_end"),
             raw_bar_timestamps=tuple(getattr(bar, "date", None) for bar in state["bars"]),
-            source_bar_count=len(state["bars"]), raw_source_bars=historical_bar_facts(state["bars"]))
+            source_bar_count=len(state["bars"]), raw_source_bars=historical_bar_facts(state["bars"]),
+            volume_basis=volume_basis)
 
     def _retire_historical_request(self, req_id, state):
         with self._lock:
@@ -3157,6 +3167,57 @@ class IbkrClient(EWrapper, EClient):
             getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 
     # --- Market data snapshot ---
+    def _paper_volume_calibration(self):
+        if os.environ.get("ROSS_PAPER_RELEASE_ENABLED") != "1":
+            return None
+        path = os.environ.get("ROSS_TWS_VOLUME_COMPARATOR_PATH")
+        if not path or getattr(self, "_volume_calibration_invalidated", False):
+            return None
+        try:
+            calibration = load_paper_volume_calibration(path, now=datetime.now(timezone.utc))
+        except RuntimeError:
+            if getattr(self, "_volume_calibration_binding", None):
+                self._volume_calibration_invalidated = True
+            return None
+        attested = (self.client_id, self._position_connection_epoch, self.serverVersion(),
+                    calibration["calibration_id"])
+        if (self._stop_event.is_set() or not self.isConnected()
+                or self.serverVersion() != calibration["server_version"]
+                or self._quote_trace.sdk_distribution != calibration["sdk_distribution"]):
+            return None
+        previous = getattr(self, "_volume_calibration_binding", None)
+        if previous is not None and previous != attested:
+            self._volume_calibration_invalidated = True
+            return None
+        self._volume_calibration_binding = attested
+        return calibration
+
+    def _historical_volume_basis(self, state, request_id):
+        spec, identity = state.get("request_spec"), state.get("contract_identity")
+        if (state["status"] != "COMPLETE_BARS" or not state["end_received"] or spec is None
+                or spec.what_to_show != "TRADES" or spec.bar_size_setting != "1 day"
+                or spec.use_rth != 1 or spec.keep_up_to_date or not spec.chart_options_empty
+                or identity is None or identity.con_id is None):
+            return None
+        with self._lock:
+            scope = (self.client_id, self._position_connection_epoch, self.serverVersion())
+            if state.get("volume_scope") != scope or self._request_id_conflicted(request_id):
+                return None
+            basis = {"basis": HISTORICAL_BASIS, "con_id": identity.con_id, "client_id": scope[0],
+                     "connection_epoch": scope[1], "server_version": scope[2], "request_id": request_id,
+                     "completed_at_utc": state.get("completed_at_utc"), "end_received": True,
+                     "unit": "UNKNOWN", "calibration_id": None}
+            calibration = self._paper_volume_calibration()
+            if (calibration is not None and calibration["con_id"] == identity.con_id
+                    and identity.symbol == calibration["symbol"] and identity.sec_type == "STK"
+                    and identity.currency == "USD" and identity.primary_exchange == calibration["primary_exchange"]):
+                basis.update(unit=VERIFIED_SHARE_UNIT, calibration_id=calibration["calibration_id"])
+                retained = self.__dict__.setdefault("_calibrated_history_requests", {})
+                if len(retained) >= QuoteDiagnostics.MAX_REQUESTS:
+                    retained.pop(next(iter(retained)), None)
+                retained[request_id] = dict(basis)
+            return basis
+
     def snapshot_volume_evidence(self, ticker):
         """Capture native volume facts separately from the unqualified quote value."""
         tick_type = getattr(ticker, "volumeTickType", None)
@@ -3197,12 +3258,20 @@ class IbkrClient(EWrapper, EClient):
             if scope == (ticker.volumeClientId, ticker.volumeConnectionEpoch, ticker.volumeServerVersion):
                 self._last_native_volume_sample = dict(evidence)
                 if native_stock_volume_rejection(evidence) is None:
+                    calibration = self._paper_volume_calibration()
                     witness = (*scope, evidence["con_id"])
-                    if getattr(self, "_volume_unit_witness", None) != witness:
-                        self._verify_local_volume_comparator(evidence)
-                    if getattr(self, "_volume_unit_witness", None) == witness:
-                        evidence.update(unit=VERIFIED_SHARE_UNIT, unit_source=SHARE_UNIT_SOURCE,
-                                        shares=evidence["raw_value"])
+                    if os.environ.get("ROSS_PAPER_RELEASE_ENABLED") == "1":
+                        if (calibration is not None and calibration["con_id"] == evidence["con_id"]
+                                and calibration["symbol"] == evidence["symbol"]
+                                and calibration["primary_exchange"] == evidence["primary_exchange"]):
+                            evidence.update(unit=VERIFIED_SHARE_UNIT, unit_source=SHARE_UNIT_SOURCE,
+                                            shares=evidence["raw_value"], calibration_id=calibration["calibration_id"])
+                    else:
+                        if getattr(self, "_volume_unit_witness", None) != witness:
+                            self._verify_local_volume_comparator(evidence)
+                        if getattr(self, "_volume_unit_witness", None) == witness:
+                            evidence.update(unit=VERIFIED_SHARE_UNIT, unit_source=SHARE_UNIT_SOURCE,
+                                            shares=evidence["raw_value"])
                 self._last_native_volume_sample = dict(evidence)
                 retained = self.__dict__.setdefault("_native_volume_evidence", {})
                 if len(retained) >= QuoteDiagnostics.MAX_REQUESTS:
@@ -3239,8 +3308,16 @@ class IbkrClient(EWrapper, EClient):
             if (not self.isConnected() or self._stop_event.is_set()
                     or native_stock_volume_rejection(
                         evidence, client_id=scope[0], connection_epoch=scope[1],
-                    ) or getattr(self, "_volume_unit_witness", None) != (*scope, evidence["con_id"])
-                    or evidence["server_version"] != scope[2]):
+                    ) or evidence["server_version"] != scope[2]):
+                return False
+            if os.environ.get("ROSS_PAPER_RELEASE_ENABLED") == "1":
+                calibration = self._paper_volume_calibration()
+                basis = evidence.get("adv20_volume_basis")
+                if (calibration is None or calibration["calibration_id"] != evidence.get("calibration_id")
+                        or not isinstance(basis, Mapping) or self._request_id_conflicted(basis.get("request_id"))
+                        or getattr(self, "_calibrated_history_requests", {}).get(basis.get("request_id")) != basis):
+                    return False
+            elif getattr(self, "_volume_unit_witness", None) != (*scope, evidence["con_id"]):
                 return False
             retained = getattr(self, "_native_volume_evidence", {})
             original = retained.get(evidence["request_id"])
