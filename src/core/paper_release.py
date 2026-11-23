@@ -29,8 +29,13 @@ class PaperRelease:
         if (enabled != "1" or mode != RunMode.PAPER or not allow_orders
                 or get_config("RISK_PROFILE") != "MICRO" or strategy_keys != ["ross_momentum"]):
             raise RuntimeError("PAPER_RELEASE_REQUIRES_PAPER_MICRO_ROSS")
-        if get_force_clean_start() or os.environ.get("FLATTEN_ON_STARTUP", "").strip().lower() == "true":
+        if (get_force_clean_start()
+                or os.environ.get("FLATTEN_ON_STARTUP", "").strip().lower() == "true"):
             raise RuntimeError("PAPER_RELEASE_STARTUP_MUTATION_CONFIGURED")
+        if (get_config("SCANNER_DATA_SOURCE") == "MOCK"
+                or get_config("FORCE_EXECUTION_ON_TRADE_READY") is True
+                or get_config("FORCE_RISK_APPROVAL_FOR_TRADE_READY") is True):
+            raise RuntimeError("PAPER_RELEASE_VALIDATION_OVERRIDE_ACTIVE")
         if os.environ.get("ROSS_PAPER_EXCLUSIVE_START_ATTESTED") != "1":
             raise RuntimeError("PAPER_RELEASE_OPERATOR_ATTESTATION_REQUIRED")
         account = os.environ.get("ROSS_PAPER_EXPECTED_ACCOUNT", "")

@@ -200,6 +200,20 @@ jobs:
       - name: Windows PowerShell5.1 quote diagnostic parser (no acquisition)
         shell: powershell
         run: .\tests\powershell\verify_quote_transport.ps1
+      - name: Windows PowerShell 5.1 PAPER caller parser and missing-pin gate
+        shell: powershell
+        run: |
+          $path = Join-Path $PWD 'docs\ross\ORDINARY_RTH_PAPER_LOCAL_EXECUTION.ps1.in'
+          $tokens = $null
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0) { throw 'PAPER caller outer syntax failed.' }
+          try { & ($ast.GetScriptBlock()) }
+          catch {
+            if ($_.Exception.Message -ceq 'PAPER_RELEASE_ACCEPTED_SOURCE_PIN_MISSING') { exit 0 }
+            throw
+          }
+          throw 'Unpinned PAPER caller passed preflight.'
       - name: Upload controlled harness evidence
         if: always()
         uses: actions/upload-artifact@v4

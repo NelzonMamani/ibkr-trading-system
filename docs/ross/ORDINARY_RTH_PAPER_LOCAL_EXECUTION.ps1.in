@@ -123,4 +123,4 @@ $rossPaperParseErrors = $null
 $rossPaperAst = [System.Management.Automation.Language.Parser]::ParseInput(
     $rossPaperCaller, [ref]$rossPaperTokens, [ref]$rossPaperParseErrors)
 if ($rossPaperParseErrors.Count -ne 0) { throw 'PAPER_RELEASE_NATIVE_POWERSHELL_PARSE_FAILED' }
-& $rossPaperAst.GetScriptBlock()
+& ($rossPaperAst.GetScriptBlock())
