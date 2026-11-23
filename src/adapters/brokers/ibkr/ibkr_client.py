@@ -262,6 +262,7 @@ class AccountCurrencyResult:
     cleanup_complete: bool = True  # Local callback ownership retired only.
     source: str = "IBKR_ACCOUNT_SUMMARY_LEDGER"
     account_scope_generation: Optional[int] = None
+    settled_cash: Optional[Decimal] = None
 
 
 _CAPITAL_TAGS = ("NetLiquidation", "AvailableFunds", "BuyingPower")
@@ -2272,14 +2273,19 @@ class IbkrClient(EWrapper, EClient):
         return self._strict_account_summary(expected_account, timeout_seconds, deadline=_deadline)
 
     def account_capital_snapshot(self, *, expected_account: str,
-                                 timeout_seconds: Optional[float] = None) -> AccountCapitalResult:
+                                 timeout_seconds: Optional[float] = None,
+                                 require_settled_usd: bool = False) -> AccountCapitalResult:
         """Bind concrete account currency and capital to the same native scope."""
         timeout = self.snapshot_timeout_seconds if timeout_seconds is None else timeout_seconds
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout < 0:
             raise ValueError("Bounded account capital timeout required")
         deadline = time.monotonic() + bounded_timeout(timeout)
-        currency = self.account_currency_snapshot(
-            expected_account=expected_account, timeout_seconds=timeout, _deadline=deadline)
+        if require_settled_usd:
+            currency = self._strict_account_summary(
+                expected_account, timeout, deadline=deadline, settled_usd=True)
+        else:
+            currency = self.account_currency_snapshot(
+                expected_account=expected_account, timeout_seconds=timeout, _deadline=deadline)
         if currency.status != "COMPLETE":
             return AccountCapitalResult(currency.status, expected_account, currency)
         if not currency.cancellation_attempted or not currency.cleanup_complete:
@@ -2299,7 +2305,8 @@ class IbkrClient(EWrapper, EClient):
                         getattr(self, "_managed_accounts_generation", 0))
             return identity if all(type(value) is int and value >= 0 for value in identity) else None
 
-    def _strict_account_summary(self, expected_account, timeout_seconds, *, capital_currency=None, deadline=None):
+    def _strict_account_summary(self, expected_account, timeout_seconds, *, capital_currency=None, deadline=None,
+                                settled_usd=False):
         checkpoint()
         if (not isinstance(expected_account, str) or not expected_account
                 or expected_account != expected_account.strip()):
@@ -2325,7 +2332,10 @@ class IbkrClient(EWrapper, EClient):
                         if status == "COMPLETE" else (), cancelled, account_generation,
                     )
                 return AccountCurrencyResult(status, req_id, epoch, expected_account, client_id,
-                    currency, completed_at, tags, cancelled, account_scope_generation=account_generation)
+                    currency, completed_at, tags, cancelled,
+                    source="IBKR_ACCOUNT_UPDATES_MULTI_USD_SECURITIES" if settled_usd else "IBKR_ACCOUNT_SUMMARY_LEDGER",
+                    account_scope_generation=account_generation,
+                    settled_cash=query.get("settled_cash") if settled_usd and status == "COMPLETE" else None)
             if (not self.is_connected() or self._stop_event.is_set()
                     or not self._position_transport_available):
                 return result("DISCONNECTED")
@@ -2344,6 +2354,9 @@ class IbkrClient(EWrapper, EClient):
                 "account": expected_account, "client_id": client_id, "account_generation": account_generation,
                 "deadline": deadline, "currency": None,
                 "tags": set(), "completed_at": None}
+            if settled_usd:
+                query["settled_usd"] = True
+                query["cash_as_of_date"] = started_at.astimezone(ZoneInfo("America/New_York")).date()
             if capital_currency is not None:
                 query["capital_currency"] = capital_currency
                 query["capital_facts"] = {}
@@ -2356,8 +2369,11 @@ class IbkrClient(EWrapper, EClient):
                     # Set before dispatch: a raised send may have reached the
                     # transport. Cleanup must not reinterpret it as unsent.
                     sent = True
-                    tags = ",".join(_CAPITAL_TAGS) if capital_currency is not None else "$LEDGER"
-                    self.reqAccountSummary(req_id, "All", tags)
+                    if settled_usd:
+                        self.reqAccountUpdatesMulti(req_id, expected_account, "", True)
+                    else:
+                        tags = ",".join(_CAPITAL_TAGS) if capital_currency is not None else "$LEDGER"
+                        self.reqAccountSummary(req_id, "All", tags)
             wait_event(query["event"], max(0, query["deadline"] - time.monotonic()))
             with self._lock:
                 self._account_currency_query_current(req_id, query, allow_complete=True)
@@ -2395,7 +2411,10 @@ class IbkrClient(EWrapper, EClient):
                         and not self._request_id_conflicted(req_id)):
                     cancelled = True
                     try:
-                        self.cancelAccountSummary(req_id)
+                        if settled_usd:
+                            self.cancelAccountUpdatesMulti(req_id)
+                        else:
+                            self.cancelAccountSummary(req_id)
                     except Exception as exc:
                         cleanup_error = str(exc)
         with self._lock:
@@ -2414,7 +2433,7 @@ class IbkrClient(EWrapper, EClient):
                 currency=query["currency"] if complete else None,
                 completed_at=query["completed_at"] if complete else None,
                 tags=tuple(sorted(query["tags"])), cancelled=cancelled)
-            if (capital_currency is None and complete and cancelled and cleanup_error is None
+            if (capital_currency is None and not settled_usd and complete and cancelled and cleanup_error is None
                     and self._request_context_by_req_id.get(req_id) is context
                     and context.get("account_currency_query") is None
                     and req_id not in self._request_type_by_req_id):
@@ -2465,6 +2484,16 @@ class IbkrClient(EWrapper, EClient):
         return 0 <= age <= get_ibkr_snapshot_max_age_seconds()
 
     @staticmethod
+    def _account_capital_amount(value):
+        if not isinstance(value, str) or not re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", value):
+            return None
+        try:
+            amount = Decimal(value)
+        except InvalidOperation:
+            return None
+        return amount if amount.is_finite() else None
+
+    @staticmethod
     def _record_account_capital_fact(query, account, tag, value, currency):
         if account != query["account"]:
             return "WRONG_ACCOUNT"
@@ -2472,13 +2501,8 @@ class IbkrClient(EWrapper, EClient):
             return "UNEXPECTED_TAG"
         if currency != query["capital_currency"].currency:
             return "AMBIGUOUS_CURRENCY"
-        if not isinstance(value, str) or not re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", value):
-            return "INVALID"
-        try:
-            amount = Decimal(value)
-        except InvalidOperation:
-            return "INVALID"
-        if not amount.is_finite():
+        amount = IbkrClient._account_capital_amount(value)
+        if amount is None:
             return "INVALID"
         previous = query["capital_facts"].get(tag)
         if previous is not None:
@@ -3647,6 +3671,8 @@ class IbkrClient(EWrapper, EClient):
                         query["status"] = error
                         query["event"].set()
                     return
+                if query.get("settled_usd"):
+                    return
                 if account != query["account"]:
                     query["status"] = "WRONG_ACCOUNT"
                 elif (not isinstance(tag, str) or not tag or tag != tag.strip()
@@ -3687,6 +3713,8 @@ class IbkrClient(EWrapper, EClient):
                             query["completed_at"] = datetime.now(timezone.utc)
                         query["event"].set()
                         return
+                    if query.get("settled_usd"):
+                        return
                     query["status"] = "COMPLETE" if query["currency"] is not None else "MISSING_CURRENCY"
                     if query["status"] == "COMPLETE":
                         query["completed_at"] = datetime.now(timezone.utc)
@@ -3703,6 +3731,63 @@ class IbkrClient(EWrapper, EClient):
                 context["account_summary_end_received"] = deadline is not None and time.monotonic() < deadline
                 event.set()
             getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
+
+    def accountUpdateMulti(self, reqId, account, modelCode, key, value, currency):  # type: ignore[override]
+        with self._lock:
+            query = self._request_context_by_req_id.get(reqId, {}).get("account_currency_query")
+            if not query or not query.get("settled_usd") or not self._account_currency_query_current(reqId, query):
+                return
+            if account != query["account"] or modelCode != "":
+                query["status"] = "SETTLED_CASH_SCOPE_MISMATCH"
+            elif key == "AccountReady" and str(value).lower() != "true":
+                query["status"] = "SETTLED_CASH_ACCOUNT_NOT_READY"
+            elif key in {"SettledCashByDate-S", "$LEDGER-SettledCashByDate-S"} and currency == "USD":
+                # IBKR reports available cash on the first date and cumulative
+                # balances on later dates. Do not spend against future credits
+                # or disregard outstanding debits to the securities segment.
+                try:
+                    rows = []
+                    for item in value.split(";"):
+                        raw_day, raw_amount = item.split(":")
+                        if not re.fullmatch("[0-9]{8}", raw_day):
+                            raise ValueError
+                        day = datetime.strptime(raw_day, "%Y%m%d").date()
+                        amount = self._account_capital_amount(raw_amount)
+                        if amount is None or (rows and day <= rows[-1][0]):
+                            raise ValueError
+                        rows.append((day, amount))
+                    if rows[0][0] != query["cash_as_of_date"]:
+                        raise ValueError
+                    rows = tuple(rows)
+                except (AttributeError, IndexError, ValueError):
+                    query["status"] = "SETTLED_CASH_INVALID"
+                else:
+                    previous = query.get("settled_cash_rows")
+                    if previous is None or previous == rows:
+                        query["settled_cash_rows"] = rows
+                        query["settled_cash"] = min(amount for _, amount in rows)
+                        query["currency"] = currency
+                        query["tags"].add(key)
+                        return
+                    query["status"] = "SETTLED_CASH_CONFLICTING"
+            else:
+                return
+            query["event"].set()
+
+    def accountUpdateMultiEnd(self, reqId):  # type: ignore[override]
+        with self._lock:
+            query = self._request_context_by_req_id.get(reqId, {}).get("account_currency_query")
+            if not query or not query.get("settled_usd") or not self._account_currency_query_current(reqId, query):
+                return
+            now = datetime.now(timezone.utc)
+            if query.get("settled_cash") is None:
+                query["status"] = "SETTLED_CASH_UNAVAILABLE"
+            elif now.astimezone(ZoneInfo("America/New_York")).date() != query["cash_as_of_date"]:
+                query["status"] = "SETTLED_CASH_DATE_CHANGED"
+            else:
+                query["status"] = "COMPLETE"
+                query["completed_at"] = now
+            query["event"].set()
 
     def managedAccounts(self, accountsList: str):  # type: ignore[override]
         register_account(accountsList)

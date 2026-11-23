@@ -9,12 +9,14 @@ from src.config.config_resolver import get_config
 from src.config.runtime_config import RunMode, get_force_clean_start
 from src.execution.position_truth import PositionTruthConfig, collect_broker_position_snapshot
 from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint
+from src.core.capital_management_authority import PaperEntryFeeCeiling
 from src.market_data.session_pct_change import covered_opening_window
 
 
 class PaperRelease:
-    def __init__(self, expected_account):
+    def __init__(self, expected_account, *, entry_fee_ceiling=None):
         self.expected_account = expected_account
+        self.entry_fee_ceiling = entry_fee_ceiling
         self.scope = None
         self.attempted = False
         self.rejection = None
@@ -41,7 +43,9 @@ class PaperRelease:
         account = os.environ.get("ROSS_PAPER_EXPECTED_ACCOUNT", "")
         if re.fullmatch(r"DUK?[0-9]+", account) is None:
             raise RuntimeError("PAPER_RELEASE_EXPECTED_ACCOUNT_REQUIRED")
-        return cls(account)
+        fee_ceiling = PaperEntryFeeCeiling.load(
+            os.environ.get("ROSS_PAPER_ENTRY_FEE_CEILING_PATH"), expected_account=account, now=datetime.now(timezone.utc))
+        return cls(account, entry_fee_ceiling=fee_ceiling)
 
     def _observe(self, event):
         event_type = event.get("event_type")

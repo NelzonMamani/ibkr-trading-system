@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 import json
 import math
 import copy
 import hashlib
 import inspect
+from pathlib import Path
+import re
 from functools import wraps
 from typing import Any, TYPE_CHECKING
 from uuid import uuid4
@@ -26,12 +28,71 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
+class PaperEntryFeeCeiling:
+    """Private transcription of an applicable broker-confirmed all-fee ceiling."""
+
+    account: str
+    max_limit_price: Decimal
+    max_fee: Decimal
+    valid_until_utc: datetime
+
+    @classmethod
+    def load(cls, path, *, expected_account, now):
+        if not path:
+            raise RuntimeError("PAPER_RELEASE_ENTRY_COST_AUTHORITY_REQUIRED")
+
+        def unique_object(pairs):
+            result = dict(pairs)
+            if len(result) != len(pairs):
+                raise ValueError
+            return result
+
+        try:
+            with Path(path).open(encoding="utf-8") as receipt:
+                raw = receipt.read(16_385)
+            if len(raw) > 16_384:
+                raise ValueError
+            fields = json.loads(raw, object_pairs_hook=unique_object)
+            if set(fields) != {"schema", "account", "currency", "security_type", "exchange", "side", "quantity",
+                               "max_limit_price", "max_fee", "valid_until_utc", "broker_reference"}:
+                raise ValueError
+            if ((fields["schema"], fields["currency"], fields["security_type"], fields["exchange"], fields["side"])
+                    != ("IBKR_CONFIRMED_USD_ENTRY_FEE_CEILING_V1", "USD", "STK", "SMART", "BUY")
+                    or type(fields["quantity"]) is not int or fields["quantity"] != 1
+                    or not isinstance(fields["broker_reference"], str) or not fields["broker_reference"].strip()):
+                raise ValueError
+            if not all(isinstance(fields[key], str) for key in ("max_limit_price", "max_fee", "valid_until_utc")):
+                raise ValueError
+            if not all(re.fullmatch(r"[0-9]{1,12}(?:\.[0-9]{1,12})?", fields[key])
+                       for key in ("max_limit_price", "max_fee")):
+                raise ValueError
+            price, fee = (Decimal(fields[key]) for key in ("max_limit_price", "max_fee"))
+            if (not price.is_finite() or not fee.is_finite()
+                    or price <= 0 or fee < 0 or not math.isfinite(float(price + fee))):
+                raise ValueError
+            valid_until = datetime.fromisoformat(fields["valid_until_utc"].replace("Z", "+00:00"))
+            if valid_until.utcoffset() != timezone.utc.utcoffset(valid_until):
+                raise ValueError
+        except FileNotFoundError:
+            raise RuntimeError("PAPER_RELEASE_ENTRY_COST_AUTHORITY_REQUIRED") from None
+        except (OSError, TypeError, ValueError, InvalidOperation, OverflowError):
+            raise RuntimeError("PAPER_RELEASE_ENTRY_COST_AUTHORITY_INVALID") from None
+        if fields["account"] != expected_account:
+            raise RuntimeError("PAPER_RELEASE_ENTRY_COST_AUTHORITY_WRONG_ACCOUNT")
+        if now >= valid_until:
+            raise RuntimeError("PAPER_RELEASE_ENTRY_COST_AUTHORITY_EXPIRED")
+        return cls(expected_account, price, fee, valid_until)
+
+
+@dataclass(frozen=True)
 class PaperEntryCapital:
     """Process-local account observation carried from risk through native submission."""
 
     client: IbkrClient
     account: str
     result: AccountCapitalResult
+    require_settled_usd: bool = False
+    entry_fee_ceiling: PaperEntryFeeCeiling | None = None
 
     def inspect(self, now: datetime) -> tuple[str | None, dict[str, float]]:
         from src.adapters.brokers.ibkr.ibkr_client import (
@@ -44,10 +105,12 @@ class PaperEntryCapital:
         if result.status != "COMPLETE":
             return f"PAPER_CAPITAL_{result.status}", {}
         currency = result.currency_evidence
+        currency_source = ("IBKR_ACCOUNT_UPDATES_MULTI_USD_SECURITIES" if self.require_settled_usd
+                           else "IBKR_ACCOUNT_SUMMARY_LEDGER")
         if (not isinstance(currency, AccountCurrencyResult) or currency.status != "COMPLETE"
                 or not currency.cleanup_complete
                 or not currency.cancellation_attempted or not result.cancellation_attempted
-                or currency.source != "IBKR_ACCOUNT_SUMMARY_LEDGER"
+                or currency.source != currency_source
                 or any(type(req_id) is not int or req_id <= 0 for req_id in (currency.request_id, result.request_id))
                 or currency.request_id == result.request_id):
             return "PAPER_CAPITAL_INCOMPLETE", {}
@@ -84,7 +147,37 @@ class PaperEntryCapital:
             values[fields[fact.tag]] = float(fact.value)
         if len(values) != len(fields):
             return "PAPER_CAPITAL_MISSING_CAPITAL", {}
+        if self.require_settled_usd:
+            cash = currency.settled_cash
+            if (not isinstance(cash, Decimal) or not cash.is_finite() or not math.isfinite(float(cash))
+                    or not set(currency.tags).intersection({"SettledCashByDate-S", "$LEDGER-SettledCashByDate-S"})):
+                return "PAPER_CAPITAL_SETTLED_CASH_UNAVAILABLE", {}
+            values["settled_cash"] = float(cash)
         return None, values
+
+    def bounded_entry_spend(self, price, quantity, direction, *, now) -> tuple[str | None, Decimal | None]:
+        """Validate the exact buy price and settled securities cash for one share."""
+        if type(quantity) is not int or quantity != 1 or str(direction).upper() not in {"LONG", "BUY"}:
+            return "PAPER_RELEASE_CASH_ONLY_ONE_SHARE_BUY_REQUIRED", None
+        try:
+            limit = Decimal(str(price))
+        except InvalidOperation:
+            return "PAPER_RELEASE_LIMIT_PRICE_INVALID", None
+        if not limit.is_finite() or limit <= 0 or not math.isfinite(float(limit)):
+            return "PAPER_RELEASE_LIMIT_PRICE_INVALID", None
+        if self.result.currency_evidence.settled_cash <= 0:
+            return "PAPER_CAPITAL_SETTLED_CASH_INSUFFICIENT", None
+        fee = self.entry_fee_ceiling
+        if fee is None or fee.account != self.account:
+            return "PAPER_RELEASE_ENTRY_COST_AUTHORITY_REQUIRED", None
+        if now >= fee.valid_until_utc:
+            return "PAPER_RELEASE_ENTRY_COST_AUTHORITY_EXPIRED", None
+        if limit > fee.max_limit_price:
+            return "PAPER_RELEASE_LIMIT_OUTSIDE_COST_AUTHORITY", None
+        spend = limit + fee.max_fee
+        if spend > self.result.currency_evidence.settled_cash:
+            return "PAPER_CAPITAL_SETTLED_CASH_INSUFFICIENT", None
+        return None, spend
 
 
 class CapitalDecisionStatus(str, Enum):

@@ -208,7 +208,7 @@ class IbkrLiveBroker(BaseBroker):
             direction=request.direction,
             quantity=request.quantity,
             order_type=request.order_type,
-            limit_price=None,
+            limit_price=request.limit_price,
             time_in_force="DAY",
             strategy_name=request.strategy_name or "UNKNOWN",
             trader_type=request.trader_type or "UNKNOWN",

@@ -11,6 +11,7 @@ import uuid
 from src.core.acquisition import checkpoint
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Callable, List, Optional
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -966,8 +967,10 @@ class ExecutionEngine:
         if (not isinstance(client, IbkrClient) or position_identity is None
                 or client.account_capital_scope(scope[0]) != position_identity):
             return None
-        result = client.account_capital_snapshot(expected_account=scope[0])
-        return PaperEntryCapital(client, scope[0], result)
+        release = getattr(self, "_paper_release", None)
+        result = client.account_capital_snapshot(expected_account=scope[0], require_settled_usd=release is not None)
+        return PaperEntryCapital(client, scope[0], result, require_settled_usd=release is not None,
+                                 entry_fee_ceiling=release.entry_fee_ceiling if release is not None else None)
 
     @staticmethod
     def _paper_order_scope_fresh(scope, now) -> bool:
@@ -1304,7 +1307,7 @@ class ExecutionEngine:
             symbol=risk_decision.symbol,
             side=direction,
             requested_quantity=requested_quantity,
-            reference_price=float(getattr(risk_decision, "entry_price", 0.0) or 0.0),
+            reference_price=self._entry_reservation_price(risk_decision),
             available_capital=account.get("available_capital"),
             account_equity=account.get("account_equity"),
             current_strategy_exposure=context["current_strategy_exposure"],
@@ -1461,7 +1464,7 @@ class ExecutionEngine:
             symbol=risk_decision.symbol,
             side=direction,
             requested_quantity=requested_quantity,
-            reference_price=float(getattr(risk_decision, "entry_price", 0.0) or 0.0),
+            reference_price=self._entry_reservation_price(risk_decision),
             account_equity=account.get("account_equity"),
             available_capital=account.get("available_capital"),
             buying_power=account.get("buying_power"),
@@ -1542,6 +1545,14 @@ class ExecutionEngine:
             "current_open_positions": open_positions,
             "current_symbol_position_exists": symbol_position_exists,
         }
+
+    @staticmethod
+    def _entry_reservation_price(risk_decision: RiskDecision) -> float:
+        spend = getattr(risk_decision, "paper_entry_spend", None)
+        if spend is None:
+            return float(getattr(risk_decision, "entry_price", 0.0) or 0.0)
+        price = float(spend)
+        return math.nextafter(price, math.inf) if Decimal(str(price)) < spend else price
 
     def _capital_account_snapshot(self, risk_decision: RiskDecision) -> dict[str, float | bool | None]:
         if self.paper_entry_capital_required:
@@ -1988,6 +1999,9 @@ class ExecutionEngine:
             reason = self.paper_entry_capital_rejection(getattr(risk_decision, "paper_entry_capital", None))
             if reason:
                 return self._blocked_execution_from_risk_decision(risk_decision, rationale=reason)
+            if (getattr(self, "_paper_release", None) is not None
+                    and getattr(risk_decision, "paper_entry_spend", None) is None):
+                return self._blocked_execution_from_risk_decision(risk_decision, rationale="PAPER_RELEASE_CASH_BOUND_UNAVAILABLE")
 
         strategy_allocation_result = self._strategy_allocation_admission_check(risk_decision)
         if strategy_allocation_result is not None:
@@ -2400,16 +2414,19 @@ class ExecutionEngine:
         context = getattr(risk_decision, "relationship_context", None) or {}
         if context.get("management_action_id"):
             client_order_id = context["management_action_id"]
+        bounded_entry = getattr(risk_decision, "paper_entry_spend", None) is not None
+        order_type = "LMT" if bounded_entry else "MKT"
         print(
             "[ORDER][BUILD] "
-            f"symbol={risk_decision.symbol} order_type=MKT qty={requested_quantity} side=BUY"
+            f"symbol={risk_decision.symbol} order_type={order_type} qty={requested_quantity} side=BUY"
         )
         request = BrokerOrderRequest(
             client_order_id=client_order_id,
             symbol=risk_decision.symbol,
             direction=risk_decision.direction,
             quantity=requested_quantity,
-            order_type="MKT",
+            order_type=order_type,
+            limit_price=float(risk_decision.entry_price) if bounded_entry else None,
             trader_type=risk_decision.trader_type,
             strategy_name=risk_decision.strategy_name,
             attempt_number=1,
@@ -2471,7 +2488,8 @@ class ExecutionEngine:
 
     def _check_native_paper_entry(self, request, risk_decision, client, contract, native_order, *, prepare=False):
         evidence = getattr(risk_decision, "paper_entry_capital", None)
-        reason, values = self._paper_entry_capital(evidence, now=datetime.now(timezone.utc))
+        now = datetime.now(timezone.utc)
+        reason, values = self._paper_entry_capital(evidence, now=now)
         if reason or client is not evidence.client:
             raise RuntimeError(reason or "PAPER_CAPITAL_CLIENT_CHANGED")
 
@@ -2509,6 +2527,29 @@ class ExecutionEngine:
         if (isinstance(price, bool) or not isinstance(price, (int, float)) or not math.isfinite(price)
                 or price <= 0 or request.quantity * price > min(values.values())):
             raise RuntimeError("INSUFFICIENT_CAPITAL")
+        required_spend = request.quantity * price
+        if getattr(self, "_paper_release", None) is not None:
+            if not evidence.require_settled_usd:
+                raise RuntimeError("PAPER_RELEASE_CASH_BOUND_UNAVAILABLE")
+            reason, spend = evidence.bounded_entry_spend(price, request.quantity, request.direction, now=now)
+            if reason:
+                raise RuntimeError(reason)
+            try:
+                limit = Decimal(str(price))
+                native_matches_limit = (Decimal(str(native_order.lmtPrice)) == limit
+                                        and Decimal(str(request.limit_price)) == limit)
+            except InvalidOperation:
+                native_matches_limit = False
+            if (not native_matches_limit or native_order.orderType != "LMT"
+                    or contract.exchange != "SMART" or native_order.overridePercentageConstraints
+                    or native_order.notHeld or native_order.algoStrategy or native_order.discretionaryAmt
+                    or native_order.whatIf or not native_order.transmit or native_order.tif != "DAY"
+                    or native_order.adjustedOrderType or native_order.trailingPercent != sys.float_info.max
+                    or spend != getattr(risk_decision, "paper_entry_spend", None)):
+                raise RuntimeError("PAPER_RELEASE_NATIVE_LIMIT_PRICE_MISMATCH")
+            required_spend = self._entry_reservation_price(risk_decision)
+            if spend > min(Decimal(str(value)) for value in values.values()):
+                raise RuntimeError("PAPER_RELEASE_CASH_ONLY_SPEND_UNAVAILABLE")
         owners = (
             (self.capital_authority, self._capital_decisions_by_order_id),
             (self.strategy_allocation_authority, self._strategy_allocation_decisions_by_order_id),
@@ -2520,7 +2561,7 @@ class ExecutionEngine:
                 and reservation.order_id == request.client_order_id
                 and reservation.symbol == request.symbol
                 and reservation.remaining_quantity >= request.quantity
-                and reservation.remaining_notional >= request.quantity * price
+                and reservation.remaining_notional >= required_spend
                 for reservation in owner.active_reservations.values()
             ):
                 raise RuntimeError("PAPER_CAPITAL_RESERVATION_UNAVAILABLE")

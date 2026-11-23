@@ -646,11 +646,17 @@ class RiskEngine:
         account_bound = (run_mode == RunMode.PAPER and paper_capital is not _PAPER_CAPITAL_NOT_REQUESTED
                          and str(trade_intent.direction).upper() in {"LONG", "BUY", "SHORT"})
         capital_rejection = None
+        bounded_entry_spend = None
         if account_bound:
             capital_rejection, values = (paper_capital.inspect(now) if isinstance(paper_capital, PaperEntryCapital)
                                          else ("PAPER_CAPITAL_UNAVAILABLE", {}))
-            available_capital = max(0.0, min(values.values())) if values else None
+            available_capital = (max(0.0, min(values[name] for name in ("account_equity", "buying_power", "available_capital")))
+                                 if values else None)
             capital_source = "IBKR_ACCOUNT_CAPITAL" if values else "UNAVAILABLE"
+            if values and paper_capital.require_settled_usd:
+                capital_rejection, bounded_entry_spend = paper_capital.bounded_entry_spend(
+                    getattr(trade_intent, "entry_price", None), self._resolve_profile_size(risk_profile),
+                    trade_intent.direction, now=now)
         else:
             available_capital = float(get_default_capital())
             capital_source = "CONFIG"
@@ -1491,6 +1497,7 @@ class RiskEngine:
             decision.paper_entry_capital = paper_capital
             decision.volume_evidence = getattr(trade_intent, "volume_evidence", None)
             decision.entry_price = entry_price
+            decision.paper_entry_spend = bounded_entry_spend
         return self._finalize_decision(decision, decision_id)
 
 
