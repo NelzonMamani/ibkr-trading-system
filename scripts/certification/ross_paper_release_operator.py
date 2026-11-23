@@ -79,13 +79,14 @@ def run(state, evidence, calendar, calendar_sha256, witness=None):
     now = datetime.now(timezone.utc)
     calibration = load_paper_volume_calibration(witness, now=now)
     os.environ["ROSS_TWS_VOLUME_CALIBRATION_SHA256"] = calibration["calibration_id"]
-    PaperEntryFeeCeiling.load(
+    fee_terms = PaperEntryFeeCeiling.load(
         fee_ceiling, expected_account=os.environ.get("ROSS_PAPER_EXPECTED_ACCOUNT"), now=now)
     start = covered_opening_window(now)
     end = covered_opening_window(now + timedelta(seconds=_DURATION_SECONDS + 360))
     if (start is None or end is None or start.phase != "RTH_OPEN" or end.phase != "RTH_OPEN"
             or start.fingerprint != end.fingerprint):
         return "PAPER_RELEASE_REVIEWED_OPENING_ENVELOPE_REQUIRED", 2
+    fee_terms.require_rth_close(start.current_close)
 
     from src.main import main
 

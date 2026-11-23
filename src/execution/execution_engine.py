@@ -2529,6 +2529,8 @@ class ExecutionEngine:
             raise RuntimeError("INSUFFICIENT_CAPITAL")
         required_spend = request.quantity * price
         if getattr(self, "_paper_release", None) is not None:
+            if prepare:
+                native_order.outsideRth = False
             if not evidence.require_settled_usd:
                 raise RuntimeError("PAPER_RELEASE_CASH_BOUND_UNAVAILABLE")
             reason, spend = evidence.bounded_entry_spend(price, request.quantity, request.direction, now=now)
@@ -2542,7 +2544,7 @@ class ExecutionEngine:
                 native_matches_limit = False
             if (not native_matches_limit or native_order.orderType != "LMT"
                     or contract.exchange != "SMART" or native_order.overridePercentageConstraints
-                    or native_order.parentId != 0
+                    or native_order.parentId != 0 or native_order.outsideRth is not False
                     or native_order.notHeld or native_order.algoStrategy or native_order.discretionaryAmt
                     or native_order.whatIf or not native_order.transmit or native_order.tif != "DAY"
                     or native_order.adjustedOrderType or native_order.trailingPercent != sys.float_info.max

@@ -3014,14 +3014,15 @@ def supply_paper_release_volume_comparison(facts):
     ]
 
 
-def _prepare_pristine_paper_cash_facts(facts, tmp_path, monkeypatch, *, cash="10000", fee="0.50"):
+def _prepare_pristine_paper_cash_facts(facts, tmp_path, monkeypatch, *, cash="10000", fee="0.50",
+                                       valid_until="2026-10-20T20:01:00Z"):
     import json
 
     fee_file = tmp_path / 'entry-fee-ceiling.json'
     fee_file.write_text(json.dumps(dict(schema='IBKR_CONFIRMED_USD_ENTRY_FEE_CEILING_V1',
         account=facts['account'], currency='USD', security_type='STK', exchange='SMART',
         side='BUY', quantity=1, max_limit_price='12.00', max_fee=fee,
-        valid_until_utc='2026-10-20T14:30:00Z', broker_reference='INERT BROKER REPLY FIXTURE')),
+        valid_until_utc=valid_until, broker_reference='INERT BROKER REPLY FIXTURE')),
         encoding='utf-8')
     monkeypatch.setenv('ROSS_PAPER_ENTRY_FEE_CEILING_PATH', str(fee_file))
     facts['paper_settled_cash_rows'] = [] if cash is None else [
@@ -3111,6 +3112,7 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
     if release_profile:
         assert request['order_type'] == buy['order']['orderType'] == 'LMT'
         assert request['limit_price'] == buy['order']['lmtPrice'] == admission[0]['intent']['entry_price']
+        assert buy['order']['outsideRth'] is False
     assert not ack['engine']['post_fill'] and not ack['engine']['position_records']
     if stop_observation != 'working':
         repeated, = remaining
@@ -3208,14 +3210,16 @@ def test_controlled_abcd_timed_shutdown_resolves_only_authoritative_owned_eviden
             assert any(h['receipt']['gate'] == 'PAPER_RELEASE_SHUTDOWN_CALLBACK_SCOPE_CONFLICT' for h in holds)
 
 
-@pytest.mark.parametrize("cash, tamper, reason", [
-    (None, False, "PAPER_CAPITAL_SETTLED_CASH_UNAVAILABLE"),
-    ("0", False, "PAPER_CAPITAL_SETTLED_CASH_INSUFFICIENT"),
-    ("11.20", False, "PAPER_CAPITAL_SETTLED_CASH_INSUFFICIENT"),
-    ("10000", True, "PAPER_RELEASE_NATIVE_LIMIT_PRICE_MISMATCH"),
+@pytest.mark.parametrize("cash, tamper, early_fee_end, reason", [
+    (None, False, False, "PAPER_CAPITAL_SETTLED_CASH_UNAVAILABLE"),
+    ("0", False, False, "PAPER_CAPITAL_SETTLED_CASH_INSUFFICIENT"),
+    ("11.20", False, False, "PAPER_CAPITAL_SETTLED_CASH_INSUFFICIENT"),
+    ("10000", True, False, "PAPER_RELEASE_NATIVE_LIMIT_PRICE_MISMATCH"),
+    ("10000", False, True, "PAPER_RELEASE_ENTRY_COST_AUTHORITY_BEFORE_SESSION_CLOSE"),
 ])
 def test_controlled_paper_cash_spend_and_final_limit_refuse_without_native_entry(
-        reassessment, monkeypatch, tmp_path, no_external_activity, runtime_schema_template, cash, tamper, reason):
+        reassessment, monkeypatch, tmp_path, no_external_activity, runtime_schema_template,
+        cash, tamper, early_fee_end, reason):
     import json
     import shutil
 
@@ -3234,7 +3238,8 @@ def test_controlled_paper_cash_spend_and_final_limit_refuse_without_native_entry
     monkeypatch.setenv('ROSS_PAPER_RELEASE_ENABLED', '1')
     monkeypatch.setenv('ROSS_PAPER_EXPECTED_ACCOUNT', facts['account'])
     monkeypatch.setenv('ROSS_PAPER_EXCLUSIVE_START_ATTESTED', '1')
-    _prepare_pristine_paper_cash_facts(facts, tmp_path, monkeypatch, cash=cash)
+    fee_validity = {"valid_until": "2026-10-20T13:36:00Z"} if early_fee_end else {}
+    _prepare_pristine_paper_cash_facts(facts, tmp_path, monkeypatch, cash=cash, **fee_validity)
     database = tmp_path / 'cash-only.sqlite3'
     shutil.copyfile(runtime_schema_template, database)
     path = tmp_path / 'cash-only.json'
@@ -3248,9 +3253,12 @@ def test_controlled_paper_cash_spend_and_final_limit_refuse_without_native_entry
     assert not report['network_attempts'] and not report['sdk_attempts'] and not no_external_activity
     assert cycle['engine']['capital_used'] == cycle['engine']['capital_reserved'] == 0
     assert not cycle['engine']['allocation_reservations'] and not cycle['engine']['native_orders']
-    if cash is None:
+    if cash is None or early_fee_end:
         assert not cycle['result'] and not report['risk_evaluations']
         assert cycle['engine']['startup_recovery_result']['reason'] == reason
+        if early_fee_end:
+            assert not any(row.get('purpose') in {'ENTRY_CAPITAL', 'ENTRY_SETTLED_CASH'}
+                           for row in report['wire_attempts'])
     elif tamper:
         assert cycle['result']
         assert any(row['decision']['allowed'] for row in report['risk_evaluations'])

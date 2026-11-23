@@ -73,6 +73,8 @@ class PaperRelease:
         window = covered_opening_window(now)
         if window is None or window.phase != "RTH_OPEN":
             raise RuntimeError("PAPER_RELEASE_REVIEWED_OPENING_REQUIRED")
+        if self.entry_fee_ceiling is not None:
+            self.entry_fee_ceiling.require_rth_close(window.current_close)
         try:
             scope = self._scope(client)
         except RuntimeError:

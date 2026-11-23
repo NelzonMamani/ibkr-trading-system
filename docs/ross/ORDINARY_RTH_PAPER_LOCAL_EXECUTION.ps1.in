@@ -8,7 +8,8 @@
 # remain in use from calibration through trading. Volume evidence qualifies
 # the matched contract.
 # Invocation also attests that entry-fee-ceiling.json reflects the applicable
-# written broker confirmation for the complete one-share entry charges.
+# written broker confirmation for all one-share entry charges on every fill
+# through the reviewed regular-session close.
 $rossPaperCaller = @'
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'

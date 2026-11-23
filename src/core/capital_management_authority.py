@@ -83,6 +83,10 @@ class PaperEntryFeeCeiling:
             raise RuntimeError("PAPER_RELEASE_ENTRY_COST_AUTHORITY_EXPIRED")
         return cls(expected_account, price, fee, valid_until)
 
+    def require_rth_close(self, session_close: datetime) -> None:
+        if self.valid_until_utc <= session_close:
+            raise RuntimeError("PAPER_RELEASE_ENTRY_COST_AUTHORITY_BEFORE_SESSION_CLOSE")
+
 
 @dataclass(frozen=True)
 class PaperEntryCapital:
