@@ -5017,6 +5017,8 @@ class CoreOrchestrator:
                         paper_decisions.append((intent, decision, approved))
                     if approved:
                         risk_allowed_symbols.append(intent.symbol)
+                        if paper_release is not None:
+                            break
                     else:
                         canonical_risk_blocked_count += 1
                         if paper_release is not None:
