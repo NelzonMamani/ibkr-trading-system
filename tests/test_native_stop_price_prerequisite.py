@@ -2397,7 +2397,8 @@ def test_pristine_paper_memory_boundary_rejects_unprovided_writes(monkeypatch,fa
         currency='USD',exchange='SMART',entry_price=10.3,stop_price=10.2897,fill_price=10.53)
     if quantity==2:plan['quantity']=2
     client=NS(client_id=999,_position_connection_epoch=0,readonly_enabled=False,isConnected=lambda:True)
-    request=dict(client_order_id='root',symbol='JPM',quantity=quantity,setup_family_id='PREMARKET_HIGH_BREAK',
+    request=dict(client_order_id='root',symbol='JPM',quantity=quantity,order_type='MKT',
+        setup_family_id='PREMARKET_HIGH_BREAK',
         relationship_context=None,setup_metadata=dict(occurrence='component-only'),stop_loss_price=10.2897,
         invalidation_level=10.3,take_profit_price=None,target_model='component descriptive objective',
         direction='LONG',strategy_name='RossMomentumStrategyV1')
