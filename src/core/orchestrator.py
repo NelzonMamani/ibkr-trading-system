@@ -7819,12 +7819,15 @@ class CoreOrchestrator:
                 log(f"unresolved observation: {type(exc).__name__}: {exc}")
                 detail = str(exc)
                 known = {"PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY", "PAPER_RELEASE_SHUTDOWN_FINAL_SCOPE_CHANGED",
-                         "PAPER_RELEASE_SHUTDOWN_PROTECTION_CHANGED"}
+                         "PAPER_RELEASE_SHUTDOWN_PROTECTION_CHANGED", "PAPER_RELEASE_SHUTDOWN_CALLBACK_IN_FLIGHT"}
                 ready, gate = False, detail if detail in known else "PAPER_RELEASE_SHUTDOWN_OBSERVATION_UNAVAILABLE"
             if gate != last_gate:
                 status = ("PAPER_RELEASE_SHUTDOWN_RESOLVED" if ready
                           else "PAPER_RELEASE_SHUTDOWN_HANDOFF_ACTIVE")
-                proof.record(status, gate=gate, management_continues=not ready)
+                try:
+                    proof.record(status, gate=gate, management_continues=not ready)
+                except Exception as exc:
+                    log(f"event evidence unavailable: {exc}")
                 log(f"status={status} gate={gate}")
                 if directory:
                     try:
@@ -7832,7 +7835,7 @@ class CoreOrchestrator:
                             "status": status, "gate": gate, "runtime_pid": os.getpid(),
                             "management_continues": not ready,
                         })
-                    except OSError as exc:
+                    except Exception as exc:
                         log(f"evidence unavailable: {exc}")
                 last_gate = gate
             if ready:
@@ -7869,19 +7872,40 @@ class CoreOrchestrator:
                 paper_gate = self._await_paper_release_shutdown(proof)
             else:
                 self.execution_engine.shutdown()
+
+        def drain_controlled_execution():
+            # ShutdownEvidence records hook failures and continues. Controlled
+            # shutdown must never advance to another disconnect-capable hook
+            # unless the native owner has affirmatively completed its drain.
+            while paper_gate is None:
+                try:
+                    proof.attempt("execution_engine.shutdown", shutdown_execution)
+                except (Exception, KeyboardInterrupt):
+                    pass
+                if paper_gate is None:
+                    try:
+                        time.sleep(1)
+                    except KeyboardInterrupt:
+                        pass
         if resolved_mode == StopMode.PANIC:
             from src.ibkr.shutdown_evidence import REQUIRED_HOOKS
 
             # Emergency bookkeeping stays in memory: no nonessential hook or
             # blocking evidence I/O may delay the essential execution shutdown.
             # Missing durable graceful proof deliberately fails certification.
-            self._shutdown_finished = True
+            if not controlled:
+                self._shutdown_finished = True
             proof.record("PANIC_STOP_REQUESTED", mode="PANIC", completed=True)
             proof.record("SHUTDOWN_STARTED", mode="PANIC", completed=True)
             maintenance = getattr(self, "_news_maintenance", None)
             if maintenance is not None:
                 maintenance.stop.set()
-            proof.attempt("execution_engine.shutdown", shutdown_execution)
+            if controlled:
+                drain_controlled_execution()
+                self._shutdown_finished = True
+            else:
+                proof.attempt("execution_engine.shutdown", shutdown_execution)
+            execution_shutdown_complete = proof.hooks[-1]["completed"]
             for name in REQUIRED_HOOKS:
                 if name == "execution_engine.shutdown":
                     continue
@@ -7890,7 +7914,7 @@ class CoreOrchestrator:
                 proof.hooks.append(row)
                 proof.record("SHUTDOWN_HOOK", **row)
             proof.record("SHUTDOWN_COMPLETE", mode="PANIC",
-                         completed=proof.hooks[0]["completed"])
+                         completed=execution_shutdown_complete)
             return
 
         proof.record("GRACEFUL_STOP_REQUESTED", completed=(
@@ -7912,7 +7936,7 @@ class CoreOrchestrator:
         proof.record("SHUTDOWN_STARTED", completed=started,
                      news_maintenance_owned=getattr(self, "_news_maintenance", None) is not None)
         if controlled:
-            proof.attempt("execution_engine.shutdown", shutdown_execution)
+            drain_controlled_execution()
         maintenance = getattr(self, "_news_maintenance", None)
         if maintenance is not None:
             proof.attempt("news_maintenance.shutdown", maintenance.close)

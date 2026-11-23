@@ -330,6 +330,14 @@ class IbkrExecutionProvider(ExecutionProvider):
         except Exception as exc:
             print(f"[IBKR][OPEN_ORDERS][ERROR] reason={exc}")
             raise
+        return self._project_open_orders(rows)
+
+    def cached_open_orders(self, client) -> List[OrderSnapshot]:
+        """Same native projection, without issuing or completing a read."""
+        return self._project_open_orders(client.cached_open_order_rows())
+
+    @staticmethod
+    def _project_open_orders(rows) -> List[OrderSnapshot]:
         snapshots: list[OrderSnapshot] = []
         for row in rows:
             contract = getattr(row, "contract", None)

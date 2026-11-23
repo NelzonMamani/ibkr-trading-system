@@ -2285,7 +2285,7 @@ try:
                     or not native_namespace(database_snapshot())['orders'][root]['shutdown_cancel_sent']):
                 raise ForbiddenExternalIO('UNOWNED_OR_REPEATED_SYNTHETIC_SHUTDOWN_CANCEL')
             shutdown['cancel_calls'].append(order_id)
-            if case == 'fill_during_cancel':
+            if case in {'fill_during_cancel', 'amended_stop_at_disconnect'}:
                 deliver_fill(fill_status=True)
             elif case == 'wrong_client_cancel':
                 cancelled(callback_client_id=client_id + 1)
@@ -2297,18 +2297,59 @@ try:
                     pending_shutdown_history.append((fill_contract,execution))
 
         client.cancelOrder = memory_cancel
-        if case == 'late_fill_at_disconnect':
+        if case == 'drain_hook_failure':
+            actual_await = core._await_paper_release_shutdown
+            shutdown['drain_hook_calls'] = 0
+            def fail_first_drain_hook(proof):
+                shutdown['drain_hook_calls'] += 1
+                if shutdown['drain_hook_calls'] == 1:
+                    raise RuntimeError('synthetic outer drain hook failure')
+                return actual_await(proof)
+            core._await_paper_release_shutdown = fail_first_drain_hook
+        if case == 'inactive_before_cancel':
+            client.orderStatus(entry_id, 'Inactive', 0, 1, 0., entry_id, 0, 0., client_id, '', 0.)
+        entered_callback = threading.Event()
+        resume_callback = threading.Event()
+        callback_threads = []
+        if case == 'callback_inflight_at_disconnect':
+            ensure_registry = client._ensure_order_state_registry
+            def pause_execution_publication():
+                if threading.current_thread() in callback_threads:
+                    entered_callback.set()
+                    if not resume_callback.wait(timeout=5):
+                        raise ForbiddenExternalIO('SYNTHETIC_CALLBACK_PUBLICATION_TIMEOUT')
+                return ensure_registry()
+            client._ensure_order_state_registry = pause_execution_publication
+        if case in {'late_fill_at_disconnect', 'callback_inflight_at_disconnect', 'amended_stop_at_disconnect'}:
             actual_disconnect = client.disconnect
             late_delivered = []
             def observe_final_shutdown(**kwargs):
                 if kwargs.get('final_authorization') is not None and not late_delivered:
-                    deliver_fill(fill_status=False)
+                    if case == 'callback_inflight_at_disconnect':
+                        worker = threading.Thread(target=lambda: deliver_fill(fill_status=False))
+                        callback_threads.append(worker)
+                        worker.start()
+                        if not entered_callback.wait(timeout=5):
+                            raise ForbiddenExternalIO('SYNTHETIC_CALLBACK_NEVER_ENTERED')
+                    elif case == 'amended_stop_at_disconnect':
+                        working_stop, = orders
+                        amended = copy.deepcopy(working_stop.order)
+                        amended.auxPrice += 0.01
+                        client.openOrder(working_stop.orderId, working_stop.contract, amended, working_stop.orderState)
+                    else:
+                        deliver_fill(fill_status=False)
                     late_delivered.append(True)
                 return actual_disconnect(**kwargs)
             client.disconnect = observe_final_shutdown
         os.environ['PR1090_EVIDENCE_DIR'] = str(Path(report_path).parent)
         def observe_shutdown_hold(seconds):
-            hold = json.loads((Path(report_path).parent / 'pending-entry-handoff.json').read_text(encoding='utf-8'))
+            handoff_path = Path(report_path).parent / 'pending-entry-handoff.json'
+            if case == 'drain_hook_failure' and not handoff_path.is_file():
+                shutdown['drain_hook_recovering'] = (
+                    manager.existing_client is client and client.is_connected()
+                    and not getattr(core,'_shutdown_finished',False) and not shutdown['cancel_calls'])
+                return
+            hold = json.loads(handoff_path.read_text(encoding='utf-8'))
             shutdown['holds'].append(dict(receipt=hold, connected=manager.existing_client is client
                 and client.is_connected(), shutdown_finished=getattr(core,'_shutdown_finished',False),
                 reserved=core.execution_engine.capital_authority.total_reserved_capital))
@@ -2320,6 +2361,15 @@ try:
                 cancelled()
             if case == 'wrong_client_cancel' and hold['gate'] == 'PAPER_RELEASE_SHUTDOWN_CALLBACK_SCOPE_CONFLICT':
                 cancelled()
+            if case == 'inactive_before_cancel' and hold['gate'] == 'PAPER_RELEASE_SHUTDOWN_CANCELLATION_STATUS_CONFLICT':
+                if shutdown['cancel_calls']:
+                    raise ForbiddenExternalIO('SYNTHETIC_CONTRADICTORY_ENTRY_CANCELLED')
+                client.orderStatus(entry_id,'Submitted',0,1,0.,entry_id,0,0.,client_id,'',0.)
+            if case == 'callback_inflight_at_disconnect' and hold['gate'] == 'PAPER_RELEASE_SHUTDOWN_CALLBACK_IN_FLIGHT':
+                resume_callback.set()
+                callback_threads[0].join(timeout=5)
+                if callback_threads[0].is_alive():
+                    raise ForbiddenExternalIO('SYNTHETIC_CALLBACK_DID_NOT_FINISH')
         class ShutdownClock:
             def __getattr__(self, name):
                 return observe_shutdown_hold if name == 'sleep' else getattr(real_elapsed_time, name)
@@ -2330,6 +2380,9 @@ try:
             core._shutdown(StopMode.GRACEFUL)
         finally:
             core_module.time = original_time
+            resume_callback.set()
+            for worker in callback_threads:
+                worker.join(timeout=5)
         shutdown['evidence'] = plain(core.shutdown_evidence.payload())
         shutdown['after'] = engine_snapshot(core.execution_engine)
         shutdown['disconnected'] = manager.existing_client is None

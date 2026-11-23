@@ -5583,7 +5583,12 @@ class ExecutionEngine:
             if (life is not None and life.filled_qty == 0 and canonical is not None
                     and canonical.quantity_open == 0 and canonical.quantity_closed == 1
                     and not positions and not inventory and not self.trade_registry.snapshot()):
-                self._paper_shutdown_finalize = (client, lambda: self._validate_native_binding(root_id, entry, {}))
+                def finalize_closed():
+                    self._validate_native_binding(root_id, entry, {})
+                    if self._provider.cached_open_orders(client):
+                        raise RuntimeError("PAPER_RELEASE_SHUTDOWN_PROTECTION_CHANGED")
+
+                self._paper_shutdown_finalize = (client, finalize_closed)
                 return True, "PAPER_RELEASE_SHUTDOWN_FILL_CLOSED"
             if life is not None and life.stop is not None and owned is not None and len(inventory) == 1:
                 child = {"broker_order_id": life.stop.broker_order_id, "requested": 1, "filled": 0}
@@ -5607,7 +5612,8 @@ class ExecutionEngine:
                         with client._lock:
                             self._validate_native_binding(root_id, entry, {})
                             if (client.cached_order_status(stop_id) != observed_status
-                                    or client.cached_native_executions(stop_id)):
+                                    or client.cached_native_executions(stop_id)
+                                    or self._provider.cached_open_orders(client) != inventory):
                                 raise RuntimeError("PAPER_RELEASE_SHUTDOWN_PROTECTION_CHANGED")
 
                     self._paper_shutdown_finalize = (client, finalize_protected)
@@ -5636,7 +5642,8 @@ class ExecutionEngine:
                     if (client.account_capital_scope(entry["account"], request_ids=(native_id, history.request_id)) != positions.scope_identity
                             or not self._paper_order_scope_fresh((entry["account"], client, history.completed_at),
                                 datetime.now(timezone.utc))
-                            or client.cached_order_status(native_id) != facts or client.cached_native_executions(native_id)):
+                            or client.cached_order_status(native_id) != facts or client.cached_native_executions(native_id)
+                            or self._provider.cached_open_orders(client)):
                         raise RuntimeError("PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY")
                     self.collect_relationship_updates(result_processor=result_processor,
                         shutdown_entry=(root_id, {**facts, "status": "CANCELLED"}))
@@ -5644,6 +5651,8 @@ class ExecutionEngine:
             self._paper_shutdown_finalize = (client, finalize_cancelled)
             return True, "PAPER_RELEASE_SHUTDOWN_CANCELLED_UNFILLED"
 
+        if not entry.get("shutdown_cancel_sent") and status not in {"SUBMITTED", "PRESUBMITTED"}:
+            return False, "PAPER_RELEASE_SHUTDOWN_CANCELLATION_STATUS_CONFLICT"
         if not entry.get("shutdown_cancel_sent") and len(inventory) == 1:
             order = inventory[0]
             meta = order.metadata

@@ -3143,6 +3143,8 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
 @pytest.mark.parametrize('outcome',[
     'cancelled', 'fill_during_cancel', 'late_fill', 'missing_terminal',
     'late_fill_at_disconnect', 'wrong_client_cancel',
+    'callback_inflight_at_disconnect', 'amended_stop_at_disconnect', 'inactive_before_cancel',
+    'drain_hook_failure',
 ])
 def test_controlled_abcd_timed_shutdown_resolves_only_authoritative_owned_evidence(
         reassessment, monkeypatch, tmp_path, no_external_activity, runtime_schema_template, outcome):
@@ -3181,13 +3183,18 @@ def test_controlled_abcd_timed_shutdown_resolves_only_authoritative_owned_eviden
     assert not ack['position_records'] and ack['capital_reserved'] == 11.50
     assert shutdown['disconnected']
     events = shutdown['evidence']['events']
-    assert any(row['event'] == 'SHUTDOWN_COMPLETE' and row['completed'] for row in events)
+    completed, = [row for row in events if row['event'] == 'SHUTDOWN_COMPLETE']
+    assert completed['completed'] == (outcome != 'drain_hook_failure')
+    if outcome == 'drain_hook_failure':
+        assert shutdown['drain_hook_calls'] == 2 and shutdown['drain_hook_recovering']
     holds = shutdown['holds']
-    assert holds and all(h['connected'] and not h['shutdown_finished'] and h['reserved'] == 11.50 for h in holds)
+    assert holds and all(h['connected'] and not h['shutdown_finished'] for h in holds)
+    assert holds[0]['reserved'] == 11.50
     assert all(h['receipt']['status'] == 'PAPER_RELEASE_SHUTDOWN_HANDOFF_ACTIVE' for h in holds)
     resolved, = [row for row in events if row['event'] == 'PAPER_RELEASE_SHUTDOWN_RESOLVED']
     state = shutdown['after']
-    if outcome in {'fill_during_cancel', 'late_fill', 'late_fill_at_disconnect'}:
+    if outcome in {'fill_during_cancel', 'late_fill', 'late_fill_at_disconnect',
+                   'callback_inflight_at_disconnect', 'amended_stop_at_disconnect'}:
         stop, = protection
         assert stop['role'] == 'stop' and stop['order']['auxPrice'] == 10.35
         assert state['protection'][entry['root_id']]['protected']
@@ -3199,6 +3206,10 @@ def test_controlled_abcd_timed_shutdown_resolves_only_authoritative_owned_eviden
         if outcome == 'late_fill_at_disconnect':
             assert shutdown['execution_queries'] == [0]
             assert any(h['receipt']['gate'] == 'PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY' for h in holds)
+        if outcome == 'callback_inflight_at_disconnect':
+            assert any(h['receipt']['gate'] == 'PAPER_RELEASE_SHUTDOWN_CALLBACK_IN_FLIGHT' for h in holds)
+        if outcome == 'amended_stop_at_disconnect':
+            assert any(h['receipt']['gate'] == 'PAPER_RELEASE_SHUTDOWN_PROTECTION_CHANGED' for h in holds)
     else:
         assert not protection and not state['registry'] and not state['post_fill']
         assert shutdown['execution_queries'] == [0]
@@ -3208,6 +3219,8 @@ def test_controlled_abcd_timed_shutdown_resolves_only_authoritative_owned_eviden
             assert len(holds) == 2
         if outcome == 'wrong_client_cancel':
             assert any(h['receipt']['gate'] == 'PAPER_RELEASE_SHUTDOWN_CALLBACK_SCOPE_CONFLICT' for h in holds)
+        if outcome == 'inactive_before_cancel':
+            assert holds[0]['receipt']['gate'] == 'PAPER_RELEASE_SHUTDOWN_CANCELLATION_STATUS_CONFLICT'
 
 
 @pytest.mark.parametrize("cash, tamper, early_fee_end, reason", [

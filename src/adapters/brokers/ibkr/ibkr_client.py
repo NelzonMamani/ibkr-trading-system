@@ -1524,8 +1524,17 @@ class IbkrClient(EWrapper, EClient):
     def disconnect(self, *, final_authorization=None) -> None:  # type: ignore[override]
         if final_authorization is not None:
             with self._lock:
-                final_authorization()
-                self._stop_event.set()
+                lifetime = self._p02_source_lifetime
+                # Existing intake registration precedes status/execution/order
+                # cache publication. Refuse even a callback paused in between.
+                # The supplied closure uses only local observations/accounting.
+                with lifetime["lock"]:
+                    if any(operation[3] in {"orderStatus", "execDetails", "openOrder", "managedAccounts",
+                                             "connectionClosed", "error", "position"}
+                           for operation in lifetime["operations"].values()):
+                        raise RuntimeError("PAPER_RELEASE_SHUTDOWN_CALLBACK_IN_FLIGHT")
+                    final_authorization()
+                    self._stop_event.set()
                 self._invalidate_position_queries()
         print(f"[IBKR] Disconnecting client_id={self.client_id}")
         self._stop_event.set()
@@ -1896,7 +1905,8 @@ class IbkrClient(EWrapper, EClient):
                     raise RuntimeError("OPEN_ORDERS_DISCONNECTED")
                 return list(self._open_orders_snapshot.values())
             self._open_orders_event.clear()
-            self._open_orders_snapshot = {}
+            with self._lock:
+                self._open_orders_snapshot = {}
             self.reqOpenOrders()
             complete = self._open_orders_event.wait(timeout=timeout)
             if not complete or not self.is_connected():
@@ -1909,6 +1919,10 @@ class IbkrClient(EWrapper, EClient):
             raise
         finally:
             self._open_orders_query_lock.release()
+
+    def cached_open_order_rows(self) -> tuple:
+        with self._lock:
+            return tuple(self._open_orders_snapshot.values())
 
     def executions(self, timeout_seconds: Optional[int] = None) -> list[object]:
         if not self.is_connected():
@@ -4230,7 +4244,8 @@ class IbkrClient(EWrapper, EClient):
             f"outsideRth={outside_rth_label} status={getattr(orderState, 'status', None)}"
         )
         row = SimpleNamespace(orderId=orderId, contract=contract, order=order, orderState=orderState)
-        self._open_orders_snapshot[orderId] = row
+        with self._lock:
+            self._open_orders_snapshot[orderId] = row
         self._publish_local_intake("openOrder",cache="_open_orders_snapshot",order_id=orderId)
         self._emit_execution_callback(
             {
