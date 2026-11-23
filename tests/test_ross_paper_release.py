@@ -129,3 +129,32 @@ def test_exclusive_start_does_not_enter_generic_adoption_or_repair(engine):
             client, engine, datetime.now(timezone.utc), require_recovery=False))
     result = authority.run()
     assert not result.complete and result.reason == "PAPER_RELEASE_START_NOT_FLAT"
+
+
+@pytest.mark.parametrize("absent,expected", [
+    ("volume", "PAPER_RELEASE_VOLUME_CALIBRATION_REQUIRED"),
+    ("fees", "PAPER_RELEASE_ENTRY_COST_AUTHORITY_REQUIRED"),
+])
+def test_laptop_preflight_refuses_missing_private_evidence(tmp_path, monkeypatch, absent, expected):
+    from hashlib import sha256
+    import json
+
+    from scripts.certification import ross_paper_release_operator as operator
+
+    monkeypatch.setattr(operator, "runtime_inventory", lambda **_: {"completed": True, "runtimes": []})
+    state = tmp_path / "state"
+    state.mkdir()
+    for name in ("ibkr_system.db", "order-id.json", "submission-guard.json"):
+        (state / name).touch()
+    calendar = tmp_path / "calendar.json"
+    calendar.write_text(json.dumps({
+        "coverage": {}, "holidays": "", "half_days": "", "early_close": "13:00",
+    }), encoding="utf-8")
+    witness = tmp_path / "calibration-for-this-session.json"
+    if absent != "volume":
+        witness.touch()
+    if absent != "fees":
+        (state / "entry-fee-ceiling.json").touch()
+
+    assert operator.run(state, tmp_path, calendar, sha256(calendar.read_bytes()).hexdigest(),
+                        witness) == (expected, 2)

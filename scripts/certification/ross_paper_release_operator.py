@@ -19,7 +19,7 @@ from src.ibkr.evidence_safety import write_json
 _DURATION_SECONDS = 900
 
 
-def run(state, evidence, calendar, calendar_sha256):
+def run(state, evidence, calendar, calendar_sha256, witness=None):
     inventory = runtime_inventory(include_controllers=True, owned_pids=(os.getpid(),))
     if not inventory["completed"] or inventory["runtimes"]:
         return "PAPER_RELEASE_EXCLUSIVE_PROCESS_CHECK_FAILED", 2
@@ -33,9 +33,12 @@ def run(state, evidence, calendar, calendar_sha256):
     for name in ("ibkr_system.db", "order-id.json", "submission-guard.json"):
         if not (state / name).is_file():
             return "PAPER_RELEASE_EXISTING_STATE_FILES_REQUIRED", 2
-    witness = state / "volume-witness.json"
+    witness = witness if witness is not None else state / "volume-witness.json"
     if not witness.is_file():
-        return "PAPER_RELEASE_NATIVE_VOLUME_WITNESS_REQUIRED", 2
+        return "PAPER_RELEASE_VOLUME_CALIBRATION_REQUIRED", 2
+    fee_ceiling = state / "entry-fee-ceiling.json"
+    if not fee_ceiling.is_file():
+        return "PAPER_RELEASE_ENTRY_COST_AUTHORITY_REQUIRED", 2
 
     # Apply only the controlled PAPER profile and the explicit calendar receipt.
     env_keys = {name for item in CONFIG_REGISTRY.values() for name in item["env"]}
@@ -53,6 +56,7 @@ def run(state, evidence, calendar, calendar_sha256):
         IBKR_MARKET_DATA_TYPE="LIVE", IBKR_FALLBACK_ENABLED="false",
         SCANNER_DATA_SOURCE="IBKR", ROSS_PAPER_RELEASE_ENABLED="1",
         ROSS_TWS_VOLUME_COMPARATOR_PATH=str(witness),
+        ROSS_PAPER_ENTRY_FEE_CEILING_PATH=str(fee_ceiling),
         DECISION_TRACE_PATH=str(evidence / "decision-trace.jsonl"),
         TRACE_LOG_DIR=str(evidence / "trace"),
         STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED="false",
@@ -68,9 +72,14 @@ def run(state, evidence, calendar, calendar_sha256):
         MARKET_HOLIDAYS=receipt["holidays"], MARKET_HALF_DAYS=receipt["half_days"],
         MARKET_EARLY_CLOSE_TIME=receipt["early_close"],
     )
+    from src.core.capital_management_authority import PaperEntryFeeCeiling
+    from src.ibkr.volume_calibration import load_paper_volume_calibration
     from src.market_data.session_pct_change import covered_opening_window
 
     now = datetime.now(timezone.utc)
+    load_paper_volume_calibration(witness)
+    PaperEntryFeeCeiling.load(
+        fee_ceiling, expected_account=os.environ.get("ROSS_PAPER_EXPECTED_ACCOUNT"), now=now)
     start = covered_opening_window(now)
     end = covered_opening_window(now + timedelta(seconds=_DURATION_SECONDS + 360))
     if (start is None or end is None or start.phase != "RTH_OPEN" or end.phase != "RTH_OPEN"
@@ -112,9 +121,10 @@ def run(state, evidence, calendar, calendar_sha256):
 def cli():
     state, evidence, calendar = map(Path, sys.argv[1:4])
     calendar_sha256 = sys.argv[4]
+    witness = Path(sys.argv[5]) if len(sys.argv) == 6 else None
     reason, status = "PAPER_RELEASE_LOCAL_RUNTIME_ERROR", 2
     try:
-        reason, status = run(state, evidence, calendar, calendar_sha256)
+        reason, status = run(state, evidence, calendar, calendar_sha256, witness)
     except RuntimeError as exc:
         if re.fullmatch(r"PAPER_RELEASE_[A-Z0-9_]+", str(exc)):
             reason = str(exc)

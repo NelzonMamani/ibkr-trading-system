@@ -5,6 +5,8 @@
 # Use the existing authoritative PAPER state, including the database and
 # order journals. Keep the reviewed calendar and exact native volume witness
 # on the laptop. Volume evidence only qualifies the matched contract.
+# Invocation also attests that entry-fee-ceiling.json reflects the applicable
+# written broker confirmation for the complete one-share entry charges.
 $rossPaperCaller = @'
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -13,6 +15,7 @@ $python = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scrip
 $state = 'ENTER_EXISTING_PRIVATE_PAPER_STATE_DIRECTORY'
 $calendar = 'ENTER_REVIEWED_CALENDAR_JSON_PATH'
 $calendarSha = 'ENTER_REVIEWED_CALENDAR_JSON_SHA256'
+$volumeWitness = 'ENTER_PREPARED_PRIVATE_VOLUME_WITNESS_PATH'
 $account = 'ENTER_EXPECTED_PAPER_ACCOUNT'
 $pin = '@ACCEPTED_COMMIT@'
 $tree = '@ACCEPTED_TREE@'
@@ -55,7 +58,8 @@ foreach ($name in @('order-id.json','submission-guard.json')) {
     $artifact = Join-Path $state $name
     $null = Local-Path $artifact Leaf 'PAPER_RELEASE_EXISTING_STATE_FILES_REQUIRED'
 }
-$null = Local-Path (Join-Path $state 'volume-witness.json') Leaf 'PAPER_RELEASE_NATIVE_VOLUME_WITNESS_REQUIRED'
+$volumeWitness = Local-Path $volumeWitness Leaf 'PAPER_RELEASE_VOLUME_CALIBRATION_REQUIRED'
+$null = Local-Path (Join-Path $state 'entry-fee-ceiling.json') Leaf 'PAPER_RELEASE_ENTRY_COST_AUTHORITY_REQUIRED'
 if (@(Get-ChildItem Env: | Where-Object { $_.Name -like 'GIT_*' }).Count) {
     throw 'PAPER_RELEASE_INHERITED_GIT_CONFIGURATION'
 }
@@ -95,11 +99,12 @@ $previousAttestation = [Environment]::GetEnvironmentVariable('ROSS_PAPER_EXCLUSI
 try {
     $root = Join-Path $state ('ross-paper-' + [Guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Path $root -ErrorAction Stop
-    Write-Host ('Controlled PAPER. Graceful stop file: ' + (Join-Path $root 'stop'))
+    Write-Host ('Controlled PAPER. Request entry stop and owned resolution: ' + (Join-Path $root 'stop'))
+    Write-Host ('During unresolved shutdown, leave the runtime running and inspect from a second console: ' + (Join-Path $root 'pending-entry-handoff.json'))
     Write-Host ('Private output directory: ' + $root)
     [Environment]::SetEnvironmentVariable('ROSS_PAPER_EXPECTED_ACCOUNT', $account, 'Process')
     [Environment]::SetEnvironmentVariable('ROSS_PAPER_EXCLUSIVE_START_ATTESTED', '1', 'Process')
-    $arguments = '-I -B "{0}" "{1}" "{2}" "{3}" {4}' -f $launcher,$state,$root,$calendar,$calendarSha
+    $arguments = '-I -B "{0}" "{1}" "{2}" "{3}" {4} "{5}"' -f $launcher,$state,$root,$calendar,$calendarSha,$volumeWitness
     $native = @{
         FilePath=$python; ArgumentList=$arguments; WorkingDirectory=$repo
         NoNewWindow=$true; Wait=$true; PassThru=$true
