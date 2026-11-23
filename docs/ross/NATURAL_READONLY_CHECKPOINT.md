@@ -22403,3 +22403,44 @@ and standalone late-fill modules run with named test output in their own
 job. Independent collection verified full coverage across the two jobs
 (1,501 and 7,187 distinct cases) and five aggregate gate tests passed.
 The repaired workflow still requires a passing exact-head run before integration.
+
+### PR1250 operational release integration
+
+The reviewed PR head `f6fed702d1a4b0e0ea2f2a0646889c1c4903a89d` passed
+required [PR run 45274120155](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/45274120155).
+Linux reported 8,685 passed, three skipped and 39 subtests. Windows reported
+7,185 passed, two skipped and 39 subtests in the offline suite and 1,501
+passed in the lifecycle suite. The native PowerShell 5.1 controls and required
+Windows aggregate passed. The named Windows lifecycle output confirms the
+MICRO_PULLBACK partial-remainder and stop-to-flat case passed.
+
+GitHub merged PR1250 as `f08d46e6f632293ca569819968f9700b7b1c1975` with
+first parent `42bf5ba95b5808231ed923d824ad96977882cb68` and second
+parent `f6fed702d1a4b0e0ea2f2a0646889c1c4903a89d`. The merge tree
+`7c34a3746a6942f6e43b1b7a11a1ca8b5dc3022f` matches the reviewed PR tree.
+
+The automatic [main run 45279904609](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/45279904609)
+passed at that exact merge commit. Linux reported 8,685 passed, three
+skipped and 39 subtests. Windows reported 7,185 passed, two skipped and
+39 subtests in the offline suite and 1,501 passed in the lifecycle suite.
+The native PowerShell 5.1 controls and Windows aggregate also passed.
+
+The published [PowerShell 5.1 caller](./ORDINARY_RTH_PAPER_LOCAL_EXECUTION.ps1)
+pins the verified merge commit and tree. Its raw LF SHA-256 is
+`87cbdd7b4076bd2319877e731f6f469eb3197e8cb5eb15688f7c8454df3ad140`. The caller accepts the pinned Python operator's
+LF SHA-256 `6c0078ed25ce2ac1ab87943fe8ed1fa6c047a5cd62d4cce55c6dd92d629224f6`
+or CRLF SHA-256 `3f017297c3780544d9ffc1ee9c3360574f2dbfb71287e1f1b4df0b32d7b53269`.
+Publication substitutes those four values into the native-parser-checked
+template. The caller checks its inner script with the native parser before
+invocation. Fill the private local fields and paste the complete caller
+only after the laptop facts are established. Invocation carries the
+exclusive-start attestation and requires no separate confirmation phrase.
+
+Software integration and CI passed. PAPER_READY=NO. The five legacy
+holding vetoes remain. The controlled run still requires the retained
+state, a clean exclusive PAPER start, an installed TWS that supplies the
+scoped settled cash field, broker-confirmed entry fee evidence, the
+reviewed session calendar, private exact-contract share calibration,
+and supervised acceptance. No cloud broker session or broker mutation
+was performed. The next laptop action is the separate READ_ONLY volume
+diagnostic in step 1 above on the accepted merge commit and tree.
