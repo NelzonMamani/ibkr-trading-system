@@ -116,7 +116,10 @@ def test_windows_split_preserves_required_owners_budgets_and_guards():
         '.\\tests\\powershell\\verify_quote_transport.ps1',
     ):
         assert command in controlled
-    assert controlled.count('shell: powershell') == 3
+    assert controlled.count('shell: powershell') == 4
+    assert "Windows PowerShell 5.1 PAPER caller parser and missing-pin gate" in controlled
+    assert r"docs\ross\ORDINARY_RTH_PAPER_LOCAL_EXECUTION.ps1.in" in controlled
+    assert "PAPER_RELEASE_ACCEPTED_SOURCE_PIN_MISSING" in controlled
     assert controlled.count('if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }') == 2
     assert 'name: windows-powershell-status-evidence' in controlled
     assert '${{ runner.temp }}/ps-status-*/' in controlled

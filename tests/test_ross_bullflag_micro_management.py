@@ -730,6 +730,7 @@ def test_capital_recovery_reuses_order_snapshot_and_refreshes_expiry_without_new
     client=SimpleNamespace(position_snapshot=lambda:BrokerPositionResult((SimpleNamespace(symbol="FIXTURE",quantity=8,con_id=123,avg_cost=10.,account="TEST"),),"COMPLETE","TEST",datetime.now(timezone.utc)))
     harness=SimpleNamespace(run_mode=RunMode.PAPER,trade_management_engine=manager,execution_engine=engine,
         trade_registry=registry,connection_manager=SimpleNamespace(get_ibkr_client=lambda **_:client))
+    harness._collect_and_bind_position_scope = CoreOrchestrator._collect_and_bind_position_scope.__get__(harness)
     CoreOrchestrator._resolve_position_truth_cycle(harness,as_of=datetime.now(timezone.utc))
     assert manager._relationship_plans["r"].reconciled and len(calls)==1
     engine._relationship_orders_asof-=timedelta(days=1)
