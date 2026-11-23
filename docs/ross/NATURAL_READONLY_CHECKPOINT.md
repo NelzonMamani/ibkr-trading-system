@@ -22379,3 +22379,11 @@ fixture whose unbound native adapter lacked the constructor's snapshot lock.
 Test-only follow-up `01b7430a91385b2b8240e31e82b60f4e888e4f51` supplies
 that lock. The unchanged clean-start and legacy callback assertions passed
 all 31 focused cases. The isolated full rerun passed the affected range.
+
+The isolated full run at the test-equivalent `01b7430a` reported 8,666 passed,
+18 failed and three skipped. All 18 failures came from one isolated legacy
+fixture lacking its retained request's explicit MKT type. Follow-up
+`5235789fa716bfe95ab2641d6557e537d811e2a6` supplies that fixture value.
+The existing certificate checks and production code stay as reviewed.
+The affected legacy certificate and joined shutdown slice passed all 55 cases.
+Required exact-head CI still controls integration.
