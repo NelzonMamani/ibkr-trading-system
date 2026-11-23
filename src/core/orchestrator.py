@@ -3833,7 +3833,6 @@ class CoreOrchestrator:
                 return False
         paper_release = getattr(self, "_paper_release", None)
         if paper_release is not None:
-            paper_release.last_gate = None
             if paper_release.attempted:
                 return True
             try:
@@ -5034,6 +5033,7 @@ class CoreOrchestrator:
                     if approved:
                         risk_allowed_symbols.append(intent.symbol)
                         if paper_release is not None:
+                            paper_release.last_gate = None
                             break
                     else:
                         canonical_risk_blocked_count += 1
