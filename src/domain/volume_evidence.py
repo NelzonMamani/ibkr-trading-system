@@ -81,11 +81,13 @@ def ross_entry_volume_rejection(intent, mode, *, client_id=None, connection_epoc
     from src.strategies.ross_momentum.strategy_policy import RossMomentumPolicy, stock_selection_policy_for_session_phase
 
     session = normalize_session_label(str(evidence.get("scanner_session") or ""))
-    if session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}:
+    # Scanner/strategy handoff can carry the finer operational clock phases
+    # instead of the market-data session labels. Both clocks classify these as RTH.
+    if session in {"RTH_OPEN", "RTH_MID", "RTH_LATE", "OPENING_0_30", "MORNING"}:
         stock_policy = stock_selection_policy_for_session_phase(RossMomentumPolicy(), session)
         if shares < stock_policy.min_volume:
             return "ROSS_VOLUME_BELOW_STOCK_SELECTION_MINIMUM"
-    elif session not in {"PRE", "AH"}:
+    elif session not in {"PRE", "PREMARKET", "AH"}:
         return "ROSS_VOLUME_SESSION_UNSUPPORTED"
     if evidence.get("scanner_execution_eligible") is not True:
         return "ROSS_VOLUME_SCANNER_EXECUTION_INELIGIBLE"

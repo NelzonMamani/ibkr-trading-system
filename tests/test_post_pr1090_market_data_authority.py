@@ -1036,13 +1036,17 @@ def test_live_stock_volume_is_joined_to_exact_comparator_and_current_request(nat
     sample = native.get_market_snapshot(selected.symbol).volume_evidence
     assert verified_volume_shares(sample) == 39018
     assert native.ross_volume_source_current(sample)
-    weak = dict(sample, scanner_session="RTH_OPEN", scanner_execution_eligible=True)
-    assert ross_entry_volume_rejection(dict(intent, volume_evidence=weak), "PAPER") == "ROSS_VOLUME_BELOW_STOCK_SELECTION_MINIMUM"
+    runtime_rth_phases = ("RTH_OPEN", "OPENING_0_30", "MORNING", "MIDDAY", "LATE", "POWER_HOUR")
+    for phase in runtime_rth_phases:
+        weak = dict(sample, scanner_session=phase, scanner_execution_eligible=True)
+        assert ross_entry_volume_rejection(dict(intent, volume_evidence=weak), "PAPER") == "ROSS_VOLUME_BELOW_STOCK_SELECTION_MINIMUM"
 
     market_volume[0] = 1_000_000
     sample = client_for(native).snapshot_stock(selected).volume_evidence
-    good = dict(sample, scanner_session="RTH_OPEN", scanner_execution_eligible=True)
-    assert ross_entry_volume_rejection(dict(intent, volume_evidence=good), "PAPER", con_id=selected.conId) is None
+    good = dict(sample, scanner_session="OPENING_0_30", scanner_execution_eligible=True)
+    for phase in runtime_rth_phases:
+        candidate = dict(intent, volume_evidence=dict(good, scanner_session=phase))
+        assert ross_entry_volume_rejection(candidate, "PAPER", con_id=selected.conId) is None
     assert native.ross_volume_source_current(good)
 
     doubled = dict(good, shares=100 * good["raw_value"])
