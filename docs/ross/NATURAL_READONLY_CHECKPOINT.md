@@ -21980,3 +21980,117 @@ remains pending when this publication receipt is prepared. No unchanged local
 observation or benchmark retry, source database change, order/holding action,
 recovery clearing, preservation enrollment or gate relaxation occurred.
 All five ownership vetoes remain. PAPER_READY=NO.
+
+### Active Ross PAPER release checklist and autonomous implementation contract (2026-11-23)
+
+This is the current consolidated release checklist. Keep this section and its
+dated evidence updates in THIS existing checkpoint; do not create another Ross
+tracker or duplicate implementation. Historical receipts remain verbatim.
+A later status must name its actual source, test/CI receipt and acceptance
+scope. IMPLEMENTED, VERIFIED_INERT and VERIFIED_LAPTOP are different states.
+
+Objective: release one supported Ross setup through the ordinary one-share
+MICRO risk profile on an explicitly prepared clean, exclusively operated PAPER
+session. Finish code, review and integration autonomously under the operator's
+standing authorization. Actual broker acceptance remains a laptop receipt.
+The MICRO risk profile is not the Micro Pullback setup family; name both
+explicitly when choosing the bounded supported setup.
+
+#### Accepted work: reuse, do not repeat
+
+| ID | Status and accepted evidence | Boundary still retained |
+| --- | --- | --- |
+| D01 | IMPLEMENTED / VERIFIED_INERT / required CI passed: exact fractional position truth and clean-start refusal before mutations, cumulative strict completed reads, ambiguous native-position callback rejection and retirement of the lossy operational lifecycle overlay, PRs1242-1245. | Automatic fractional legacy cleanup is unsupported; FORCE_CLEAN_START stays default-off. |
+| D02 | IMPLEMENTED / VERIFIED_INERT / required CI passed: account-bound capital producer1246, exact held-contract USD stock gross valuation1247, explicit12-second completed valuation wait1248. Main98a5f90ced1d17fd97e45103155a22efe6b2bed9 contains these changes; its automatic main CI45044024637 was verified successful. | Evidence producers do not themselves enroll ordinary risk or preservation. Matching bracketing positions are endpoints, not atomic consistency. |
+| D03 | VERIFIED_LAPTOP within READ_ONLY scope: November23 root ro-8e455b5b, source7a2070ab, all phase exits0, zero mutations, completed cleanup/audit; three completed50-row scans, Focus1 in31 cycles,27 raw emissions24ABCD/3Micro. | Repeated emissions are not27 unique opportunities. All rejected before risk by ownership truth; volume qualification remains unresolved. This is accepted natural raw-intent progress, not executable/broker acceptance. |
+| D04 | IMPLEMENTED / VERIFIED_INERT / independent review CLEAR: PR1249 headccb8311beec3d4ca888d712bd58db91a1b10cfc3 accepts exactly DU/DUK plus ASCII digits in both existing benchmark validators;169 focused passes. Required CI45216779844 remains in progress at checklist publication. | Benchmark-only compatibility; no SPY/QQQ capture accepted, prefix syntax not PAPER-login proof, no Ross veto removed. Check actual final CI and expected head before integration. |
+
+Current accepted main when this checklist is prepared:
+98a5f90ced1d17fd97e45103155a22efe6b2bed9.
+PR1249 is a separate reviewed candidate, not accepted main while CI is pending.
+This checklist is appended on a descendant review branch so all earlier receipts
+remain once. A coordinator/Codex must inspect current refs before integration.
+
+#### Active blockers and decisive completion evidence
+
+| ID | Status / existing owner | Required implementation or decisive receipt |
+| --- | --- | --- |
+| B01 | ACCOUNT_PREREQUISITE: five unresolved legacy holdings; Core position-truth entry guard in src/core/orchestrator.py. | The observed account still refuses. Shortest first-release route is a genuinely clean, order-free, exclusively operated PAPER starting session/account, followed by fresh supported runtime checks. Alternatively authoritative ownership must be established. No automatic reset, liquidation, adoption, exemption, registry deletion, recovery clearing or false external-owner classification. P01/P02 have split continuity only. |
+| B02 | CODE_REQUIRED + SOURCE_FACT_UNVERIFIED: raw volume at src/adapters/brokers/ibkr/ibkr_client.py tickSize8/74, src/ibkr/market_data_client.py and src/scanner/providers/ibkr_provider.py. | Carry raw value, tick/source type, security/request/connection identity, time/session, LIVE/delayed state and unit provenance through existing owners. Normalize shares only under an established documented source contract. Unknown units cannot establish execution eligibility; no blanket100 multiplier. Add a minimal private diagnostic for the exact missing runtime fact if source alone cannot establish the effective contract. |
+| B03 | CODE_REQUIRED: Ross volume-policy consumption in src/scanner/scanner_runner.py and src/strategies/ross_momentum_strategy_v1.py. | Reconcile the250000 opening Focus rule,50000 warning,10000 data floor and declared1000000 execution minimum by their existing authoritative roles and session policies. Correct units first. Diagnostic/degraded discovery may remain useful; ordinary PAPER cannot silently inherit eligibility from a warning route. Prove the decision at actual Core risk/final admission, preserving thresholds and other Ross pillars. No invented or weakened policy. |
+| B04 | CODE_REQUIRED: ordinary account-capital admission in Core, src/risk/risk_engine.py and src/execution/execution_engine.py. | Risk currently starts with get_default_capital/sourceCONFIG; execution's _capital_account_snapshot also accepts evaluated/provider dictionaries. Bind the existing completed same-account/connection, concrete-currency capital facts through ordinary risk, allocation/reservation and final native admission. Missing, stale, wrong-scope, ambiguous or conflicting facts refuse; zero funds is valid zero, not missing/fallback. Configured capital or permissive summaries cannot masquerade as broker truth. Preserve no-borrowing/cash constraints and existing numerical risk/daily limits. |
+| B05 | IMPLEMENTATION_VERIFY_AND_REPAIR: ordinary one-share PAPER owners already exist, including Core canonical decision/risk handoff and native execution. | Reuse one already supported setup/management contract and real ordinary configuration, no synthetic enrollment or prepared approvals. Prove actual native-format scanner/strategy intent, canonical identity, position truth, genuine risk/capital/reservation and native dispatch through inert transport; repair demonstrated defects. Existing default one-share route is not globally synthetic-only. Do not require every Ross family or all20 strategies. |
+| B06 | VERIFIED_INERT_PARTIAL / BROKER_UNPROVED: fill, accounting, structural stop and supported exit. | Joined acceptance must show ack without ownership; attributable later entry fill; committed exactly-once accounting; independently observed working protection at the selected original structural stop; supported exit fill and flat reconciliation. Delayed/duplicate/conflicting callbacks, rejected/missing protection, uncertain submission, reconnect and cold restart must not fabricate ownership, duplicate trades or resume uncertainty. Use existing approved failure handling and quarantine. Actual IBKR acceptance is still a later laptop receipt. |
+| B07 | CODE_REQUIRED / OPERATING_CONTRACT: clean exclusive PAPER admission and minimal caller. | Define a default-off bounded acceptance profile using existing owners. Require expected current PAPER scope, complete supported zero-position truth, current supported order observations, fresh account-bound capital, data eligibility and clear recovery state. One explicit invocation may attest the operator checked UI flat/order-free/exclusive PAPER conditions; label these as operator facts. Detectable changes or uncertainty invalidate admission before writes. Existing five-position account must refuse. |
+| B08 | BROKER_UNPROVED: local controlled attempt. | After independent review, exact-head required CI/integration and caller/source verification, one supervised qualifying one-share PAPER opportunity establishes real ack/fill/protection/exit receipts. If no valid opportunity occurs, return NO_TRADE with the true gate. Do not force a setup, retry automatically or call inert tests broker proof. No cloud TWS/broker activity in implementation batch. |
+
+#### Explicit limitations and deferred work
+
+* Inventory preservation remains CLOSED. Startup/current-client/overlapping native
+  order requests can share an untagged openOrderEnd; no global final-write fence
+  against arbitrary other clients is established. Do not rediscover this same
+  limitation or invent an atomic guarantee. Clean, exclusive operation is a
+  separately declared operating assumption plus observable scoped checks.
+  Current-client order completion must never be relabelled account-wide proof.
+  Preserve all known contradictions and invalidate on observed uncertainty.
+* PRE/10-second execution details and normal phase policies remain intact.
+  The first bounded release can target ordinary RTH with a reviewed session
+  calendar; other sessions are not implicitly certified.
+* Adds, multi-share management, discretionary trailing, uncertain restart
+  resumption and broader family variants remain outside the first release
+  unless already supported by the selected existing contract. Do not import
+  composed Bull/Micro numerical policy into standalone setups.
+* Direct GAP_GO missing structural-stop authority, HALT-specific unsupported
+  behavior, listing-compliance/provenance work and all other parked protections
+  retain their recorded scope. A family with unresolved mandatory authority
+  stays disabled; it need not block an independently supported first setup.
+* SPY/QQQ capture, P02/P03 activation and the remaining20-strategy programme
+  remain tracked follow-on work. PR1249 fixes a capture compatibility gate,
+  not the Ross trading blocker. No new strategy work precedes this release.
+* Catalyst coverage in this run was partial; issuer earnings/cache qualification
+  was observed, not complete news coverage or independent original-publisher
+  authentication. Existing freshness, catalyst, float, price, gap, RVOL,
+  quote, trigger and dilution protections must remain authoritative.
+* No claim of profitability, full strategy certification or operational
+  readiness follows from terminalPASS, source review or green CI alone.
+
+#### Next autonomous Codex batch: finite delivery
+
+Run parallel read-only/source-owner work where useful, serialize shared Core/
+config edits, and reuse existing modules/harnesses. Deliver B02-B07 code and
+joined inert evidence to the extent source facts permit; isolate any precise
+laptop-only unit or account fact without stopping independent implementation.
+Do not replace those facts with fabricated success or configuration fallback.
+
+Include a single complete Windows PowerShell5.1 paste-and-Enter caller pinned
+to accepted source with hashes and native parsing. Prefer the existing maintained
+caller and admission/cleanup paths, no duplicate launcher framework. No extra
+confirmation word is needed; explicit invocation must clearly state its current
+operator-attested facts. Separate preparation/preflight from actual execution,
+keep raw account/contract/order/financial records laptop-local, and emit only
+sanitized blockers/status and output paths. Apply supported quote timing and
+source/calendar/client/process checks; do not copy an expired one-day window.
+
+Perform meaningful causal regression cases and a joined ordinary one-share
+positive using inert transport. Reuse native owners, do not mock risk approval
+or hand-create the approval being tested. Include wrong account/currency/epoch,
+zero/absent/stale capital, unknown/double-normalized volume, degraded eligibility,
+unresolved/fractional holdings, unexpected orders, duplicate fill and protection/
+restart uncertainty negatives. Existing default refusals and READ_ONLY zero
+mutations remain covered.
+
+Finish independent final-tree review, focused checks, required Linux/Windows CI
+and authorized exact-head integration without routine permission pauses. If a
+genuine platform approval rejection prevents integration, retain the concrete
+reviewable head and report the action and reason; do not bypass it. Resolve CI
+failures within scope; no hiding failures, weakening checks or unchanged retry
+loops. Verify actual merge parents/tree and post-merge CI before publishing a
+new launch pin. Check PR1249 final checks before its independent merge.
+
+Update THIS checklist after every completed batch with exact heads/trees,
+test/CI receipts and verified status. The final handoff contains changes,
+remaining blockers, truthful PAPER readiness, and ONE next local action.
+Do not re-run unchanged observations or reopen completed acquisition searches.
+Current state at publication: all five vetoes remain; no broker action, holdings
+disposition, operational enrollment or recovery clearing. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
