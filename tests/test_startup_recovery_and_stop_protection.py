@@ -1466,9 +1466,33 @@ try:
             return []  # No daily-history completion was supplied by these facts.
 
     scanner_facts = ExternalScannerFacts()
+    def scanner_contract_details(symbol, row):
+        detail = ContractDetails()
+        detail.longName = row['company_name']
+        for name, value in dict(
+            symbol=symbol, conId=row['con_id'], exchange=row['exchange'],
+            primaryExchange=row.get('primary_exchange') or 'NYSE',
+            tradingClass=row.get('trading_class') or symbol,
+            localSymbol=row['local_symbol'], currency=row['currency'],
+            secType=row['instrument_type'],
+        ).items():
+            setattr(detail.contract, name, value)
+        return detail
+
     def external_provider_factory(*, market_data_client=None, connection_manager=None):
         external_call('provider', 'build_provider')
         scanner_facts.market_data_client = market_data_client
+        if facts.get('observe_pristine_native_scanner'):
+            from src.scanner.providers.ibkr_provider import IbkrScannerProvider
+            native_provider = IbkrScannerProvider(
+                market_data_client=market_data_client, connection_manager=manager)
+            def native_discovery(*args, **kwargs):
+                symbols = native_provider.get_top_gainers(*args, **kwargs)
+                scanner_facts.last_scan_details = native_provider.last_scan_details
+                return symbols
+            scanner_facts.get_top_gainers = native_discovery
+            scanner_facts.get_quote = native_provider.get_quote
+            scanner_facts.refresh_quote = native_provider.refresh_quote
         return scanner_facts
     scanner_runner.build_provider = external_provider_factory
     scanner_factory.build_provider = external_provider_factory
@@ -1596,6 +1620,8 @@ try:
     owned_quote_reads = set()
     owned_history_reads = set()
     owned_currency_reads = {}
+    owned_capital_reads = set()
+    owned_scanner_reads = set()
     def send_message(message):
         fields = str(message).split('\0')
         opcode = fields[0]
@@ -1639,6 +1665,46 @@ try:
                         active_type_absent=request_id not in client._request_type_by_req_id,
                         query_retired=context.get('account_currency_query') is None))
                 return  # Synthetic read cleanup, never an order cancellation.
+            if facts.get('observe_pristine_native_scanner'):
+                if opcode == str(OUT.REQ_SCANNER_SUBSCRIPTION):
+                    request_id = int(fields[1])  # SDK omits version on this server.
+                    if (client._request_type_by_req_id.get(request_id) != 'SCANNER_DATA'
+                            or fields[3] != 'STK' or fields[5] != 'TOP_PERC_GAIN'):
+                        raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_SCANNER_REQUEST')
+                    owned_scanner_reads.add(request_id)
+                    for rank, (symbol, row) in enumerate(candidates.items()):
+                        client.scannerData(request_id, rank, scanner_contract_details(symbol, row),
+                            '', '', '', '')
+                    client.scannerDataEnd(request_id)
+                    report['native_read_requests'].append(dict(opcode=opcode, request_id=request_id,
+                        request_type='SCANNER_DATA', rows=len(candidates)))
+                    return
+                if opcode == str(OUT.CANCEL_SCANNER_SUBSCRIPTION) and int(fields[2]) in owned_scanner_reads:
+                    owned_scanner_reads.remove(int(fields[2]))
+                    return
+            capital_response = facts.get('paper_capital_response')
+            if capital_response is not None:
+                if opcode == str(OUT.REQ_ACCOUNT_SUMMARY):
+                    request_id = int(fields[2])
+                    query = client._request_context_by_req_id.get(request_id, {}).get('account_currency_query')
+                    tags = set(fields[4].split(','))
+                    if (not query or fields[3] != 'All' or query['account'] != account
+                            or tags not in ({'$LEDGER'}, {'NetLiquidation', 'AvailableFunds', 'BuyingPower'})):
+                        raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_CAPITAL_REQUEST')
+                    owned_capital_reads.add(request_id)
+                    rows = (capital_response['currency_rows'] if tags == {'$LEDGER'}
+                            else capital_response['capital_rows'])
+                    for row in rows:
+                        client.accountSummary(request_id, capital_response.get('account', account),
+                            row['tag'], row['value'], row['currency'])
+                    client.accountSummaryEnd(request_id)
+                    report['native_read_requests'].append(dict(opcode=opcode, request_id=request_id,
+                        request_type='ACCOUNT_CAPITAL_CURRENCY' if tags == {'$LEDGER'} else 'ACCOUNT_CAPITAL',
+                        status=query['status']))
+                    return
+                if opcode == str(OUT.CANCEL_ACCOUNT_SUMMARY) and int(fields[2]) in owned_capital_reads:
+                    owned_capital_reads.remove(int(fields[2]))
+                    return
             if opcode in {str(OUT.REQ_CONTRACT_DATA),str(OUT.REQ_MKT_DATA)}:
                 request_id = int(fields[2])
                 context = client._request_context_by_req_id.get(request_id,{})
@@ -1650,11 +1716,7 @@ try:
                 report['native_read_requests'].append(dict(opcode=opcode,request_id=request_id,
                     symbol=symbol,request_type=expected,con_id=row['con_id']))
                 if expected=='CONTRACT_DETAILS':
-                    detail=ContractDetails();detail.contract=Contract()
-                    for name,value in dict(symbol=symbol,conId=row['con_id'],exchange=row['exchange'],
-                            currency=row['currency'],secType=row['instrument_type'],localSymbol=row['local_symbol']).items():
-                        setattr(detail.contract,name,value)
-                    detail.longName=row['company_name']
+                    detail=scanner_contract_details(symbol,row)
                     client.contractDetails(request_id,detail)
                     client.contractDetailsEnd(request_id)
                 else:

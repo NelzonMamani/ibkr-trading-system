@@ -2984,6 +2984,70 @@ def _pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,*,loss_limit=.2
     return facts
 
 
+def test_ordinary_paper_micro_premarket_high_break_native_lifecycle(
+        reassessment, monkeypatch, tmp_path, no_external_activity, runtime_schema_template):
+    """Discover a PMH in RTH and account a one-share MICRO round trip."""
+    import json
+    import shutil
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+
+    facts = _pristine_paper_loss_facts(reassessment, monkeypatch, tmp_path)
+    facts['config']['RISK_PROFILE'] = 'MICRO'
+    facts['observe_pristine_native_scanner'] = True
+    facts['paper_capital_response'] = {
+        'currency_rows': [
+            dict(tag='CashBalance', value='10000', currency='USD'),
+            dict(tag='AccruedCash', value='0', currency='USD'),
+        ],
+        'capital_rows': [
+            dict(tag='NetLiquidation', value='10000', currency='USD'),
+            dict(tag='AvailableFunds', value='10000', currency='USD'),
+            dict(tag='BuyingPower', value='10000', currency='USD'),
+        ],
+    }
+    database = tmp_path / 'ordinary-micro.sqlite3'
+    shutil.copyfile(runtime_schema_template, database)
+    path = tmp_path / 'ordinary-micro.json'
+    path.write_text(json.dumps(facts, default=str), encoding='utf-8')
+    report = run_native_core_cold_start(database, path, tmp_path / 'ordinary-micro-child')
+    summary = {key: report.get(key) for key in (
+        'constructor_exception', 'harness_exception', 'cycle_exception', 'stage', 'evidence_dir',
+    )}
+    assert report['constructor_complete'] and not report.get('harness_exception'), summary
+    assert not report.get('cycle_exception'), summary
+    assert len(report['cycles']) == 5 and all(cycle['result'] for cycle in report['cycles']), summary
+    assert any(row['request_type'] == 'SCANNER_DATA' and row['rows'] == 1
+        for row in report['native_read_requests'])
+    assert not report['capital_enrollment_attempts']
+    assert not report['network_attempts'] and not report['sdk_attempts'] and not no_external_activity
+
+    buy, stop = report['synthetic_memory_dispatches']
+    assert (buy['role'], stop['role']) == ('entry', 'stop')
+    root = buy['root_id']
+    ack, filled, protected, closed, replayed = report['cycles']
+    request = ack['engine']['native_orders'][root]['request']
+    assert request['setup_family_id'] == 'PREMARKET_HIGH_BREAK'
+    assert request['quantity'] == buy['order']['totalQuantity'] == stop['order']['totalQuantity'] == 1
+    assert request['stop_loss_price'] == stop['order']['auxPrice'] == 10.2897
+    assert stop['order']['parentId'] == buy['native_id']
+    admission = [row for row in report['risk_evaluations'] if row['decision']['allowed']]
+    assert len(admission) == 1
+    assert admission[0]['intent']['decision_id'] == admission[0]['decision']['decision_id']
+    assert root.startswith(admission[0]['decision']['decision_id'])
+    assert ack['engine']['capital_reserved'] == 10.3 and ack['engine']['capital_used'] == 0
+    assert not ack['engine']['post_fill'] and not ack['engine']['position_records']
+    for cycle in (filled, protected):
+        assert cycle['engine']['protection'][root]['protected']
+        assert cycle['engine']['canonical_trades'][root]['quantity_open'] == 1
+        assert cycle['engine']['capital_used'] == 10.53
+    for cycle in (closed, replayed):
+        assert cycle['engine']['canonical_trades'][root]['quantity_open'] == 0
+        assert not cycle['engine']['registry'] and not cycle['engine']['managed_positions']
+        assert cycle['engine']['capital_used'] == cycle['engine']['capital_reserved'] == 0
+    assert len(closed['database']['trade_lifecycle_events']) == 2
+    assert closed['database']['trade_lifecycle_events'] == replayed['database']['trade_lifecycle_events']
+
+
 @pytest.mark.parametrize('fees,expected',[('gross',-.25),('positive',-.28),('known_zero',-.27),('partial_gross',-.25)])
 def test_actual_core_cold_restart_inspects_committed_accounting_without_native_adoption(
         reassessment,monkeypatch,tmp_path,capsys,no_external_activity,runtime_schema_template,fees,expected):
