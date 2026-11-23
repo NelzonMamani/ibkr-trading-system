@@ -1607,6 +1607,9 @@ def _pristine_paper_child_function(name, namespace):
     helpers=([next(node for node in ast.walk(tree) if isinstance(node,ast.FunctionDef)
         and node.name=='pristine_paper_quantity')] if name in {'validate_pristine_paper_memory_write',
         'validate_pristine_paper_execution_fact','validate_pristine_paper_history_read'} else [])
+    if name == 'send_message':
+        # These boundary probes run without Core's capital request owner.
+        namespace.setdefault('capital_owner_read', [False])
     exec(compile(ast.fix_missing_locations(ast.Module(body=helpers+[node],type_ignores=[])),
         '<actual-pristine-paper-boundary>','exec'),namespace)
     return namespace[name]
