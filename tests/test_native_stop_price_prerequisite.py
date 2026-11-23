@@ -3627,7 +3627,7 @@ def test_native_ack_graceful_shutdown_requires_real_unfilled_ownership(fault):
         allocation_reservations={'allocation-reservation':allocation})
     dispatch=dict(role='entry',root_id=root,native_id=1001,
         contract=dict(symbol='JPM',conId=123,currency='USD',exchange='SMART',secType='STK'),
-        order=dict(orderType='MKT',action='BUY',totalQuantity=1,parentId=0,orderRef=''))
+        order=dict(orderType='MKT',action='BUY',totalQuantity=1,parentId=0,orderRef=root))
     # The real memory ACK publishes a working entry: copy its supplied native
     # contract/order, then apply independent account/client callback facts.
     supplied_order=NS(**deepcopy(dispatch['order']))
@@ -3802,6 +3802,7 @@ def test_pristine_native_paper_ack_shutdown_preserves_pending_request_and_reserv
     assert working['contract']['conId']==123 and working['contract']['symbol']=='JPM'
     assert working['order']['action']=='BUY' and working['order']['orderType']=='MKT'
     assert working['order']['totalQuantity']==1 and working['order']['parentId']==0
+    assert working['order']['orderRef']==root
     assert working['order']['account']=='SYNTHETIC_TEST' and working['order']['clientId']==999
     assert working['orderState']['status']=='Submitted'
     assert request['quantity']==1 and request['setup_family_id']=='PREMARKET_HIGH_BREAK'

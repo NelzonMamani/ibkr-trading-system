@@ -315,7 +315,7 @@ def validate_pristine_native_ack_shutdown_ownership(*, before, parent, root_id, 
         and getattr(contract,'currency',None) == plan['currency'] and getattr(contract,'exchange',None) == plan['exchange']
         and getattr(order,'orderType',None) == 'MKT' and getattr(order,'action',None) == 'BUY'
         and getattr(order,'totalQuantity',None) == 1 and getattr(order,'parentId',None) == 0
-        and getattr(order,'orderRef',None) == '' and getattr(order,'account',None) == plan['account']
+        and getattr(order,'orderRef',None) == root_id and getattr(order,'account',None) == plan['account']
         and getattr(order,'clientId',None) == plan['client_id']
         and getattr(getattr(working,'orderState',None),'status',None) == 'Submitted', 'WORKING_ENTRY')
     require(type(parent.get('requested')) is int and parent['requested'] == 1
@@ -1110,7 +1110,9 @@ def validate_pristine_paper_history_read(*, actual_client, expected_client, core
             and engine.post_fill_lifecycle.assess_trade_stop_protection(root_id).get('protected') is True
             and canonical is not None and canonical.quantity_open == life.filled_qty
             and len(current_positions) == 1 and current_positions[0].position == life.filled_qty
-            and current_positions[0].symbol == plan['symbol'] and current_positions[0].con_id == plan['con_id']
+            and current_positions[0].symbol == plan['symbol']
+            and getattr(current_positions[0], 'con_id', getattr(getattr(current_positions[0], 'contract', None),
+                'conId', None)) == plan['con_id']
             and current_positions[0].account == plan['account'], 'CURRENT_OWNERSHIP')
     # SDK server151 and180 omit the historical VERSION field. Use the actual
     # read encoder layout, distinct from quote requests' reqId at fields[2].
