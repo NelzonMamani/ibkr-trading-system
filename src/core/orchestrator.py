@@ -4562,6 +4562,10 @@ class CoreOrchestrator:
         for symbol in self._symbols_from_candidates(strategy_watchlist):
             print(f"[STRATEGY] runner=ross_momentum symbol={symbol} stage=evaluate")
             print(f"[ROSS][SYMBOL_EVAL][START] symbol={symbol} source=orchestrator_handoff")
+        trace_collector = getattr(ross_strategy, "_failure_trace_collector", None)
+        # The collector retains previous invocations, which may share the
+        # same market timestamp. Only rows emitted by this run can fail it.
+        trace_start = len(getattr(trace_collector, "_symbols", ()))
         if strategy_watchlist:
             if session_execution_allowed:
                 print("[STRATEGY][EXECUTION] invoking StrategyRunner")
@@ -4616,10 +4620,6 @@ class CoreOrchestrator:
         self._pipeline_runtime_counts["cycles_run"] += 1
         self._pipeline_runtime_counts["watchlist_count"] += len(watchlist_symbols)
         self._pipeline_runtime_counts["trade_intents"] += len(strategy_output or [])
-        ross_strategy = next(
-            (s for s in getattr(self.strategy_runner, "strategies", []) if getattr(s, "name", "") == "RossMomentumStrategyV1"),
-            None,
-        )
         evaluated_symbols = set(getattr(ross_strategy, "last_evaluated_symbols", []) or [])
         for symbol in final_evaluation_symbols:
             if symbol.upper() not in evaluated_symbols:
@@ -4695,9 +4695,8 @@ class CoreOrchestrator:
         }
         setup_detected_symbols = set(emitted_intent_symbols)
         trace_identity_failures: set[str] = set()
-        if ross_strategy is not None:
-            collector = getattr(ross_strategy, "_failure_trace_collector", None)
-            traces = getattr(collector, "_symbols", []) if collector is not None else []
+        if strategy_watchlist and trace_collector is not None:
+            traces = getattr(trace_collector, "_symbols", ())[trace_start:]
             trace_setup_symbols, trace_identity_failures = self._setup_detected_symbols_from_current_cycle_traces(
                 traces,
                 current_cycle_id=current_cycle_id,
