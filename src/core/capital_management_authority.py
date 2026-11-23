@@ -10,7 +10,7 @@ import copy
 import hashlib
 import inspect
 from functools import wraps
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from uuid import uuid4
 
 from src.config.config_resolver import get_config
@@ -21,14 +21,17 @@ from src.config.runtime_config import (
     get_risk_account_equity,
 )
 
+if TYPE_CHECKING:
+    from src.adapters.brokers.ibkr.ibkr_client import AccountCapitalResult, IbkrClient
+
 
 @dataclass(frozen=True)
 class PaperEntryCapital:
     """Process-local account observation carried from risk through native submission."""
 
-    client: Any
+    client: IbkrClient
     account: str
-    result: Any
+    result: AccountCapitalResult
 
     def inspect(self, now: datetime) -> tuple[str | None, dict[str, float]]:
         from src.adapters.brokers.ibkr.ibkr_client import (

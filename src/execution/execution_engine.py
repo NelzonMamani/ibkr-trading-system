@@ -1026,7 +1026,7 @@ class ExecutionEngine:
         # Existing test/legacy boundary compatibility, not the live manager API.
         return client if client is not None else getattr(manager, "optional_client", None)
 
-    def _retain_native_request(self, request) -> dict:
+    def _retain_native_request(self, request, *, security_id=None) -> dict:
         self._load_native_orders()
         scope = self._native_scope
         client = self._native_callback_client()
@@ -1044,6 +1044,8 @@ class ExecutionEngine:
             "terminal": False, "status": "DISPATCH_UNCERTAIN", "broker_order_id": None,
             "native_client_id": getattr(client, "client_id", None),
             "native_connection_epoch": getattr(client, "_position_connection_epoch", None)}
+        if type(security_id) is int and security_id > 0:
+            order["security_id"] = security_id
         self._native_orders[request.client_order_id] = order
         self._save_native_orders()  # Before dispatch; lost ack never implies absence.
         return order
@@ -2617,7 +2619,7 @@ class ExecutionEngine:
         before_dispatch = None
         dispatch_committed = False
         if paper_entry:
-            def prepare(client, order_id, contract, native_order):
+            def prepare(client, _order_id, contract, native_order):
                 nonlocal before_dispatch
                 try:
                     self._check_native_paper_entry(request, paper_entry_risk, client, contract, native_order, prepare=True)
@@ -2628,7 +2630,7 @@ class ExecutionEngine:
                     before_dispatch = str(exc)
                     raise
 
-            def commit(client, order_id, contract, native_order):
+            def commit(client, _order_id, contract, native_order):
                 nonlocal before_dispatch, dispatch_committed, standalone
                 try:
                     self._check_native_paper_entry(request, paper_entry_risk, client, contract, native_order)
@@ -2639,7 +2641,7 @@ class ExecutionEngine:
                 # Any failure after this point remains uncertain.
                 dispatch_committed = True
                 if retain_standalone:
-                    standalone = self._retain_native_request(request)
+                    standalone = self._retain_native_request(request, security_id=contract.conId)
                     self._check_native_paper_entry(request, paper_entry_risk, client, contract, native_order)
 
         elif retain_standalone:
