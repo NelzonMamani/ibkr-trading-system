@@ -57,6 +57,7 @@ from src.core.faults import (
 )
 from src.core.stop_controller import StopController, StopMode
 from src.core.performance_registry import PerformanceRegistry
+from src.core.paper_release import PaperRelease
 from src.core.replay_engine import ReplayEngine
 from src.core.trace_bus import TraceBus
 from src.core.decision_trace import DecisionTraceStore, SymbolDecisionTrace
@@ -427,6 +428,10 @@ class CoreOrchestrator:
         self.selected_strategy_key = str(self.selected_strategy_key).strip().lower()
         print(f"[STRATEGY][SELECTED] key={self.selected_strategy_key}")
         self.primary_strategy_key = self.selected_strategy_key or "ross_momentum"
+        if os.environ.get("ROSS_PAPER_RELEASE_ENABLED", "0") != "0" and self.primary_strategy_key != "ross_momentum":
+            raise RuntimeError("PAPER_RELEASE_REQUIRES_PAPER_MICRO_ROSS")
+        self._paper_release = PaperRelease.from_environment(
+            self.run_mode, self.execution_enabled, self._enabled_strategy_keys())
         self._strategy_watchlist_cache: dict[str, list[str]] = {}
         self._strategy_cadence_state: dict[str, StrategyCadenceState] = {}
         self._pipeline_runtime_counts: dict[str, int] = {
@@ -598,6 +603,10 @@ class CoreOrchestrator:
             daily_risk_governor=self.daily_risk_governor,
             autonomous_recovery_authority=self.autonomous_recovery_authority,
         )
+        if self._paper_release is not None:
+            engine = self.execution_engine
+            engine.paper_release_guard = lambda request, client, contract, order, now: (
+                self._paper_release.authorize(request, client, contract, order, now, engine))
         self.execution_enabled = self.execution_engine.execution_enabled
         self.position_management_engine = PositionManagementEngine()
         self.trade_management_engine = TradeManagementEngine(
@@ -3795,6 +3804,19 @@ class CoreOrchestrator:
                 return False
             if not self._run_selected_cost_tightening():
                 return False
+        paper_release = getattr(self, "_paper_release", None)
+        if paper_release is not None:
+            if paper_release.attempted:
+                return True
+            try:
+                paper_release.check_start(
+                    self.connection_manager.get_ibkr_client(ensure_connected=False),
+                    self.execution_engine, datetime.now(timezone.utc))
+            except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+                raise
+            except RuntimeError as exc:
+                print(f"[PAPER_RELEASE][BLOCK] reason={exc}")
+                return True
         if not self._autonomous_recovery_allows_new_entries(cycle_started_at=cycle_started_at):
             return True
         if not self._daily_risk_allows_new_entries(cycle_started_at=cycle_started_at):
@@ -4806,6 +4828,23 @@ class CoreOrchestrator:
             gated_strategy_output,
             position_truth_verdict,
         )
+        if self.run_mode == RunMode.PAPER and self.execution_engine.paper_entry_capital_required:
+            from src.domain.volume_evidence import ross_entry_volume_rejection
+
+            client = self.connection_manager.get_ibkr_client(ensure_connected=False)
+            retained = []
+            for intent in gated_strategy_output:
+                reason = ross_entry_volume_rejection(
+                    intent, self.run_mode, client_id=getattr(client, "client_id", None),
+                    connection_epoch=getattr(client, "_position_connection_epoch", None))
+                if paper_release is not None and (
+                        intent.setup_family_id != "ABCD" or intent.relationship_context):
+                    reason = "PAPER_RELEASE_REQUIRES_STANDALONE_ABCD_ONE_SHARE"
+                if reason:
+                    admission_gate_rejections[intent.symbol.upper()] = reason
+                else:
+                    retained.append(intent)
+            gated_strategy_output = retained
         if (
             self.run_mode not in {RunMode.READ_ONLY, RunMode.PAPER}
             and self._mock_scanner_mode_enabled()
@@ -4922,7 +4961,11 @@ class CoreOrchestrator:
                 self._trace_event("DECISION", artifact_payload,
                                   summary=f"decision_id={artifact.decision_id} intents={len(artifact.intents)}")
                 for intent in gated_strategy_output:
-                    decision = self.risk_engine.evaluate_trade_intent(intent)
+                    if self.run_mode == RunMode.PAPER and self.execution_engine.paper_entry_capital_required:
+                        evidence = self.execution_engine.collect_paper_entry_capital()
+                        decision = self.risk_engine.evaluate_trade_intent(intent, paper_capital=evidence)
+                    else:
+                        decision = self.risk_engine.evaluate_trade_intent(intent)
                     approved = bool(decision.allowed) and decision.risk_level != "BLOCKED" and not decision.execution_blocked
                     reason = decision.reason_code or decision.rationale
                     print(f"[RISK][DECISION] symbol={intent.symbol} approved={approved} "
