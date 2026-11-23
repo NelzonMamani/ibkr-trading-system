@@ -4824,6 +4824,13 @@ class CoreOrchestrator:
                 )
                 raise Exception("PIPELINE_BREAK_SETUP_TO_INTENT")
         gated_strategy_output = self._enforce_ross_execution_integrity(raw_strategy_output)
+        native_paper = (self.run_mode == RunMode.PAPER
+                        and getattr(self.execution_engine, "paper_entry_capital_required", False))
+        if native_paper and gated_strategy_output and not position_truth_verdict.block_new_entries:
+            # Discovery can take longer than the position evidence lifetime.
+            # Bind capital to current position truth immediately before risk.
+            position_truth_verdict = self._resolve_position_truth_cycle(
+                as_of=datetime.now(timezone.utc), broker_connection_ready=True)
         admission_gate_rejections = {}
         if self.run_mode in {RunMode.READ_ONLY, RunMode.PAPER}:
             integrity_ids = {id(intent) for intent in gated_strategy_output}
@@ -4832,6 +4839,8 @@ class CoreOrchestrator:
                 for intent in raw_strategy_output if id(intent) not in integrity_ids
             }
             if position_truth_verdict.block_new_entries:
+                if paper_release is not None:
+                    paper_release.last_gate = "POSITION_TRUTH_BLOCK_NEW_ENTRIES"
                 admission_gate_rejections.update({
                     intent.symbol.upper(): "POSITION_TRUTH_BLOCK_NEW_ENTRIES"
                     for intent in gated_strategy_output
@@ -4840,8 +4849,6 @@ class CoreOrchestrator:
             gated_strategy_output,
             position_truth_verdict,
         )
-        native_paper = (self.run_mode == RunMode.PAPER
-                        and getattr(self.execution_engine, "paper_entry_capital_required", False))
         if native_paper:
             from src.domain.volume_evidence import ross_entry_volume_rejection
 
@@ -5026,6 +5033,8 @@ class CoreOrchestrator:
 
         if mode_manager.allow_orders and self.run_mode == RunMode.PAPER:
             for intent, decision, approved in paper_decisions:
+                if paper_release is not None and paper_release.attempted:
+                    break
                 if not approved:
                     continue
                 if self._stop_requested_at_boundary("PAPER_EXECUTION"):

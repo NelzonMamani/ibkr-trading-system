@@ -90,7 +90,7 @@ def run(state, evidence, calendar, calendar_sha256):
     gate = release.last_gate
     # Only fixed gate tokens may leave the private log.
     if isinstance(gate, str) and re.fullmatch(
-            r"(?:PAPER_RELEASE_|ROSS_|POSITION_TRUTH_|CAPITAL_|DAILY_RISK_|AUTONOMOUS_RECOVERY_)[A-Z0-9_]+", gate):
+            r"(?:PAPER_RELEASE_|PAPER_CAPITAL_|ROSS_|POSITION_TRUTH_|CAPITAL_|DAILY_RISK_|AUTONOMOUS_RECOVERY_)[A-Z0-9_]+", gate):
         return "PAPER_RELEASE_NO_TRADE__" + gate, 2
     return "PAPER_RELEASE_NO_TRADE", 0
 
