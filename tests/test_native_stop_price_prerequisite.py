@@ -3115,6 +3115,74 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
     assert closed['database']['trade_lifecycle_events'] == replayed['database']['trade_lifecycle_events']
 
 
+@pytest.mark.parametrize('outcome',[
+    'cancelled', 'fill_during_cancel', 'late_fill', 'missing_terminal',
+    'late_fill_at_disconnect', 'wrong_client_cancel',
+])
+def test_controlled_abcd_timed_shutdown_resolves_only_authoritative_owned_evidence(
+        reassessment, monkeypatch, tmp_path, no_external_activity, runtime_schema_template, outcome):
+    import json
+    import shutil
+    from test_next_session_catalyst import receipt
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+
+    facts = _pristine_paper_loss_facts(reassessment, monkeypatch, tmp_path,
+        candidate='ABCD', account='DU10001')
+    facts['config'].update(RISK_PROFILE='MICRO', FORCE_EXECUTION_ON_TRADE_READY=False,
+        FORCE_RISK_APPROVAL_FOR_TRADE_READY=False,
+        MARKET_SESSION_COVERAGE=json.dumps(receipt('2026-10-19', '2026-10-20')))
+    monkeypatch.setenv('ROSS_PAPER_RELEASE_ENABLED', '1')
+    monkeypatch.setenv('ROSS_PAPER_EXPECTED_ACCOUNT', facts['account'])
+    monkeypatch.setenv('ROSS_PAPER_EXCLUSIVE_START_ATTESTED', '1')
+    facts['observe_pristine_native_scanner'] = True
+    facts['paper_pending_shutdown'] = outcome
+    facts['paper_shutdown_fill'] = facts['paper_cycle_steps'][1]['executions'][0]
+    facts['paper_cycle_steps'] = facts['paper_cycle_steps'][:1]
+    database = tmp_path / 'pending-shutdown.sqlite3'
+    shutil.copyfile(runtime_schema_template, database)
+    path = tmp_path / 'pending-shutdown.json'
+    path.write_text(json.dumps(facts, default=str), encoding='utf-8')
+    report = run_native_core_cold_start(database, path, tmp_path / 'pending-shutdown-child')
+    assert not report.get('harness_exception') and not report.get('cycle_exception'), {
+        key: report.get(key) for key in ('constructor_exception', 'harness_exception',
+            'cycle_exception', 'stage', 'evidence_dir')}
+    shutdown = report['pending_shutdown']
+    entry, *protection = report['synthetic_memory_dispatches']
+    assert entry['role'] == 'entry' and shutdown['cancel_calls'] == [entry['native_id']]
+    assert not report['network_attempts'] and not report['sdk_attempts'] and not no_external_activity
+    ack = report['cycles'][0]['engine']
+    assert not ack['position_records'] and ack['capital_reserved'] == 11
+    assert shutdown['disconnected']
+    events = shutdown['evidence']['events']
+    assert any(row['event'] == 'SHUTDOWN_COMPLETE' and row['completed'] for row in events)
+    holds = shutdown['holds']
+    assert holds and all(h['connected'] and not h['shutdown_finished'] and h['reserved'] == 11 for h in holds)
+    assert all(h['receipt']['status'] == 'PAPER_RELEASE_SHUTDOWN_HANDOFF_ACTIVE' for h in holds)
+    resolved, = [row for row in events if row['event'] == 'PAPER_RELEASE_SHUTDOWN_RESOLVED']
+    state = shutdown['after']
+    if outcome in {'fill_during_cancel', 'late_fill', 'late_fill_at_disconnect'}:
+        stop, = protection
+        assert stop['role'] == 'stop' and stop['order']['auxPrice'] == 10.35
+        assert state['protection'][entry['root_id']]['protected']
+        assert resolved['gate'] == 'PAPER_RELEASE_SHUTDOWN_FILL_PROTECTED'
+        assert state['canonical_trades'][entry['root_id']]['quantity_open'] == 1
+        assert state['capital_reserved'] == 0 and state['capital_used'] == 11.02
+        if outcome == 'late_fill':
+            assert shutdown['execution_queries'] == [1]
+        if outcome == 'late_fill_at_disconnect':
+            assert shutdown['execution_queries'] == [0]
+            assert any(h['receipt']['gate'] == 'PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY' for h in holds)
+    else:
+        assert not protection and not state['registry'] and not state['post_fill']
+        assert shutdown['execution_queries'] == [0]
+        assert state['capital_reserved'] == state['capital_used'] == 0
+        assert resolved['gate'] == 'PAPER_RELEASE_SHUTDOWN_CANCELLED_UNFILLED'
+        if outcome == 'missing_terminal':
+            assert len(holds) == 2
+        if outcome == 'wrong_client_cancel':
+            assert any(h['receipt']['gate'] == 'PAPER_RELEASE_SHUTDOWN_CALLBACK_SCOPE_CONFLICT' for h in holds)
+
+
 @pytest.mark.parametrize('fees,expected',[('gross',-.25),('positive',-.28),('known_zero',-.27),('partial_gross',-.25)])
 def test_actual_core_cold_restart_inspects_committed_accounting_without_native_adoption(
         reassessment,monkeypatch,tmp_path,capsys,no_external_activity,runtime_schema_template,fees,expected):

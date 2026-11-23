@@ -1658,6 +1658,7 @@ try:
     owned_scanner_reads = set()
     owned_position_reads = set()
     capital_owner_read = [False]
+    pending_shutdown_history = []
     def send_message(message):
         fields = str(message).split('\0')
         opcode = fields[0]
@@ -1666,6 +1667,19 @@ try:
         if report['wire_attempts'][-1]['mutation']:
             raise SyntheticWriteBoundary('COLD_CORE_SYNTHETIC_NATIVE_WRITE_ATTEMPT')
         if observe_pristine_cycle:
+            if facts.get('paper_pending_shutdown') and opcode == str(OUT.REQ_EXECUTIONS):
+                request_id = int(fields[2])
+                context = client._request_context_by_req_id.get(request_id, {})
+                query = context.get('execution_query')
+                shutdown = report['pending_shutdown']
+                if (not query or query['order_id'] != shutdown['entry_id']
+                        or query['account'] != account or query['con_id'] != facts['paper_memory_plan']['con_id']):
+                    raise ForbiddenExternalIO('UNBOUND_SYNTHETIC_SHUTDOWN_EXECUTIONS_QUERY')
+                shutdown['execution_queries'].append(len(pending_shutdown_history))
+                for contract, execution in pending_shutdown_history:
+                    client.execDetails(request_id, contract, execution)
+                client.execDetailsEnd(request_id)
+                return
             # Only this supplied security's real read encoders reach a memory
             # transport. The actual Native callbacks retain request ownership.
             if (facts.get('observe_pristine_paper_cycle') and capital_owner_read[0]
@@ -2188,6 +2202,95 @@ try:
     if facts.get('observe_pristine_paper_cycle'):
         report['native_history_pending_ids'] = sorted(client._historical_states)
     report['mutation_attempts'] = mutation_snapshot()
+    if facts.get('paper_pending_shutdown'):
+        from src.core.stop_controller import StopMode
+        from decimal import Decimal
+        from ibapi.execution import Execution
+
+        report['stage'] = 'CONTROLLED_PENDING_ENTRY_SHUTDOWN'
+        case = facts['paper_pending_shutdown']
+        entry, = report['synthetic_memory_dispatches']
+        entry_id = entry['native_id']
+        root = entry['root_id']
+        shutdown = dict(entry_id=entry_id, cancel_calls=[], holds=[], execution_queries=[])
+        report['pending_shutdown'] = shutdown
+        raw = facts['paper_shutdown_fill']
+        observed = datetime.fromisoformat(raw['execution']['time'])
+        validate_pristine_paper_execution_fact(actual_client=client,expected_client=client,
+            core=core,plan=facts['paper_memory_plan'],dispatches=[entry],raw=raw,now=observed)
+        execution = Execution()
+        for name, value in raw['execution'].items():
+            setattr(execution,name,Decimal(str(value)) if name in {'shares','cumQty'} else value)
+        execution.orderId = entry_id
+        fill_contract = scanner_contract_details(raw['contract']['symbol'],
+            candidates[raw['contract']['symbol']]).contract
+
+        def cancelled(*, callback_client_id=client_id):
+            orders.clear()
+            client.orderStatus(entry_id, 'Cancelled', 0, 1, 0., entry_id, 0, 0., callback_client_id, '', 0.)
+
+        def deliver_fill(*, fill_status):
+            orders.clear()
+            positions[:] = [NS(symbol=raw['contract']['symbol'],position=1,
+                con_id=raw['contract']['conId'],avgCost=raw['execution']['price'],account=account)]
+            client.execDetails(-1,fill_contract,execution)
+            if fill_status:
+                client.orderStatus(entry_id,'Filled',1,0,raw['execution']['price'],
+                    entry_id,0,raw['execution']['price'],client_id,'',0.)
+
+        def memory_cancel(order_id):
+            if (order_id != entry_id or shutdown['cancel_calls']
+                    or not native_namespace(database_snapshot())['orders'][root]['shutdown_cancel_sent']):
+                raise ForbiddenExternalIO('UNOWNED_OR_REPEATED_SYNTHETIC_SHUTDOWN_CANCEL')
+            shutdown['cancel_calls'].append(order_id)
+            if case == 'fill_during_cancel':
+                deliver_fill(fill_status=True)
+            elif case == 'wrong_client_cancel':
+                cancelled(callback_client_id=client_id + 1)
+            elif case != 'missing_terminal':
+                cancelled()
+                if case == 'late_fill':
+                    # Independent query evidence leads the still-in-flight
+                    # unsolicited callback and broker position observation.
+                    pending_shutdown_history.append((fill_contract,execution))
+
+        client.cancelOrder = memory_cancel
+        if case == 'late_fill_at_disconnect':
+            actual_disconnect = core.execution_engine.shutdown
+            late_delivered = []
+            def observe_final_shutdown():
+                if not late_delivered:
+                    deliver_fill(fill_status=False)
+                    late_delivered.append(True)
+                return actual_disconnect()
+            core.execution_engine.shutdown = observe_final_shutdown
+        os.environ['PR1090_EVIDENCE_DIR'] = str(Path(report_path).parent)
+        def observe_shutdown_hold(seconds):
+            hold = json.loads((Path(report_path).parent / 'pending-entry-handoff.json').read_text(encoding='utf-8'))
+            shutdown['holds'].append(dict(receipt=hold, connected=manager.existing_client is client
+                and client.is_connected(), shutdown_finished=getattr(core,'_shutdown_finished',False),
+                reserved=core.execution_engine.capital_authority.total_reserved_capital))
+            if len(shutdown['holds']) > 3:
+                raise ForbiddenExternalIO('SYNTHETIC_PENDING_SHUTDOWN_EXCEEDED_TAPE')
+            if case == 'late_fill' and hold['gate'] == 'PAPER_RELEASE_SHUTDOWN_CANCELLATION_UNCONFIRMED':
+                deliver_fill(fill_status=False)  # No corrective orderStatus is supplied.
+            if case == 'missing_terminal' and len(shutdown['holds']) == 2:
+                cancelled()
+            if case == 'wrong_client_cancel' and hold['gate'] == 'PAPER_RELEASE_SHUTDOWN_CALLBACK_SCOPE_CONFLICT':
+                cancelled()
+        class ShutdownClock:
+            def __getattr__(self, name):
+                return observe_shutdown_hold if name == 'sleep' else getattr(real_elapsed_time, name)
+        original_time = core_module.time
+        core_module.time = ShutdownClock()
+        try:
+            core._request_stop(StopMode.GRACEFUL,'Supervisor stop requested','PR1090')
+            core._shutdown(StopMode.GRACEFUL)
+        finally:
+            core_module.time = original_time
+        shutdown['evidence'] = plain(core.shutdown_evidence.payload())
+        shutdown['after'] = engine_snapshot(core.execution_engine)
+        shutdown['disconnected'] = manager.existing_client is None
     if (facts.get('observe_pristine_native_graceful_shutdown')
             or facts.get('observe_pristine_native_ack_graceful_shutdown')):
         report['stage'] = 'NATIVE_PAPER_GRACEFUL_SHUTDOWN'

@@ -3907,7 +3907,7 @@ class ExecutionEngine:
         committed = self._selected_committed_order(order_id)
         if any(order.get(key) != committed.get(key) for key in
                ("request", "decision_id", "account", "mode", "symbol", "side", "broker_order_id", "requested", "action", "owner_effect_version",
-                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "last_accounted_exit_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role", "unit_profit_exit", "unit_amendment", "unit_close_coverage_confirmed", "unit_connection_epoch", "unit_client_id", "unit_initial_protection_profile", "stop_price_revision", "native_client_id", "native_connection_epoch", "native_account_scope_generation", "canonical_feedback")):
+                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "last_accounted_exit_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role", "unit_profit_exit", "unit_amendment", "unit_close_coverage_confirmed", "unit_connection_epoch", "unit_client_id", "unit_initial_protection_profile", "stop_price_revision", "native_client_id", "native_connection_epoch", "native_account_scope_generation", "canonical_feedback", "shutdown_cancel_sent")):
             raise ValueError("NATIVE_ORDER_RETAINED_BINDING_CHANGED")
         facets = {"symbol": order["symbol"], "account": order["account"], "side": order["side"],
             "client_order_id": order_id, "orderId": order["broker_order_id"], "decision_id": order["decision_id"]}
@@ -4831,7 +4831,7 @@ class ExecutionEngine:
             # Neither uncertainty nor capital/failsafe latches are cleared.
             self._native_revision_fill_drain = self._native_unit_update_batch = False
 
-    def collect_relationship_updates(self, *, result_processor=None):
+    def collect_relationship_updates(self, *, result_processor=None, shutdown_entry=None):
         # One live owner/frame across normal and quarantined factual accounting.
         # Atomic setdefault also supports existing __new__ inspection fixtures;
         # never clear quarantine or wait on another callback frame.
@@ -4842,6 +4842,10 @@ class ExecutionEngine:
         if not lock.acquire(blocking=False):
             raise RuntimeError("NATIVE_UNIT_CALLBACK_REENTRANCY")
         try:
+            if shutdown_entry is not None:
+                order_id, facts = shutdown_entry
+                return self._collect_relationship_updates(
+                    result_processor=result_processor, cached_updates={order_id: facts})
             return self._collect_selected_order_updates(result_processor=result_processor)
         finally:
             lock.release()
@@ -4984,6 +4988,15 @@ class ExecutionEngine:
                             or self._native_orders[order["protection_parent_order_id"]].get("pmh_failure_exit"))):
                         _, life = self._native_protection_owner(order)
                         self._verify_native_remaining_stop(order, life, order["filled"])
+                    continue
+                if (getattr(self, "_paper_release", None) is not None and plan is None
+                        and not order.get("protection_parent_order_id") and not order["terminal"]
+                        and (cached_updates is None or order_id not in cached_updates)
+                        and str(facts.get("status") or "").upper() in {
+                            "CANCELLED", "CANCELED", "APICANCELLED", "REJECTED", "INACTIVE"
+                        } and facts.get("filled") == 0):
+                    # Keep the reservation and the entry owner alive. A zero
+                    # cancellation status alone cannot settle a late fill.
                     continue
                 if plan is None or order.get("protection_parent_order_id") or order.get("request", {}).get("selected_stop_units"):
                     self._validate_native_binding(order_id, order, facts)
@@ -5451,6 +5464,160 @@ class ExecutionEngine:
         )
         return closed_trades
 
+    def paper_release_shutdown_step(self, *, read_positions, result_processor):
+        """Drain the controlled entry with its existing financial/protection owners.
+
+        Only scoped observational agreement can permit disconnect. Missing or
+        contradictory evidence leaves this process in management-only hold.
+        """
+        release = getattr(self, "_paper_release", None)
+        if release is None:
+            return True, "PAPER_RELEASE_SHUTDOWN_NOT_ENROLLED"
+        self._failsafe_block_new_entries = True
+        self._paper_shutdown_finalize = None
+        if not self._native_orders and not self._native_quarantined and not release.attempted:
+            return True, "PAPER_RELEASE_SHUTDOWN_NO_ENTRY"
+        roots = [(key, row) for key, row in self._native_orders.items()
+                 if not row.get("protection_parent_order_id")]
+        if len(roots) != 1 or self._native_quarantined:
+            return False, "PAPER_RELEASE_SHUTDOWN_OWNERSHIP_UNRESOLVED"
+
+        root_id, entry = roots[0]
+        request = BrokerOrderRequest(**entry["request"])
+        native_id = entry.get("broker_order_id")
+        if not self._qualified_abcd_initial_stop(request) or not native_id:
+            return False, "PAPER_RELEASE_SHUTDOWN_ENTRY_ID_UNAVAILABLE"
+        native_id = int(native_id)
+        client = self._native_callback_client()
+        positions = read_positions()
+        if positions.status != "COMPLETE" or positions.account != entry["account"]:
+            return False, "PAPER_RELEASE_SHUTDOWN_POSITION_TRUTH_UNAVAILABLE"
+        self._validate_native_binding(root_id, entry, {})
+        if client.account_capital_scope(entry["account"], request_ids=(native_id,)) != positions.scope_identity:
+            return False, "PAPER_RELEASE_SHUTDOWN_ENTRY_ID_UNAVAILABLE"
+        owned = positions.get(entry["symbol"])
+        if positions and (len(positions) != 1 or owned is None or owned.con_id != entry["security_id"]
+                          or owned.quantity != 1):
+            return False, "PAPER_RELEASE_SHUTDOWN_POSITION_CONFLICT"
+
+        facts = client.cached_order_status(native_id)
+        self._validate_native_binding(root_id, entry, facts)
+        if facts and (facts.get("status_client_id") != entry["native_client_id"]
+                      or facts.get("status_parent_id") != 0
+                      or facts.get("status_connection_epoch") != entry["native_connection_epoch"]):
+            return False, "PAPER_RELEASE_SHUTDOWN_CALLBACK_SCOPE_CONFLICT"
+        executions = client.cached_native_executions(native_id)
+        status = str(facts.get("status") or "").upper()
+        if executions or entry["filled"]:
+            if len(executions) != 1:
+                return False, "PAPER_RELEASE_SHUTDOWN_EXECUTION_CONFLICT"
+            execution = executions[0]
+            if (execution["account"] != entry["account"] or execution["conId"] != entry["security_id"]
+                    or execution["symbol"] != entry["symbol"] or execution["side"] != "BOT"
+                    or execution["clientId"] != entry["native_client_id"]
+                    or execution["connection_epoch"] != entry["native_connection_epoch"]
+                    or execution["shares"] != 1 or execution["cumQty"] != 1
+                    or execution["price"] != execution["avgPrice"]
+                    or execution["timestamp_utc"] > datetime.now(timezone.utc)
+                    or isinstance(facts.get("filled"), bool) or facts.get("filled") not in (None, 0, 1)
+                    or (facts.get("filled") == 1 and
+                        float(facts["avgFillPrice"]) != float(execution["avgPrice"]))):
+                return False, "PAPER_RELEASE_SHUTDOWN_EXECUTION_CONFLICT"
+            if not entry["filled"] and owned is None:
+                return False, "PAPER_RELEASE_SHUTDOWN_FILL_POSITION_UNCONFIRMED"
+            # One attributable share from the actual native execution stream
+            # exhausts the request. An older zero-status frame cannot erase it.
+            fill = {"status": "FILLED", "filled": 1, "remaining": 0,
+                    "avgFillPrice": execution["avgPrice"]}
+            self.collect_relationship_updates(result_processor=result_processor,
+                shutdown_entry=(root_id, fill))
+            life = self.post_fill_lifecycle.get_trade(root_id)
+            canonical = self._trade_lifecycle_engine.get_trade(root_id)
+            inventory = self._pmh_complete_inventory()
+            self._validate_native_binding(root_id, entry, {})
+            if (life is not None and life.filled_qty == 0 and canonical is not None
+                    and canonical.quantity_open == 0 and canonical.quantity_closed == 1
+                    and not positions and not inventory and not self.trade_registry.snapshot()):
+                self._paper_shutdown_finalize = lambda: self._validate_native_binding(root_id, entry, {})
+                return True, "PAPER_RELEASE_SHUTDOWN_FILL_CLOSED"
+            if life is not None and life.stop is not None and owned is not None and len(inventory) == 1:
+                child = {"broker_order_id": life.stop.broker_order_id, "requested": 1, "filled": 0}
+                row = inventory[0]
+                if (entry.get("protection_confirmed") and canonical is not None and canonical.quantity_open == 1
+                        and self._pmh_working_close(entry, child, life, inventory) == "STP"
+                        and row.metadata.get("account") == entry["account"]
+                        and row.metadata.get("client_id") == entry["native_client_id"]):
+                    stop_id = int(child["broker_order_id"])
+                    observed_status = client.cached_order_status(stop_id)
+                    if (client.cached_native_executions(stop_id) or (observed_status
+                            and (str(observed_status.get("status") or "").upper() not in {"SUBMITTED", "PRESUBMITTED"}
+                                 or observed_status.get("filled") != 0))):
+                        return False, "PAPER_RELEASE_SHUTDOWN_PROTECTION_UNCONFIRMED"
+
+                    def finalize_protected():
+                        with client._lock:
+                            self._validate_native_binding(root_id, entry, {})
+                            if (client.cached_order_status(stop_id) != observed_status
+                                    or client.cached_native_executions(stop_id)):
+                                raise RuntimeError("PAPER_RELEASE_SHUTDOWN_PROTECTION_CHANGED")
+
+                    self._paper_shutdown_finalize = finalize_protected
+                    return True, "PAPER_RELEASE_SHUTDOWN_FILL_PROTECTED"
+            return False, "PAPER_RELEASE_SHUTDOWN_PROTECTION_UNCONFIRMED"
+
+        if owned is not None or facts.get("filled") != 0 or isinstance(facts.get("filled"), bool):
+            return False, "PAPER_RELEASE_SHUTDOWN_FILL_EVIDENCE_PENDING"
+        inventory = self._pmh_complete_inventory()
+        if status in {"CANCELLED", "CANCELED", "APICANCELLED"}:
+            history = client.execution_snapshot(account=entry["account"], order_id=native_id,
+                con_id=entry["security_id"], symbol=entry["symbol"], side="BUY")
+            positions = read_positions()
+            if (history.status != "COMPLETE" or history.rows or inventory or positions
+                    or history.account != entry["account"] or history.con_id != entry["security_id"]
+                    or history.order_id != native_id or history.symbol != entry["symbol"] or history.side != "BUY"
+                    or type(history.request_id) is not int or history.request_id < 0
+                    or history.client_id != entry["native_client_id"]
+                    or history.connection_epoch != entry["native_connection_epoch"]
+                    or positions.status != "COMPLETE" or positions.account != entry["account"]
+                    or self._pmh_complete_inventory()):
+                return False, "PAPER_RELEASE_SHUTDOWN_CANCELLATION_UNCONFIRMED"
+            def finalize_cancelled():
+                with client._lock:
+                    self._validate_native_binding(root_id, entry, facts)
+                    if (client.account_capital_scope(entry["account"], request_ids=(native_id, history.request_id)) != positions.scope_identity
+                            or not self._paper_order_scope_fresh((entry["account"], client, history.completed_at),
+                                datetime.now(timezone.utc))
+                            or client.cached_order_status(native_id) != facts or client.cached_native_executions(native_id)):
+                        raise RuntimeError("PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY")
+                    self.collect_relationship_updates(result_processor=result_processor,
+                        shutdown_entry=(root_id, {**facts, "status": "CANCELLED"}))
+
+            self._paper_shutdown_finalize = finalize_cancelled
+            return True, "PAPER_RELEASE_SHUTDOWN_CANCELLED_UNFILLED"
+
+        if not entry.get("shutdown_cancel_sent") and len(inventory) == 1:
+            order = inventory[0]
+            meta = order.metadata
+            if (str(order.order_id) == str(native_id) and order.symbol == entry["symbol"]
+                    and order.status.upper() in {"SUBMITTED", "PRESUBMITTED"}
+                    and order.parent_order_id is None and order.order_type == request.order_type
+                    and meta.get("side") == "BUY" and meta.get("account") == entry["account"]
+                    and meta.get("client_id") == entry["native_client_id"] and meta.get("con_id") == entry["security_id"]
+                    and meta.get("native_quantity") == 1 and meta.get("order_ref") == root_id
+                    and (request.order_type != "LMT" or meta.get("limit_price") == request.limit_price)):
+                from src.ibkr.read_only_guard import assert_read_only_allows
+
+                with client._lock:
+                    self._validate_native_binding(root_id, entry, facts)
+                    if (client.account_capital_scope(entry["account"], request_ids=(native_id,)) != positions.scope_identity
+                            or client.cached_order_status(native_id) != facts or client.cached_native_executions(native_id)):
+                        return False, "PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY"
+                    assert_read_only_allows("CANCEL_ORDER")
+                    entry["shutdown_cancel_sent"] = True
+                    self._save_native_orders()
+                    client.cancelOrder(native_id)
+        return False, "PAPER_RELEASE_SHUTDOWN_ENTRY_STILL_PENDING"
+
     def shutdown(self) -> None:
         """
         Idempotent shutdown placeholder.
@@ -5460,9 +5627,21 @@ class ExecutionEngine:
         safe orchestrator shutdown sequencing.
         """
 
+        controlled = getattr(self, "_paper_release", None) is not None
+        if controlled:
+            if getattr(self, "_paper_shutdown_complete", False):
+                return
+            if self._native_orders or self._native_quarantined:
+                finalize = getattr(self, "_paper_shutdown_finalize", None)
+                self._paper_shutdown_finalize = None
+                if finalize is None:
+                    raise RuntimeError("PAPER_RELEASE_SHUTDOWN_HANDOFF_ACTIVE")
+                finalize()
         broker = getattr(self._provider, "broker", None)
         if broker is not None and hasattr(broker, "disconnect"):
             broker.disconnect(reason="execution_engine_shutdown")
+        if controlled:
+            self._paper_shutdown_complete = True
         print("[EXECUTION] Shutdown requested — broker cleanup complete.")
 
 

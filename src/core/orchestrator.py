@@ -7792,6 +7792,51 @@ class CoreOrchestrator:
         except Exception:
             return ShutdownExecutionContext()
 
+    def _await_paper_release_shutdown(self, proof) -> str:
+        from src.ibkr.evidence_safety import write_json
+
+        directory = os.environ.get("PR1090_EVIDENCE_DIR")
+        last_gate = None
+        while True:
+            try:
+                ready, gate = self.execution_engine.paper_release_shutdown_step(
+                    read_positions=lambda: self._collect_and_bind_position_scope(
+                        as_of=datetime.now(timezone.utc), broker_connection_ready=True),
+                    result_processor=lambda result: self._apply_execution_results_to_trade_management([result]))
+                if ready:
+                    # Consume the last scoped observation at the execution
+                    # shutdown hook, before any evidence I/O or other cleanup.
+                    self.execution_engine.shutdown()
+            except KeyboardInterrupt:
+                ready, gate = False, "PAPER_RELEASE_SHUTDOWN_MANUAL_HANDOFF_REQUIRED"
+            except Exception as exc:
+                print(f"[PAPER_RELEASE][SHUTDOWN] unresolved observation: {type(exc).__name__}: {exc}")
+                detail = str(exc)
+                known = {"PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY",
+                         "PAPER_RELEASE_SHUTDOWN_PROTECTION_CHANGED"}
+                ready, gate = False, detail if detail in known else "PAPER_RELEASE_SHUTDOWN_OBSERVATION_UNAVAILABLE"
+            if gate != last_gate:
+                status = ("PAPER_RELEASE_SHUTDOWN_RESOLVED" if ready
+                          else "PAPER_RELEASE_SHUTDOWN_HANDOFF_ACTIVE")
+                proof.record(status, gate=gate, management_continues=not ready)
+                print(f"[PAPER_RELEASE][SHUTDOWN] status={status} gate={gate}", flush=True)
+                if directory:
+                    try:
+                        write_json(Path(directory) / "pending-entry-handoff.json", {
+                            "status": status, "gate": gate, "runtime_pid": os.getpid(),
+                            "management_continues": not ready,
+                        })
+                    except OSError as exc:
+                        print(f"[PAPER_RELEASE][SHUTDOWN] evidence unavailable: {exc}", flush=True)
+                last_gate = gate
+            if ready:
+                return gate
+            try:
+                time.sleep(1)
+            except KeyboardInterrupt:
+                # Repeated console control cannot certify absence of a fill.
+                continue
+
     def _shutdown(self, mode: StopMode) -> None:
         from src.ibkr.shutdown_evidence import ShutdownEvidence, reset_scanner, disconnect_manager
         from src.ibkr.evidence_safety import finish_console_protection
@@ -7810,6 +7855,14 @@ class CoreOrchestrator:
                 return
         proof = ShutdownEvidence()
         self.shutdown_evidence = proof
+        paper_gate = None
+        controlled = getattr(self, "_paper_release", None) is not None
+        def shutdown_execution():
+            nonlocal paper_gate
+            if controlled:
+                paper_gate = self._await_paper_release_shutdown(proof)
+            else:
+                self.execution_engine.shutdown()
         if resolved_mode == StopMode.PANIC:
             from src.ibkr.shutdown_evidence import REQUIRED_HOOKS
 
@@ -7822,7 +7875,7 @@ class CoreOrchestrator:
             maintenance = getattr(self, "_news_maintenance", None)
             if maintenance is not None:
                 maintenance.stop.set()
-            proof.attempt("execution_engine.shutdown", self.execution_engine.shutdown)
+            proof.attempt("execution_engine.shutdown", shutdown_execution)
             for name in REQUIRED_HOOKS:
                 if name == "execution_engine.shutdown":
                     continue
@@ -7852,20 +7905,31 @@ class CoreOrchestrator:
         started = emit_shutdown("SHUTDOWN_STARTED", self._stop_payload(resolved_mode))
         proof.record("SHUTDOWN_STARTED", completed=started,
                      news_maintenance_owned=getattr(self, "_news_maintenance", None) is not None)
+        if controlled:
+            proof.attempt("execution_engine.shutdown", shutdown_execution)
         maintenance = getattr(self, "_news_maintenance", None)
         if maintenance is not None:
             proof.attempt("news_maintenance.shutdown", maintenance.close)
         hooks = [
             ("ops_summary", self._emit_ops_summary),
             ("learning_scheduler", self.learning_scheduler.on_shutdown),
-            ("execution_engine.shutdown", self.execution_engine.shutdown),
-            ("trade_exit_engine.shutdown", lambda: self.trade_exit_engine.shutdown(
-                execution_context=trade_exit_context)),
-            ("storage_engine.shutdown", self.storage_engine.shutdown),
-            ("active_trade_registry.verify_empty", self.trade_registry.verify_empty),
+        ]
+        if not controlled:
+            hooks.append(("execution_engine.shutdown", shutdown_execution))
+        if paper_gate in (None, "PAPER_RELEASE_SHUTDOWN_NO_ENTRY"):
+            hooks.append(("trade_exit_engine.shutdown", lambda: self.trade_exit_engine.shutdown(
+                execution_context=trade_exit_context)))
+        else:
+            # The native drain has its own affirmative terminal/management
+            # evidence. Teaching closure has no work on retained broker state.
+            proof.record("PAPER_RELEASE_NATIVE_OWNERSHIP_RETAINED", gate=paper_gate)
+        hooks.append(("storage_engine.shutdown", self.storage_engine.shutdown))
+        if paper_gate != "PAPER_RELEASE_SHUTDOWN_FILL_PROTECTED":
+            hooks.append(("active_trade_registry.verify_empty", self.trade_registry.verify_empty))
+        hooks.extend([
             ("scanner_reset", reset_scanner),
             ("manager_disconnect", disconnect_manager),
-        ]
+        ])
         for name, function in hooks:
             proof.attempt(name, function)
             row = proof.hooks[-1]

@@ -3962,17 +3962,21 @@ class IbkrClient(EWrapper, EClient):
             f"remaining={remaining}"
         )
         self._ensure_order_state_registry()
-        existing = self._order_status.get(orderId, {})
-        # Intake owns whole-share validation. Truncation here would conceal a
-        # fractional or malformed callback before that owner can reject it.
-        self._order_status[orderId] = {
-            **existing,
-            "status": status,
-            "filled": filled,
-            "remaining": remaining,
-            "avgFillPrice": avgFillPrice,
-            "lastFillPrice": lastFillPrice,
-        }
+        with self._lock:
+            existing = self._order_status.get(orderId, {})
+            # Intake owns whole-share validation. Truncation here would conceal a
+            # fractional or malformed callback before that owner can reject it.
+            self._order_status[orderId] = {
+                **existing,
+                "status": status,
+                "filled": filled,
+                "remaining": remaining,
+                "avgFillPrice": avgFillPrice,
+                "lastFillPrice": lastFillPrice,
+                "status_client_id": clientId,
+                "status_parent_id": parentId,
+                "status_connection_epoch": self._position_connection_epoch,
+            }
         self._publish_local_intake("orderStatus",cache="_order_status",order_id=orderId)
         print(
             "[ORDER][STATUS] "
