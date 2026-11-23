@@ -22173,3 +22173,88 @@ and the caller's deliberate missing-pin refusal. The caller template is
 unchanged in this delta. Current-head full Linux/Windows CI is still required.
 The authorized operator volume probe and controlled PAPER launch remain
 unexecuted. PAPER_READY=NO.
+
+### Coordinator review of PR1250 and Windows causal repair (2026-11-23)
+
+Review source: 484afebdaad74db4dcb82afee03a933ac7040bb4. The candidate remains
+DRAFT and its write-enabled laptop caller remains UNPINNED. This dated review
+supersedes any implication that B02-B07 are fully release-complete merely
+because their inert positive cases pass. No broker connection or laptop
+operation was performed.
+
+#### Integrated independent benchmark repair
+
+PR1249 required run45216779844 passed all five jobs on reviewed
+ccb8311beec3d4ca888d712bd58db91a1b10cfc3. Coordinator merged under the
+operator's standing authorization through the GitHub exact-head merge tool.
+Actual main merge42bf5ba95b5808231ed923d824ad96977882cb68 has ordered parents
+98a5f90ced1d17fd97e45103155a22efe6b2bed9 and
+ccb8311beec3d4ca888d712bd58db91a1b10cfc3. Its tree
+845758c31d76a5a36795ebd05e48ad96e12e3c97 equals the reviewed head.
+Automatic main run45239388028 was still in progress when this receipt was
+prepared. Earlier automatic approval rejection is historical; this merge
+succeeded. No new user authorization question was necessary. D04 source
+integration is complete; actual SPY/QQQ acquisition remains unverified.
+
+#### Actual Windows result and causal test-harness correction
+
+Run45227777348 on484afeb passed Linux8641/3skipped and Windows controlled
+process, but Windows offline job137878935177 FAILED:5failed/8637passed/
+2skipped,39subtests,2959.92seconds. The aggregate failed. The five
+ordinary/exclusive/missing-stop/rejected-stop/wrong-structural-stop cases
+reported PRISTINE_PAPER_EXECUTION_CERTIFICATE:LEG. These are retained
+failures, not a passed or still-running Windows receipt.
+
+The cause was reproduced on Linux by forcing the real stdlib
+socket._fallback_socketpair: native scanner import initializes asyncio;
+Windows uses a private TCP socketpair for its self-pipe. The cold-child
+method-level socket.connect denial intercepted that internal connection
+before entry dispatch. A later supplied fill therefore correctly failed
+its missing-prior-dispatch certificate. The guard was not evidence of an
+actual broker transaction or an invalid production fill.
+
+The narrow correction in tests/test_startup_recovery_and_stop_protection.py
+verifies the inherited hard offline audit guard, creates/owns the native
+scanner asyncio loop before installing the unchanged stricter method-level
+denials, and closes that loop during owned cleanup. The existing hard audit
+still restricts private socketpair setup to the genuine stdlib internal
+pair. No production code, execution certificate or global offline guard is
+weakened. tests/test_native_stop_price_prerequisite.py now exercises all
+five outcomes with both native and forced Windows stdlib socketpairs and
+checks loop closure.
+Independent review cleared this narrow two-file test delta and confirmed
+that the inherited audit, application network denies and prior execution
+assertions remain intact.
+
+Focused verification:13joined/cold-start cases passed in40.59seconds,
+including10socketpair/lifecycle combinations, READ_ONLY progression,
+empty startup and child timeout cleanup. The existing24offline socketpair/
+network-guard cases passed in5.99seconds. git diff --check passed.
+These scoped results do not replace actual required Windows CI on the
+new combined head.
+
+#### Reopened active release checklist
+
+| ID | Current precise status | Decisive remaining work |
+| --- | --- | --- |
+| B01 | ACCOUNT_PREREQUISITE unchanged | Five legacy holdings remain unresolved and entry-vetoed. No clean account/session has been prepared or verified; no disposition/adoption/exemption/reset is authorized by this review. |
+| B02 | Native provenance and exact-contract share-verification primitive VERIFIED_INERT; operator calibration INCOMPLETE | The caller expects a four-key volume-witness.json; the diagnostic writes a different native-volume.json schema and samples the first acceptable scanner row. The comparator must initially match the exact runtime contract and be fresh, so a stale renamed probe file cannot qualify a later unrelated ABCD. Implement a coherent private calibration/preparation path; retain actual candidate freshness and reconnect invalidation. TWS build/settings and a real matching pair remain local facts. |
+| B03 | Snapshot gate VERIFIED_INERT; RVOL denominator unit authority OPEN | Historical bars and ADV are passed/averaged in raw units, while scanner phase RVOL can divide verified snapshot shares by that untyped ADV. Missing dimensional-compatibility enforcement is established; an actual factor100 laptop error is NOT established. Carry and validate historical-volume quantity basis before RVOL can support entry. |
+| B04 | Account-bound margin/equity capital handoff VERIFIED_INERT; cash-only spend contract INCOMPLETE | Evidence contains NetLiquidation/AvailableFunds/BuyingPower, not settled/unborrowed USD cash. Final notional uses approved entry price while actual entry may be MKT. Complete a source-backed cash/no-borrowing, executable price ceiling and fee/reservation contract through existing owners before enabling the controlled caller. Do not relabel margin metrics as settled cash. |
+| B05 | Ordinary/exclusive standalone ABCD one-share chain VERIFIED_INERT within its existing scope | Preserve actual Core/risk/reservation identity and acknowledgment-not-ownership behavior. Windows fixture correction still needs exact-head CI; no broker acceptance follows. |
+| B06 | Lifecycle positives VERIFIED_INERT; pending-entry shutdown and final stop admission OPEN | The900second timer requests shutdown even with a pending entry; ExecutionEngine.shutdown disconnects without resolving that BUY. A later fill could lack a processed fill callback and initial stop. Reporting uncertainty does not mitigate this exposure. Implement bounded owned-entry resolution/late-fill protection before disconnect or an explicit continued-management handoff. Also serialize the qualified ABCD stop's final epoch/account-generation recheck with native dispatch through the existing final-admission seam; before_submit alone leaves a finite local callback race. Wrong-account execution is not demonstrated. |
+| B07 | Default-off preflight/caller template exists; release UNPINNED | Keep the caller unusable for trading until B02/B03/B04/B06, final independent review and required CI are satisfied. Flatness is a starting entry condition, never a prerequisite for protecting newly acquired exposure. Exclusive operator conditions remain labelled assumptions; no global atomic broker fence is claimed. |
+| B08 | BROKER_UNPROVED | A later supervised qualifying clean-account one-share PAPER attempt remains required. No new unchanged READ_ONLY run or current unpinned caller execution is requested. |
+
+The apparent omission of an explicit IBKR_KILL_SWITCH=false in the operator
+was checked and is NOT a demonstrated defect: effective PAPER configuration
+derives false through the resolver. Do not create an unrelated flag fix from
+the registry's raw default.
+
+Next autonomous implementation priority: complete these finite operational
+gaps in the existing PR1250/owners, reuse its implemented source and tests,
+then final independent review, exact-head required Linux/Windows CI and
+authorized integration. No new strategy, parallel tracker or repeated legacy
+acquisition search. Do not weaken guards, invent policy values, accept stale
+calibration as fresh market data, force an opportunity, reset recovery or
+launch a cloud broker operation. PAPER_READY=NO; all five vetoes remain.

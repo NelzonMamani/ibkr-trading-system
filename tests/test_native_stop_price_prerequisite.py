@@ -3004,9 +3004,10 @@ def _pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,*,loss_limit=.2
     (False, 'working'), (True, 'working'), (True, 'missing'),
     (True, 'rejected'), (True, 'wrong-price'),
 ], ids=['ordinary', 'exclusive-release', 'missing-stop', 'rejected-stop', 'wrong-structural-stop'])
+@pytest.mark.parametrize('force_stdlib_socketpair', [False, True], ids=['native-socketpair', 'windows-socketpair'])
 def test_ordinary_paper_micro_abcd_native_lifecycle(
         reassessment, monkeypatch, tmp_path, no_external_activity, runtime_schema_template,
-        release_profile, stop_observation):
+        release_profile, stop_observation, force_stdlib_socketpair):
     """Discover ABCD in RTH and account a one-share MICRO round trip."""
     import json
     import shutil
@@ -3023,6 +3024,7 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
         monkeypatch.setenv('ROSS_PAPER_EXPECTED_ACCOUNT', facts['account'])
         monkeypatch.setenv('ROSS_PAPER_EXCLUSIVE_START_ATTESTED', '1')
     facts['observe_pristine_native_scanner'] = True
+    facts['force_stdlib_socketpair'] = force_stdlib_socketpair
     if stop_observation != 'working':
         facts['paper_initial_stop_observation'] = stop_observation
         ack, failed_fill, unverified, *_ = facts['paper_cycle_steps']
@@ -3051,6 +3053,9 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
     assert [(row['request_type'], row['status']) for row in capital] == [
         ('ACCOUNT_CAPITAL_CURRENCY', 'COMPLETE'), ('ACCOUNT_CAPITAL', 'COMPLETE')] * (len(capital) // 2)
     assert report['verified_native_volume_source']
+    assert report['native_scanner_loop'] == dict(created=True,
+        stdlib_fallback_forced=force_stdlib_socketpair)
+    assert report['cleanup']['native_scanner_loop_closed']
     assert not report['capital_enrollment_attempts']
     assert not report['network_attempts'] and not report['sdk_attempts'] and not no_external_activity
 

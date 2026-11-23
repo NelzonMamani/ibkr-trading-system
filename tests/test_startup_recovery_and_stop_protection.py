@@ -190,6 +190,7 @@ client = None
 manager = None
 first_sdk_source = None
 first_sdk_patcher = None
+native_scanner_loop = None
 
 class SyntheticWriteBoundary(BaseException):
     pass
@@ -204,13 +205,6 @@ def deny_network(operation):
     return forbidden
 
 no_network = deny_network('socket.connect')
-socket.socket.connect = no_network
-socket.socket.connect_ex = deny_network('socket.connect_ex')
-socket.socket.sendto = deny_network('socket.sendto')
-for operation in ('create_connection', 'getaddrinfo', 'gethostbyname', 'gethostbyname_ex', 'gethostbyaddr'):
-    setattr(socket, operation, deny_network('socket.' + operation))
-if hasattr(socket.socket, 'sendmsg'):
-    socket.socket.sendmsg = deny_network('socket.sendmsg')
 
 def plain(value):
     if isinstance(value, dict):
@@ -1150,6 +1144,26 @@ try:
     if str(guard_path) != os.environ.get('COLD_CORE_EXPECTED_OFFLINE_GUARD'):
         raise ForbiddenExternalIO('COLD_CORE_OFFLINE_STARTUP_GUARD_MISSING')
     report['offline_guard'] = dict(path=str(guard_path), native_curl_checked=False)
+    if facts.get('observe_pristine_native_scanner'):
+        # Windows asyncio creates its private self-pipe with the stdlib TCP
+        # socketpair. Bootstrap this owned resource under the inherited hard
+        # audit guard before installing the stricter method-level denies below.
+        # The audit guard admits only the actual stdlib listener/client pair;
+        # this is not a general loopback or broker connection exception.
+        import asyncio
+        if facts.get('force_stdlib_socketpair'):
+            socket.socketpair = socket._fallback_socketpair
+        native_scanner_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(native_scanner_loop)
+        report['native_scanner_loop'] = dict(created=True,
+            stdlib_fallback_forced=bool(facts.get('force_stdlib_socketpair')))
+    socket.socket.connect = no_network
+    socket.socket.connect_ex = deny_network('socket.connect_ex')
+    socket.socket.sendto = deny_network('socket.sendto')
+    for operation in ('create_connection', 'getaddrinfo', 'gethostbyname', 'gethostbyname_ex', 'gethostbyaddr'):
+        setattr(socket, operation, deny_network('socket.' + operation))
+    if hasattr(socket.socket, 'sendmsg'):
+        socket.socket.sendmsg = deny_network('socket.sendmsg')
     report['native_curl_denials'] = []
     # Observe the existing deny function without replacing either transfer entry
     # point or its identity. The profile is owned by this bounded child only.
@@ -2200,6 +2214,13 @@ finally:
         report['cleanup']['partial_constructor_handles_close_on_process_exit'] = core is None
     except BaseException as exc:
         report['cleanup']['storage_exception'] = exception_record(exc)
+    if native_scanner_loop is not None:
+        try:
+            native_scanner_loop.close()
+            asyncio.set_event_loop(None)
+            report['cleanup']['native_scanner_loop_closed'] = native_scanner_loop.is_closed()
+        except BaseException as exc:
+            report['cleanup']['native_scanner_loop_exception'] = exception_record(exc)
     report['cleanup']['live_threads'] = [thread.name for thread in threading.enumerate()
                                         if thread is not threading.current_thread() and thread.is_alive()]
     try:
