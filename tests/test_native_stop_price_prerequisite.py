@@ -2997,28 +2997,25 @@ def _pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,*,loss_limit=.2
     return facts
 
 
+@pytest.mark.parametrize('release_profile', [False, True], ids=['ordinary', 'exclusive-release'])
 def test_ordinary_paper_micro_abcd_native_lifecycle(
-        reassessment, monkeypatch, tmp_path, no_external_activity, runtime_schema_template):
+        reassessment, monkeypatch, tmp_path, no_external_activity, runtime_schema_template, release_profile):
     """Discover ABCD in RTH and account a one-share MICRO round trip."""
     import json
     import shutil
+    from test_next_session_catalyst import receipt
     from test_startup_recovery_and_stop_protection import run_native_core_cold_start
 
     facts = _pristine_paper_loss_facts(reassessment, monkeypatch, tmp_path,
         candidate='ABCD', account='DU10001')
-    facts['config']['RISK_PROFILE'] = 'MICRO'
+    facts['config'].update(RISK_PROFILE='MICRO', FORCE_EXECUTION_ON_TRADE_READY=False,
+        FORCE_RISK_APPROVAL_FOR_TRADE_READY=False,
+        MARKET_SESSION_COVERAGE=json.dumps(receipt('2026-10-19', '2026-10-20')))
+    monkeypatch.setenv('ROSS_PAPER_RELEASE_ENABLED', '1' if release_profile else '0')
+    if release_profile:
+        monkeypatch.setenv('ROSS_PAPER_EXPECTED_ACCOUNT', facts['account'])
+        monkeypatch.setenv('ROSS_PAPER_EXCLUSIVE_START_ATTESTED', '1')
     facts['observe_pristine_native_scanner'] = True
-    facts['paper_capital_response'] = {
-        'currency_rows': [
-            dict(tag='CashBalance', value='10000', currency='USD'),
-            dict(tag='AccruedCash', value='0', currency='USD'),
-        ],
-        'capital_rows': [
-            dict(tag='NetLiquidation', value='10000', currency='USD'),
-            dict(tag='AvailableFunds', value='10000', currency='USD'),
-            dict(tag='BuyingPower', value='10000', currency='USD'),
-        ],
-    }
     database = tmp_path / 'ordinary-micro.sqlite3'
     shutil.copyfile(runtime_schema_template, database)
     path = tmp_path / 'ordinary-micro.json'
@@ -3036,12 +3033,19 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
         for row in report['native_read_requests'])
     assert any(row['request_type'] == 'CURRENT_CLIENT_OPEN_ORDERS' and row['rows'] == 1
         for row in report['native_read_requests'])
+    capital = [row for row in report['native_read_requests']
+        if row['request_type'] in {'ACCOUNT_CAPITAL_CURRENCY', 'ACCOUNT_CAPITAL'}]
+    assert len(capital) >= 2 and len(capital) % 2 == 0
+    assert [(row['request_type'], row['status']) for row in capital] == [
+        ('ACCOUNT_CAPITAL_CURRENCY', 'COMPLETE'), ('ACCOUNT_CAPITAL', 'COMPLETE')] * (len(capital) // 2)
+    assert report['verified_native_volume_source']
     assert not report['capital_enrollment_attempts']
     assert not report['network_attempts'] and not report['sdk_attempts'] and not no_external_activity
 
     buy, stop = report['synthetic_memory_dispatches']
     assert (buy['role'], stop['role']) == ('entry', 'stop')
     root = buy['root_id']
+    assert buy['order']['account'] == facts['account'] and buy['order']['orderRef'] == root
     ack, filled, protected, closed, replayed = report['cycles']
     request = ack['engine']['native_orders'][root]['request']
     assert request['setup_family_id'] == 'ABCD'
@@ -3051,6 +3055,7 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
     assert stop['order']['parentId'] == buy['native_id']
     admission = [row for row in report['risk_evaluations'] if row['decision']['allowed']]
     assert len(admission) == 1
+    assert admission[0]['decision']['evaluated_limits']['capital_source'] == 'IBKR_ACCOUNT_CAPITAL'
     assert admission[0]['intent']['decision_id'] == admission[0]['decision']['decision_id']
     assert root.startswith(admission[0]['decision']['decision_id'])
     assert ack['engine']['capital_reserved'] == 11 and ack['engine']['capital_used'] == 0
@@ -3266,7 +3271,8 @@ def test_pristine_fresh_process_pmh_protective_fill_reaches_canonical_daily_loss
         assert released['kwargs']['reason']=='EXIT_FILL'
         assert released['kwargs']['strategy_id']==request['strategy_name']
         assert released['exposure_before']==released['result']==10.53 and released['exposure_after']==0
-    assert not any(row['opcode'] in {'62','63'} for row in report['wire_attempts'])
+    assert not any(row['opcode'] in {'62','63'} and row.get('purpose') != 'ENTRY_CAPITAL'
+        for row in report['wire_attempts'])
     assert report['trade_exit_shutdown_calls']==[] and report['cleanup']['live_threads']==[]
     assert report['cleanup']['paper_before_resource_close']==report['cleanup']['paper_after_resource_close']
     assert report['cleanup']['news_maintenance_closed'] and report['cleanup']['execution_resource_close_complete']
@@ -3389,7 +3395,8 @@ def test_pristine_fresh_process_pmh_positive_fees_reach_actual_core_net_veto(
     assert queries[0]['status']=='COMPLETE' and queries[0]['end_observed'] and queries[0]['currency']=='USD'
     assert cancels[0]['active_type_absent'] and cancels[0]['query_retired']
     assert queries[0]['completed_at']==steps[3]['now']
-    assert [row['opcode'] for row in report['wire_attempts'] if row['opcode'] in {'62','63'}]==['62','63']
+    assert [row['opcode'] for row in report['wire_attempts']
+        if row['opcode'] in {'62','63'} and row.get('purpose') != 'ENTRY_CAPITAL']==['62','63']
     assert [(row['leg'],row['exec_id'],row['amount']) for row in report['positive_fee_callbacks']]==[
         ('entry','pristine-loss-entry',.01),('stop','pristine-loss-stop',.02)]
     assert closed['database']['trade_lifecycle_events']==replayed['database']['trade_lifecycle_events']

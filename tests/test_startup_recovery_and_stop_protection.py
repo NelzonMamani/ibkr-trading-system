@@ -506,8 +506,12 @@ def validate_pristine_paper_memory_write(*, actual_client, expected_client, core
         and contract.conId in (0, plan['con_id'])
         and not isinstance(native.totalQuantity, bool) and native.totalQuantity == quantity, 'SECURITY_SIZE')
     if not dispatches:
+        scoped_entry = matched[0]['decision'].get('evaluated_limits', {}).get(
+            'capital_source') == 'IBKR_ACCOUNT_CAPITAL'
+        order_identity = ((native.account, native.orderRef) == (plan['account'], root_id)
+            if scoped_entry else not native.orderRef)
         require(native.action == 'BUY' and native.orderType == 'MKT'
-            and native.parentId == 0 and not native.orderRef
+            and native.parentId == 0 and order_identity
             and parent['status'] == 'DISPATCH_UNCERTAIN' and parent['broker_order_id'] is None
             and parent['filled'] == 0 and not parent['terminal'], 'ENTRY')
         reservations = list(engine.capital_authority.active_reservations.values())
@@ -1232,6 +1236,8 @@ try:
         from src.adapters.brokers.ibkr import ibkr_order_submitter as native_submitter_module
         from src.config import system_config as risk_calendar_module
         from src.utils import time_utils as risk_utc_module
+        from src.risk import risk_engine as risk_module
+        from src.core import capital_management_authority, paper_release
         import time as real_elapsed_time
         class ExternalUtcClock:
             @staticmethod
@@ -1247,8 +1253,9 @@ try:
         for module in (evidence_store, news_intelligence_service, standalone_lookup, quote_freshness,
                        float_provider,reference_resolver,market_data_snapshot_manager,source_quote_module,native_callback_module,
                        maintenance,batch_rss_adapter,news_fetcher,risk_calendar_module,risk_utc_module,
-                       native_submitter_module):
+                       native_submitter_module,capital_management_authority,paper_release):
             module.datetime = Clock
+        risk_module.utc_now = lambda: Clock.now(timezone.utc)
         report['external_clock'] = dict(utc=observed.isoformat(),
             monotonic_unchanged=utc_clock.monotonic is real_elapsed_time.monotonic)
         # Supplied numeric fundamentals enter through their actual cache writer,
@@ -1343,11 +1350,12 @@ try:
             raise RuntimeError('SYNTHETIC_OPEN_ORDER_INVENTORY_UNAVAILABLE')
         return copy.deepcopy(orders)
 
-    if not facts.get('observe_pristine_native_scanner'):
+    if not facts.get('observe_pristine_paper_cycle'):
         client.positions = position_rows
-        client.openOrders = open_orders
         client.position_snapshot = lambda **kw: BrokerPositionResult(
             tuple(position_rows()), current_external_facts.get('position_status', 'COMPLETE'), account, observed)
+    if not facts.get('observe_pristine_native_scanner'):
+        client.openOrders = open_orders
     active_cycle = [None]
     active_scenario = [None]
     cached_order_status = client.cached_order_status
@@ -1419,6 +1427,9 @@ try:
         def get_quote(self, symbol):
             external_call('provider', 'get_quote', symbol=symbol)
             row = candidates[symbol]
+            volume_fields = {}
+            if facts.get('observe_pristine_paper_cycle') and not availability_phase[0]:
+                volume_fields['volume_evidence'] = client.get_market_snapshot(symbol).volume_evidence
             return QuoteData(symbol=symbol, bid=row.get('bid'), ask=row.get('ask'),
                 last=row.get('last_price'), vwap=None, open=row.get('open'),
                 high=row.get('high'), low=row.get('low'),
@@ -1429,7 +1440,7 @@ try:
                     'requested_market_data_type', 'returned_market_data_type',
                     'market_data_type_confirmed', 'received_at_utc',
                     'market_data_type_received_at_utc', 'request_id', 'snapshot_complete')
-                    if key in row})
+                    if key in row}, **volume_fields)
 
         def get_prev_close(self, symbol):
             external_call('provider', 'get_prev_close', symbol=symbol)
@@ -1628,6 +1639,7 @@ try:
     owned_capital_reads = set()
     owned_scanner_reads = set()
     owned_position_reads = set()
+    capital_owner_read = [False]
     def send_message(message):
         fields = str(message).split('\0')
         opcode = fields[0]
@@ -1638,6 +1650,37 @@ try:
         if observe_pristine_cycle:
             # Only this supplied security's real read encoders reach a memory
             # transport. The actual Native callbacks retain request ownership.
+            if (facts.get('observe_pristine_paper_cycle') and capital_owner_read[0]
+                    and opcode in {str(OUT.REQ_ACCOUNT_SUMMARY), str(OUT.CANCEL_ACCOUNT_SUMMARY)}):
+                report['wire_attempts'][-1]['purpose'] = 'ENTRY_CAPITAL'
+                request_id = int(fields[2])
+                if opcode == str(OUT.CANCEL_ACCOUNT_SUMMARY):
+                    if request_id not in owned_capital_reads:
+                        raise ForbiddenExternalIO('UNOWNED_SYNTHETIC_CAPITAL_CANCEL')
+                    owned_capital_reads.remove(request_id)
+                    return
+                query = client._request_context_by_req_id.get(request_id, {}).get('account_currency_query')
+                tags = set(fields[4].split(','))
+                if (not query or fields[3] != 'All' or query['account'] != account
+                        or tags not in ({'$LEDGER'}, {'NetLiquidation', 'AvailableFunds', 'BuyingPower'})):
+                    raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_CAPITAL_REQUEST')
+                owned_capital_reads.add(request_id)
+                currency_rows = [dict(tag='CashBalance', value='10000', currency='USD'),
+                    dict(tag='AccruedCash', value='0', currency='USD')]
+                capital_rows = [dict(tag=tag, value='10000', currency='USD')
+                    for tag in ('NetLiquidation', 'AvailableFunds', 'BuyingPower')]
+                response = facts.get('paper_capital_response', {})
+                currency_read = tags == {'$LEDGER'}
+                rows = (response.get('currency_rows', currency_rows) if currency_read
+                    else response.get('capital_rows', capital_rows))
+                for row in rows:
+                    client.accountSummary(request_id, response.get('account', account),
+                        row['tag'], row['value'], row['currency'])
+                client.accountSummaryEnd(request_id)
+                report['native_read_requests'].append(dict(opcode=opcode, request_id=request_id,
+                    request_type='ACCOUNT_CAPITAL_CURRENCY' if currency_read else 'ACCOUNT_CAPITAL',
+                    status=query['status']))
+                return
             if (facts.get('observe_pristine_paper_positive_fee_feedback')
                     and facts.get('observe_pristine_paper_cycle') and opcode in {'62','63'}):
                 from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
@@ -1671,14 +1714,7 @@ try:
                         active_type_absent=request_id not in client._request_type_by_req_id,
                         query_retired=context.get('account_currency_query') is None))
                 return  # Synthetic read cleanup, never an order cancellation.
-            if facts.get('observe_pristine_native_scanner'):
-                if opcode == str(OUT.REQ_OPEN_ORDERS):
-                    for row in orders:
-                        client.openOrder(row.orderId, row.contract, row.order, row.orderState)
-                    client.openOrderEnd()
-                    report['native_read_requests'].append(dict(opcode=opcode,
-                        request_type='CURRENT_CLIENT_OPEN_ORDERS', rows=len(orders)))
-                    return
+            if facts.get('observe_pristine_paper_cycle'):
                 if opcode == str(OUT.REQ_POSITIONS_MULTI):
                     request_id = int(fields[2])
                     if (client._request_type_by_req_id.get(request_id) != 'POSITIONS_MULTI'
@@ -1695,6 +1731,14 @@ try:
                 if opcode == str(OUT.CANCEL_POSITIONS_MULTI) and int(fields[2]) in owned_position_reads:
                     owned_position_reads.remove(int(fields[2]))
                     return
+            if facts.get('observe_pristine_native_scanner'):
+                if opcode == str(OUT.REQ_OPEN_ORDERS):
+                    for row in orders:
+                        client.openOrder(row.orderId, row.contract, row.order, row.orderState)
+                    client.openOrderEnd()
+                    report['native_read_requests'].append(dict(opcode=opcode,
+                        request_type='CURRENT_CLIENT_OPEN_ORDERS', rows=len(orders)))
+                    return
                 if opcode == str(OUT.REQ_SCANNER_SUBSCRIPTION):
                     request_id = int(fields[1])  # SDK omits version on this server.
                     if (client._request_type_by_req_id.get(request_id) != 'SCANNER_DATA'
@@ -1710,29 +1754,6 @@ try:
                     return
                 if opcode == str(OUT.CANCEL_SCANNER_SUBSCRIPTION) and int(fields[2]) in owned_scanner_reads:
                     owned_scanner_reads.remove(int(fields[2]))
-                    return
-            capital_response = facts.get('paper_capital_response')
-            if capital_response is not None:
-                if opcode == str(OUT.REQ_ACCOUNT_SUMMARY):
-                    request_id = int(fields[2])
-                    query = client._request_context_by_req_id.get(request_id, {}).get('account_currency_query')
-                    tags = set(fields[4].split(','))
-                    if (not query or fields[3] != 'All' or query['account'] != account
-                            or tags not in ({'$LEDGER'}, {'NetLiquidation', 'AvailableFunds', 'BuyingPower'})):
-                        raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_CAPITAL_REQUEST')
-                    owned_capital_reads.add(request_id)
-                    rows = (capital_response['currency_rows'] if tags == {'$LEDGER'}
-                            else capital_response['capital_rows'])
-                    for row in rows:
-                        client.accountSummary(request_id, capital_response.get('account', account),
-                            row['tag'], row['value'], row['currency'])
-                    client.accountSummaryEnd(request_id)
-                    report['native_read_requests'].append(dict(opcode=opcode, request_id=request_id,
-                        request_type='ACCOUNT_CAPITAL_CURRENCY' if tags == {'$LEDGER'} else 'ACCOUNT_CAPITAL',
-                        status=query['status']))
-                    return
-                if opcode == str(OUT.CANCEL_ACCOUNT_SUMMARY) and int(fields[2]) in owned_capital_reads:
-                    owned_capital_reads.remove(int(fields[2]))
                     return
             if opcode in {str(OUT.REQ_CONTRACT_DATA),str(OUT.REQ_MKT_DATA)}:
                 request_id = int(fields[2])
@@ -1802,6 +1823,20 @@ try:
         from types import MethodType
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         paper_plan = facts['paper_memory_plan']
+        actual_capital_snapshot = client.account_capital_snapshot
+        def observe_capital_snapshot(**kwargs):
+            capital_owner_read[0] = True
+            try:
+                return actual_capital_snapshot(**kwargs)
+            finally:
+                capital_owner_read[0] = False
+        client.account_capital_snapshot = observe_capital_snapshot
+        symbol = paper_plan['symbol']
+        initial_sample = client.get_market_snapshot(symbol).volume_evidence
+        reference = facts.get('paper_volume_reference_shares', 2_000_000)
+        report['verified_native_volume_source'] = client.verify_us_stock_share_volume(
+            initial_sample, reference_shares=reference, observed_at=Clock.now(timezone.utc),
+            con_id=paper_plan['con_id'], send_us_stock_market_data_in_lots=False)
         report['synthetic_memory_dispatches'] = []
         report['paper_external_steps'] = []
         delivered_fee_executions = set()
@@ -1913,7 +1948,9 @@ try:
         actual_risk = core.risk_engine.evaluate_trade_intent
         def observed_risk(intent, *args, **kwargs):
             decision = actual_risk(intent, *args, **kwargs)
-            report['risk_evaluations'].append(dict(intent=plain(intent), decision=plain(decision)))
+            decision_view = {name: value for name, value in vars(decision).items()
+                if name != 'paper_entry_capital'}
+            report['risk_evaluations'].append(dict(intent=plain(intent), decision=plain(decision_view)))
             return decision
         core.risk_engine.evaluate_trade_intent = observed_risk
         actual_focus = scanner_runner._select_ross_focus_contexts
