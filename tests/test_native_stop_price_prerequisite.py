@@ -2997,9 +2997,13 @@ def _pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,*,loss_limit=.2
     return facts
 
 
-@pytest.mark.parametrize('release_profile', [False, True], ids=['ordinary', 'exclusive-release'])
+@pytest.mark.parametrize('release_profile, stop_observation', [
+    (False, 'working'), (True, 'working'), (True, 'missing'),
+    (True, 'rejected'), (True, 'wrong-price'),
+], ids=['ordinary', 'exclusive-release', 'missing-stop', 'rejected-stop', 'wrong-structural-stop'])
 def test_ordinary_paper_micro_abcd_native_lifecycle(
-        reassessment, monkeypatch, tmp_path, no_external_activity, runtime_schema_template, release_profile):
+        reassessment, monkeypatch, tmp_path, no_external_activity, runtime_schema_template,
+        release_profile, stop_observation):
     """Discover ABCD in RTH and account a one-share MICRO round trip."""
     import json
     import shutil
@@ -3016,6 +3020,12 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
         monkeypatch.setenv('ROSS_PAPER_EXPECTED_ACCOUNT', facts['account'])
         monkeypatch.setenv('ROSS_PAPER_EXCLUSIVE_START_ATTESTED', '1')
     facts['observe_pristine_native_scanner'] = True
+    if stop_observation != 'working':
+        facts['paper_initial_stop_observation'] = stop_observation
+        ack, failed_fill, unverified, *_ = facts['paper_cycle_steps']
+        unverified.update(name='REPLAY_WITHOUT_VERIFIED_STOP', open_orders=[],
+            executions=failed_fill['executions'])
+        facts['paper_cycle_steps'] = [ack, failed_fill, unverified]
     database = tmp_path / 'ordinary-micro.sqlite3'
     shutil.copyfile(runtime_schema_template, database)
     path = tmp_path / 'ordinary-micro.json'
@@ -3026,12 +3036,11 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
     )}
     assert report['constructor_complete'] and not report.get('harness_exception'), summary
     assert not report.get('cycle_exception'), summary
-    assert len(report['cycles']) == 5 and all(cycle['result'] for cycle in report['cycles']), summary
+    if stop_observation == 'working':
+        assert len(report['cycles']) == 5 and all(cycle['result'] for cycle in report['cycles']), summary
     assert any(row['request_type'] == 'SCANNER_DATA' and row['rows'] == 1
         for row in report['native_read_requests'])
     assert any(row['request_type'] == 'POSITIONS_MULTI' and row['rows'] == 0
-        for row in report['native_read_requests'])
-    assert any(row['request_type'] == 'CURRENT_CLIENT_OPEN_ORDERS' and row['rows'] == 1
         for row in report['native_read_requests'])
     capital = [row for row in report['native_read_requests']
         if row['request_type'] in {'ACCOUNT_CAPITAL_CURRENCY', 'ACCOUNT_CAPITAL'}]
@@ -3046,7 +3055,7 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
     assert (buy['role'], stop['role']) == ('entry', 'stop')
     root = buy['root_id']
     assert buy['order']['account'] == facts['account'] and buy['order']['orderRef'] == root
-    ack, filled, protected, closed, replayed = report['cycles']
+    ack, filled, *remaining = report['cycles']
     request = ack['engine']['native_orders'][root]['request']
     assert request['setup_family_id'] == 'ABCD'
     assert request['setup_metadata']['anchor_c_price'] == 10.35
@@ -3060,6 +3069,20 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
     assert root.startswith(admission[0]['decision']['decision_id'])
     assert ack['engine']['capital_reserved'] == 11 and ack['engine']['capital_used'] == 0
     assert not ack['engine']['post_fill'] and not ack['engine']['position_records']
+    if stop_observation != 'working':
+        repeated, = remaining
+        assert ack['result'] and not filled['result'] and not repeated['result']
+        for cycle in (filled, repeated):
+            assert cycle['engine']['native_quarantined']
+            assert not cycle['engine']['protection'][root]['protected']
+            assert cycle['engine']['position_records'][root]['filled_qty'] == 1
+            assert cycle['engine']['capital_used'] == 11.02
+        assert not any(row['mutation'] for row in report['wire_attempts'])
+        return
+
+    protected, closed, replayed = remaining
+    assert any(row['request_type'] == 'CURRENT_CLIENT_OPEN_ORDERS' and row['rows'] == 1
+        for row in report['native_read_requests'])
     for cycle in (filled, protected):
         assert cycle['engine']['protection'][root]['protected']
         assert cycle['engine']['canonical_trades'][root]['quantity_open'] == 1

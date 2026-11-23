@@ -1872,6 +1872,16 @@ try:
             supplied_order = copy.deepcopy(native)
             supplied_order.account = paper_plan['account']
             supplied_order.clientId = paper_plan['client_id']
+            if role == 'stop':
+                stop_observation = facts.get('paper_initial_stop_observation', 'working')
+                if stop_observation == 'missing':
+                    return
+                if stop_observation == 'rejected':
+                    client.orderStatus(native_id, 'Inactive', 0, native.totalQuantity,
+                        0., native_id, native.parentId, 0., paper_plan['client_id'], '', 0.)
+                    return
+                if stop_observation == 'wrong-price':
+                    supplied_order.auxPrice += 0.01
             row = NS(orderId=native_id, contract=supplied_contract, order=supplied_order,
                 orderState=NS(status='Submitted'))
             orders.append(row)
