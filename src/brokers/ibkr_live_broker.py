@@ -148,10 +148,13 @@ class IbkrLiveBroker(BaseBroker):
             f"client_id={metadata.get('connected_client_id')} connected={client.is_connected()}"
         )
 
-    def disconnect(self, reason: str = "manual") -> None:
+    def disconnect(self, reason: str = "manual", *, disconnect_admission=None) -> None:
         if self.connection_manager is None:
+            if disconnect_admission is not None:
+                raise RuntimeError("PAPER_RELEASE_SHUTDOWN_FINAL_SCOPE_CHANGED")
             return
-        self.connection_manager.disconnect(reason=reason)
+        self.connection_manager.disconnect(reason=reason, **(
+            {"disconnect_admission": disconnect_admission} if disconnect_admission is not None else {}))
 
     def place_order(self, request: BrokerOrderRequest, *, entry_admission=None) -> ExecutionResult:
         profile_name = str(get_risk_profile_name() or "NORMAL").upper()

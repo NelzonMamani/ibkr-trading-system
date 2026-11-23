@@ -2256,14 +2256,14 @@ try:
 
         client.cancelOrder = memory_cancel
         if case == 'late_fill_at_disconnect':
-            actual_disconnect = core.execution_engine.shutdown
+            actual_disconnect = client.disconnect
             late_delivered = []
-            def observe_final_shutdown():
-                if not late_delivered:
+            def observe_final_shutdown(**kwargs):
+                if kwargs.get('final_authorization') is not None and not late_delivered:
                     deliver_fill(fill_status=False)
                     late_delivered.append(True)
-                return actual_disconnect()
-            core.execution_engine.shutdown = observe_final_shutdown
+                return actual_disconnect(**kwargs)
+            client.disconnect = observe_final_shutdown
         os.environ['PR1090_EVIDENCE_DIR'] = str(Path(report_path).parent)
         def observe_shutdown_hold(seconds):
             hold = json.loads((Path(report_path).parent / 'pending-entry-handoff.json').read_text(encoding='utf-8'))

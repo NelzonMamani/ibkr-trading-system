@@ -1521,11 +1521,17 @@ class IbkrClient(EWrapper, EClient):
             and report.get("commission_decoder_generation") == 1
             and report.get("commission_decoder_thread_id") == getattr(self._thread, "ident", None))
 
-    def disconnect(self) -> None:  # type: ignore[override]
+    def disconnect(self, *, final_authorization=None) -> None:  # type: ignore[override]
+        if final_authorization is not None:
+            with self._lock:
+                final_authorization()
+                self._stop_event.set()
+                self._invalidate_position_queries()
         print(f"[IBKR] Disconnecting client_id={self.client_id}")
         self._stop_event.set()
         self._invalidate_historical_requests()
-        self._invalidate_position_queries()
+        if final_authorization is None:
+            self._invalidate_position_queries()
         try:
             try:
                 with self._lock:
@@ -4035,7 +4041,9 @@ class IbkrClient(EWrapper, EClient):
         whyHeld: str,
         mktCapPrice: float,
     ):  # type: ignore[override]
-        self._observe_order_id(int(orderId))
+        with self._lock:
+            self._observe_order_id(int(orderId))
+            status_scope = (self._position_connection_epoch, getattr(self, "_managed_accounts_generation", 0))
         if not hasattr(self, "_order_status_count"):
             self._order_status_count = 0
         self._order_status_count += 1
@@ -4052,6 +4060,8 @@ class IbkrClient(EWrapper, EClient):
         )
         self._ensure_order_state_registry()
         with self._lock:
+            if status_scope != (self._position_connection_epoch, getattr(self, "_managed_accounts_generation", 0)):
+                return
             existing = self._order_status.get(orderId, {})
             # Intake owns whole-share validation. Truncation here would conceal a
             # fractional or malformed callback before that owner can reject it.
@@ -4064,7 +4074,8 @@ class IbkrClient(EWrapper, EClient):
                 "lastFillPrice": lastFillPrice,
                 "status_client_id": clientId,
                 "status_parent_id": parentId,
-                "status_connection_epoch": self._position_connection_epoch,
+                "status_connection_epoch": status_scope[0],
+                "status_account_generation": status_scope[1],
             }
         self._publish_local_intake("orderStatus",cache="_order_status",order_id=orderId)
         print(

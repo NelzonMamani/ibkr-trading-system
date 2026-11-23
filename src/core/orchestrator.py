@@ -7812,7 +7812,7 @@ class CoreOrchestrator:
             except Exception as exc:
                 print(f"[PAPER_RELEASE][SHUTDOWN] unresolved observation: {type(exc).__name__}: {exc}")
                 detail = str(exc)
-                known = {"PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY",
+                known = {"PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY", "PAPER_RELEASE_SHUTDOWN_FINAL_SCOPE_CHANGED",
                          "PAPER_RELEASE_SHUTDOWN_PROTECTION_CHANGED"}
                 ready, gate = False, detail if detail in known else "PAPER_RELEASE_SHUTDOWN_OBSERVATION_UNAVAILABLE"
             if gate != last_gate:
