@@ -86,9 +86,25 @@ def test_final_boundary_consumes_only_one_attempt(engine):
                               quantity=1, stop_loss_price=10, take_profit_price=None)
     contract = SimpleNamespace(secType="STK")
     order = SimpleNamespace(totalQuantity=1, action="BUY", account="DU100")
-    gate.authorize(request, client, contract, order, datetime.now(timezone.utc), engine)
+    consume = gate.authorize(request, client, contract, order, datetime.now(timezone.utc), engine)
+    assert not gate.attempted
+    consume()
     assert gate.attempted
     client.callback({"event_type": "position", "position": 1})
     assert gate.rejection is None
     with pytest.raises(RuntimeError, match="PAPER_RELEASE_ENTRY_ATTEMPT_USED"):
         gate.authorize(request, client, contract, order, datetime.now(timezone.utc), engine)
+
+
+def test_unexpected_activity_between_prepare_and_wire_blocks_entry(engine):
+    gate = paper_release.PaperRelease("DU100")
+    client = Client()
+    request = SimpleNamespace(setup_family_id="ABCD", relationship_context=None,
+                              quantity=1, stop_loss_price=10, take_profit_price=None)
+    order = SimpleNamespace(totalQuantity=1, action="BUY", account="DU100")
+    consume = gate.authorize(request, client, SimpleNamespace(secType="STK"), order,
+                             datetime.now(timezone.utc), engine)
+    client.callback({"event_type": "openOrder"})
+    with pytest.raises(RuntimeError, match="PAPER_RELEASE_UNEXPECTED_ACTIVITY"):
+        consume()
+    assert not gate.attempted

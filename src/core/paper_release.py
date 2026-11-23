@@ -110,6 +110,8 @@ class PaperRelease:
                 or not request.stop_loss_price or request.take_profit_price is not None):
             raise RuntimeError("PAPER_RELEASE_REQUIRES_STANDALONE_ABCD_ONE_SHARE")
         self.check_start(client, engine, now)
-        with self.lock:
-            self._check(client, engine, datetime.now(timezone.utc))
-            self.attempted = True
+        def consume():
+            with self.lock:
+                self._check(client, engine, datetime.now(timezone.utc))
+                self.attempted = True
+        return consume

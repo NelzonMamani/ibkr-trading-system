@@ -2618,14 +2618,16 @@ class ExecutionEngine:
                              and request.direction.upper() in {"LONG", "BUY"})
         before_dispatch = None
         dispatch_committed = False
+        consume_release = None
         if paper_entry:
             def prepare(client, _order_id, contract, native_order):
-                nonlocal before_dispatch
+                nonlocal before_dispatch, consume_release
                 try:
                     self._check_native_paper_entry(request, paper_entry_risk, client, contract, native_order, prepare=True)
                     guard = getattr(self, "paper_release_guard", None)
                     if guard is not None:
-                        guard(request, client, contract, native_order, datetime.now(timezone.utc))
+                        consume_release = guard(
+                            request, client, contract, native_order, datetime.now(timezone.utc))
                 except RuntimeError as exc:
                     before_dispatch = str(exc)
                     raise
@@ -2643,6 +2645,8 @@ class ExecutionEngine:
                 if retain_standalone:
                     standalone = self._retain_native_request(request, security_id=contract.conId)
                     self._check_native_paper_entry(request, paper_entry_risk, client, contract, native_order)
+                if consume_release is not None:
+                    consume_release()
 
         elif retain_standalone:
             standalone = self._retain_native_request(request)
