@@ -374,6 +374,7 @@ class IbkrExecutionProvider(ExecutionProvider):
         trade_id: str,
         parent_order_id: str | None = None,
         before_submit=None,
+        final_entry_admission=None,
         con_id=None,
     ) -> dict[str, Any]:
         if self.run_mode == RunMode.READ_ONLY:
@@ -385,7 +386,9 @@ class IbkrExecutionProvider(ExecutionProvider):
             stop_price=stop_price,
             trade_id=trade_id,
             parent_order_id=parent_order_id,
-            **({"before_submit": before_submit, "con_id": con_id} if before_submit is not None else {}),
+            **({"before_submit": before_submit} if before_submit is not None else {}),
+            **({"final_entry_admission": final_entry_admission} if final_entry_admission is not None else {}),
+            **({"con_id": con_id} if before_submit is not None or final_entry_admission is not None else {}),
         )
 
     def place_target_order(

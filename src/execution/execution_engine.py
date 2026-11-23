@@ -2944,9 +2944,20 @@ class ExecutionEngine:
                 or type(con_id) is not int or con_id <= 0 or client is None):
             raise RuntimeError("ABCD_INITIAL_STOP_SCOPE_UNAVAILABLE")
         account = scope[0]
+        parent_key = parent["request"]["client_order_id"]
+        parent_id = int(parent["broker_order_id"])
+        stop_price = parent["request"]["stop_loss_price"]
 
-        def authorize(_, contract, native_order):
-            if (self._native_callback_client() is not client or not client.is_connected()
+        def authorize(dispatch_client, _, contract, native_order):
+            exposure = self.position_records.get(parent_key, {})
+            if (dispatch_client is not client or self._native_callback_client() is not client
+                    or self._native_scope != scope or self._native_orders.get(parent_key) is not parent
+                    or parent.get("quarantine") or self._native_quarantined
+                    or parent.get("side") not in {"LONG", "BUY"}
+                    or exposure.get("filled_qty") != 1
+                    or int(parent["broker_order_id"]) != parent_id
+                    or parent["request"]["stop_loss_price"] != stop_price
+                    or not client.is_connected()
                     or tuple(client._managed_accounts) != (account,)
                     or getattr(client, "_managed_accounts_generation", 0)
                         != parent.get("native_account_scope_generation")
@@ -2955,15 +2966,15 @@ class ExecutionEngine:
                     or contract.conId != con_id or contract.symbol != parent["symbol"]
                     or contract.secType != "STK" or contract.currency != "USD"
                     or native_order.account not in ("", account)
-                    or native_order.orderRef != "PROTECT|" + parent["request"]["client_order_id"]
-                    or native_order.parentId != int(parent["broker_order_id"])
+                    or native_order.orderRef != "PROTECT|" + parent_key
+                    or native_order.parentId != parent_id
                     or native_order.action != "SELL" or native_order.totalQuantity != 1
-                    or native_order.orderType != "STP"
-                    or native_order.auxPrice != parent["request"]["stop_loss_price"]):
+                    or native_order.orderType != "STP" or native_order.auxPrice != stop_price):
                 raise RuntimeError("ABCD_INITIAL_STOP_BINDING_CHANGED")
             native_order.account = account
 
-        return self._provider.place_stop_order(**stop_request, before_submit=authorize, con_id=con_id)
+        return self._provider.place_stop_order(
+            **stop_request, final_entry_admission=authorize, con_id=con_id)
 
     def _record_fill_and_position(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
         # The broker callback carries fill facts; protection belongs to the

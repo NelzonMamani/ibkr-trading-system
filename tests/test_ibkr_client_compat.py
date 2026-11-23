@@ -150,6 +150,7 @@ def test_req_historical_data_requires_end_after_bar_arrival(monkeypatch):
     client = _build_client()
     client.snapshot_timeout_seconds = 0.2
     monkeypatch.setattr(client, "isConnected", lambda: True)
+    monkeypatch.setattr(client, "readonly_enabled", False)
 
     contract = Contract()
     contract.symbol = "AAPL"
@@ -1167,3 +1168,68 @@ def test_native_paper_risk_and_allocation_require_completed_same_scope_capital(
     else:
         assert decision.evaluated_limits["available_capital"] is None
         assert bound == {"broker_truth_available": False}
+
+
+@pytest.mark.parametrize("change_scope", [False, True])
+def test_abcd_stop_rechecks_local_scope_under_dispatch_lock(
+    strict_execution_client, monkeypatch, change_scope,
+):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from src.brokers.ibkr_live_broker import IbkrLiveBroker
+    from src.config.runtime_config import RunMode
+    from src.execution.execution_engine import ExecutionEngine
+    from src.execution.execution_providers import IbkrExecutionProvider
+
+    client = strict_execution_client
+    monkeypatch.setattr(client, "isConnected", lambda: True)
+    monkeypatch.setattr(client, "readonly_enabled", False)
+    broker = object.__new__(IbkrLiveBroker)
+    broker.run_mode = RunMode.PAPER
+    broker.connection_manager = SimpleNamespace(existing_client=client)
+    engine = object.__new__(ExecutionEngine)
+    engine._provider = IbkrExecutionProvider(broker, None, RunMode.PAPER)
+    account = "SYNTHETIC_TEST"
+    parent = {
+        "security_id": 901, "account": account, "side": "LONG",
+        "symbol": "SYNTH", "broker_order_id": "70", "native_client_id": client.client_id,
+        "native_connection_epoch": client._position_connection_epoch,
+        "native_account_scope_generation": client._managed_accounts_generation,
+        "request": {"client_order_id": "entry", "stop_loss_price": 10.35},
+    }
+    engine._native_scope = (account, client, datetime.now(timezone.utc))
+    engine._native_orders = {"entry": parent}
+    engine._native_quarantined = False
+    engine.position_records = {"entry": {"filled_qty": 1}}
+    sent = []
+
+    def wire(order_id, contract, order):
+        assert client._lock._is_owned()
+        sent.append((order_id, contract.conId, order.account, order.parentId, order.auxPrice))
+
+    monkeypatch.setattr(client, "placeOrder", wire)
+    submit = client.submit_order
+
+    def inject_between_prepare_and_send(contract, order, **kwargs):
+        previous = kwargs.pop("before_submit", None)
+
+        def prepare(order_id, contract, order):
+            if previous is not None:
+                previous(order_id, contract, order)
+            if change_scope:
+                client.managedAccounts("OTHER")
+                client.managedAccounts(account)
+
+        return submit(contract, order, before_submit=prepare, **kwargs)
+
+    monkeypatch.setattr(client, "submit_order", inject_between_prepare_and_send)
+    request = dict(symbol="SYNTH", side="SELL", quantity=1, stop_price=10.35,
+                   trade_id="entry", parent_order_id="70")
+    if change_scope:
+        with pytest.raises(RuntimeError, match="ABCD_INITIAL_STOP_BINDING_CHANGED"):
+            engine._submit_qualified_abcd_stop(parent, **request)
+        assert sent == []
+    else:
+        engine._submit_qualified_abcd_stop(parent, **request)
+        assert sent == [(71, 901, account, 70, 10.35)]

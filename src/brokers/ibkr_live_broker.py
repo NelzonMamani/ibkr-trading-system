@@ -460,11 +460,12 @@ class IbkrLiveBroker(BaseBroker):
         trade_id: str,
         parent_order_id: str | None,
         before_submit=None,
+        final_entry_admission=None,
         con_id=None,
     ) -> dict[str, str]:
         if Contract is None or Order is None:
             raise RuntimeError("ibapi dependency missing; protective order unavailable")
-        if before_submit is not None:
+        if before_submit is not None or final_entry_admission is not None:
             # New unit ownership cannot acquire/reconnect a client implicitly.
             client = getattr(self.connection_manager, "existing_client", None)
             if self.run_mode != RunMode.PAPER or client is None or not client.isConnected():
@@ -475,7 +476,7 @@ class IbkrLiveBroker(BaseBroker):
             client = self.connection_manager.get_client()
         contract = Contract()
         contract.symbol = str(symbol).upper()
-        if before_submit is not None:
+        if before_submit is not None or final_entry_admission is not None:
             if type(con_id) is not int or con_id <= 0:
                 raise RuntimeError("NATIVE_UNIT_STOP_SECURITY_UNAVAILABLE")
             contract.conId = con_id
@@ -497,7 +498,11 @@ class IbkrLiveBroker(BaseBroker):
             order.parentId = int(parent_order_id)
         order.transmit = True
         order.orderRef = f"PROTECT|{trade_id}"
-        broker_order_id = client.submit_order(contract, order, **({"before_submit": before_submit} if before_submit is not None else {}))
+        broker_order_id = client.submit_order(
+            contract, order,
+            **({"before_submit": before_submit} if before_submit is not None else {}),
+            **({"final_entry_admission": final_entry_admission} if final_entry_admission is not None else {}),
+        )
         print(
             "[IBKR][ORDER_SUBMITTED] "
             f"type={order.orderType} order_id={broker_order_id} trade_id={trade_id} symbol={symbol} "
@@ -515,6 +520,7 @@ class IbkrLiveBroker(BaseBroker):
         trade_id: str,
         parent_order_id: str | None = None,
         before_submit=None,
+        final_entry_admission=None,
         con_id=None,
     ) -> dict[str, str]:
         return self._submit_protective_order(
@@ -527,6 +533,7 @@ class IbkrLiveBroker(BaseBroker):
             trade_id=trade_id,
             parent_order_id=parent_order_id,
             before_submit=before_submit,
+            final_entry_admission=final_entry_admission,
             con_id=con_id,
         )
 
