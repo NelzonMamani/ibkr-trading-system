@@ -602,11 +602,8 @@ class CoreOrchestrator:
             storage_engine=self.storage_engine,
             daily_risk_governor=self.daily_risk_governor,
             autonomous_recovery_authority=self.autonomous_recovery_authority,
+            **({"paper_release": self._paper_release} if self._paper_release is not None else {}),
         )
-        if self._paper_release is not None:
-            engine = self.execution_engine
-            engine.paper_release_guard = lambda request, client, contract, order, now: (
-                self._paper_release.authorize(request, client, contract, order, now, engine))
         self.execution_enabled = self.execution_engine.execution_enabled
         self.position_management_engine = PositionManagementEngine()
         self.trade_management_engine = TradeManagementEngine(
@@ -3792,7 +3789,7 @@ class CoreOrchestrator:
         if not self._startup_recovery_allows_strategy_execution():
             release = getattr(self, "_paper_release", None)
             if release is not None:
-                release.last_gate = "PAPER_RELEASE_RECOVERY_NOT_CLEAR"
+                release.last_gate = self.execution_engine.startup_recovery_block_reason()
             return False
         self._run_position_management_tick(cycle_started_at)
         # Owned reductions are separate from discovery/new-entry eligibility.

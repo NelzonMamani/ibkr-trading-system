@@ -42,12 +42,14 @@ class StartupRecoveryAuthority:
         post_fill_lifecycle: Any,
         trade_registry: ActiveTradeRegistry,
         trade_lifecycle_engine: Any | None = None,
+        clean_start_check=None,
     ) -> None:
         self.run_mode = str(run_mode or "SIM").upper()
         self.provider = provider
         self.post_fill_lifecycle = post_fill_lifecycle
         self.trade_registry = trade_registry
         self.trade_lifecycle_engine = trade_lifecycle_engine
+        self.clean_start_check = clean_start_check
         self.state = RecoveryState.RECOVERY_PENDING
         self.result = StartupRecoveryResult(state=self.state, reason="RECOVERY_NOT_RUN")
 
@@ -62,6 +64,18 @@ class StartupRecoveryAuthority:
                 orders_count=0,
                 lifecycle_result=lifecycle_result,
             )
+
+        if self.clean_start_check is not None:
+            if self._open_lifecycle_trades() or self.trade_registry.snapshot():
+                return self._fail("PAPER_RELEASE_RETAINED_OWNERSHIP")
+            try:
+                self.clean_start_check()
+            except RuntimeError as exc:
+                return self._fail(str(exc))
+            self.state = RecoveryState.RECOVERY_COMPLETE
+            self.result = StartupRecoveryResult(state=self.state, reason="RECOVERY_COMPLETE")
+            print("[RECOVERY][COMPLETE] scope=CLEAN_START")
+            return self.result
 
         positions_result = self._load_broker_positions()
         if not positions_result["ok"]:

@@ -190,6 +190,7 @@ class ExecutionEngine:
         strategy_allocation_authority: Optional[StrategyCapitalAllocationAuthority] = None,
         daily_risk_governor: Optional[DailyRiskGovernor] = None,
         autonomous_recovery_authority: Optional[AutonomousRecoveryAuthority] = None,
+        paper_release=None,
     ) -> None:
         print("[BOOT] ExecutionEngine instantiated — broker-routed deterministic flow")
         self.run_mode: RunMode = RunMode(get_config("RUN_MODE_EFFECTIVE"))
@@ -259,8 +260,13 @@ class ExecutionEngine:
         self._strategy_allocation_decisions_by_order_id: dict[str, str] = {}
         self.provider: Optional[ExecutionProvider] = self._provider
         self.broker = getattr(self._provider, "broker", None)
+        self._paper_release = paper_release
         self._recover_startup_state()
-        self._recover_capital_state()
+        if paper_release is None:
+            self._recover_capital_state()
+        else:
+            self.paper_release_guard = lambda request, client, contract, order, now: (
+                paper_release.authorize(request, client, contract, order, now, self))
         self.daily_risk_governor.recover(
             run_mode=self.run_mode.value,
             recovery_complete=self.startup_recovery_complete(),
@@ -1186,12 +1192,25 @@ class ExecutionEngine:
                         or not self._native_quarantined or self.startup_recovery_complete()):
                     raise
                 return  # Existing loader latched RECOVERY_FAILED; never reset it.
+        release = getattr(self, "_paper_release", None)
+
+        def check_clean_start():
+            if not self.paper_entry_capital_required:
+                raise RuntimeError("PAPER_RELEASE_NATIVE_PAPER_REQUIRED")
+            try:
+                self.broker.ensure_connection()
+            except Exception:
+                raise RuntimeError("PAPER_RELEASE_NATIVE_CONNECTION_UNAVAILABLE") from None
+            release.check_start(self._native_callback_client(), self, datetime.now(timezone.utc),
+                                require_recovery=False)
+
         authority = StartupRecoveryAuthority(
             run_mode=self.run_mode.value,
             provider=self._provider,
             post_fill_lifecycle=self.post_fill_lifecycle,
             trade_registry=self.trade_registry,
             trade_lifecycle_engine=self._trade_lifecycle_engine,
+            clean_start_check=check_clean_start if release is not None else None,
         )
         result = authority.run()
         self.startup_recovery_state = result.state

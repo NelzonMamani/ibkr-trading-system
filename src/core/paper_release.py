@@ -58,13 +58,13 @@ class PaperRelease:
         return (client, client.client_id, client._position_connection_epoch,
                 getattr(client, "_managed_accounts_generation", 0))
 
-    def _check(self, client, engine, now):
+    def _check(self, client, engine, now, *, require_recovery=True):
         if self.attempted:
             raise RuntimeError("PAPER_RELEASE_ENTRY_ATTEMPT_USED")
         if self.rejection:
             raise RuntimeError(self.rejection)
-        if (not engine.startup_recovery_complete() or engine._failsafe_block_new_entries
-                or engine._native_quarantined):
+        if (engine._native_quarantined or engine._failsafe_block_new_entries
+                or (require_recovery and not engine.startup_recovery_complete())):
             raise RuntimeError("PAPER_RELEASE_RECOVERY_NOT_CLEAR")
         window = covered_opening_window(now)
         if window is None or window.phase != "RTH_OPEN":
@@ -80,8 +80,8 @@ class PaperRelease:
             raise RuntimeError(self.rejection)
         return scope
 
-    def check_start(self, client, engine, now):
-        scope = self._check(client, engine, now)
+    def check_start(self, client, engine, now, *, require_recovery=True):
+        scope = self._check(client, engine, now, require_recovery=require_recovery)
         if self.scope is None:
             client.register_reconciliation_callback(self._observe)
             self.scope = scope
@@ -101,7 +101,7 @@ class PaperRelease:
         if orders:
             self.rejection = "PAPER_RELEASE_CURRENT_CLIENT_ORDERS_PRESENT"
             raise RuntimeError(self.rejection)
-        self._check(client, engine, datetime.now(timezone.utc))
+        self._check(client, engine, datetime.now(timezone.utc), require_recovery=require_recovery)
 
     def authorize(self, request, client, contract, order, now, engine):
         if (request.setup_family_id != "ABCD" or request.relationship_context
