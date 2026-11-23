@@ -821,3 +821,19 @@ def test_opening_focus_volume_does_not_establish_paper_execution(shares, focus_r
     assert context["execution_ready"] is execution_eligible
     if not execution_eligible:
         assert "ROSS_VOLUME_BELOW_STOCK_SELECTION_MINIMUM" in context["eligibility_reason_codes"]
+
+
+@pytest.mark.parametrize("explicitly_ineligible", [False, True])
+def test_deferred_pct_projection_sets_eligibility_without_overriding_a_veto(explicitly_ineligible):
+    provider = _DailyBarProvider()
+    context = _build_symbol_context(
+        provider=provider, symbol="AAPL", session_label="RTH_OPEN", float_cache={}, include_pct_change=False,
+    )
+    assert context["pct_change"] is None
+    if explicitly_ineligible:
+        context["execution_eligible"] = False
+    scanner_runner._populate_pct_change(context, provider)
+    assert context["reference_quality_tier"] == "PRIMARY"
+    assert context["pct_change_execution_usable"]
+    assert context["focus_eligible"]
+    assert context["execution_eligible"] is not explicitly_ineligible

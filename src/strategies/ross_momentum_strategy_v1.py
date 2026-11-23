@@ -765,6 +765,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 snapshot=snapshot if isinstance(snapshot, MarketSnapshot) else None,
                 session_label=session_label,
                 session_phase=session_phase,
+                mode=mode,
             )
             print("[PATTERN_PIPELINE] DONE")
             if inputs is None:
@@ -804,6 +805,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 inputs=inputs,
                 session_label=session_label,
                 quality_flags=quality_flags,
+                mode=mode,
             )
             intraday_payload = {
                 "candles": list(getattr(inputs, "candles", []) or []),

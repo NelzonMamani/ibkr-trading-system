@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from src.domain.quote_freshness import quote_time_rejection, quote_evidence
-from src.domain.volume_evidence import native_stock_volume_rejection, verified_volume_shares
+from src.domain.volume_evidence import (
+    READ_ONLY_VOLUME_DIAGNOSTIC, native_stock_volume_rejection, verified_volume_shares,
+)
 
 from src.core.acquisition import history_enrichment, acquisition_cycle, checkpoint, acquisition_deadline, cycle_cache
 
@@ -18,6 +20,7 @@ import re
 from pathlib import Path
 import sys
 import time
+from math import isfinite
 from zoneinfo import ZoneInfo
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
@@ -1373,6 +1376,9 @@ def _apply_degraded_contract(context: Dict[str, Any]) -> None:
         execution_eligible = False
         reason_codes.append("UNQUALIFIED_CONTINUITY_ONLY")
     volume_rejection = context.get("volume_rejection")
+    if READ_ONLY_VOLUME_DIAGNOSTIC in (context.get("data_quality_flags") or ()):
+        execution_eligible = False
+        reason_codes.append(READ_ONLY_VOLUME_DIAGNOSTIC)
     if volume_rejection:
         execution_eligible = False
         reason_codes.append(volume_rejection)
@@ -1794,6 +1800,7 @@ def _populate_pct_change(
             context.update(reference_resolved=False, qualification_usable_reference=False,
                            execution_usable_reference=False, pct_change_qualification_usable=False,
                            pct_change_execution_usable=False, reference_failure_reason=failure)
+        _apply_degraded_contract(context)
         return
     if context.get("_enrichment_reference_projected"):
         return
@@ -3025,7 +3032,10 @@ def _news_candidates_for_symbols(
                 gap_pct=_safe_float(metadata.get("gap_pct") or metadata.get("pct_change"), None),
                 percentage_move=_safe_float(metadata.get("pct_change"), None),
                 float_shares=int(metadata["float_shares"]) if metadata.get("float_shares") is not None else None,
-                absolute_share_volume=int(metadata["volume"]) if metadata.get("volume") is not None else None,
+                absolute_share_volume=(
+                    int(metadata["volume"]) if metadata.get("volume") is not None
+                    and READ_ONLY_VOLUME_DIAGNOSTIC not in (metadata.get("data_quality_flags") or ()) else None
+                ),
                 relative_volume_rvol=_safe_float(metadata.get("rvol"), None),
                 metadata=metadata,
             )
@@ -4505,6 +4515,13 @@ def _build_symbol_context(
         volume = verified_volume_shares(volume_evidence)
         if volume is None:
             data_quality_flags.append("VOLUME_UNIT_UNVERIFIED")
+            if get_run_mode() == RunMode.READ_ONLY:
+                raw_units = _safe_float(volume_evidence.get("raw_value"), None)
+                if raw_units is not None and isfinite(raw_units) and raw_units >= 0:
+                    # Retain the preexisting diagnostic ranking/progression as
+                    # an uncalibrated metric. No execution eligibility follows.
+                    volume = raw_units
+                    data_quality_flags.append(READ_ONLY_VOLUME_DIAGNOSTIC)
     else:
         quote_volume = _safe_float(getattr(quote, "volume", None), None)
         volume = intraday.current_intraday_volume if intraday and intraday.current_intraday_volume is not None else quote_volume
@@ -4611,7 +4628,7 @@ def _build_symbol_context(
         hod_pct = round(((last_price - day_high) / day_high) * 100, 2)
 
     dollar_volume = None
-    if last_price is not None and volume is not None:
+    if last_price is not None and volume is not None and READ_ONLY_VOLUME_DIAGNOSTIC not in data_quality_flags:
         dollar_volume = round(last_price * volume, 2)
 
     float_entry = float_cache.get(symbol) or {}
@@ -4763,7 +4780,10 @@ def _build_symbol_context(
         "universe_rank": universe_rank,
     }
     attach_session_contract(context, session_contract)
-    _apply_degraded_contract(context)
+    # Provisional rows intentionally omit their pct-change projection.
+    # Calculate eligibility once that projection has been populated.
+    if include_pct_change:
+        _apply_degraded_contract(context)
     quote_contract = context.get("quote_contract") or _compute_quote_validity_contract(context)
     context["quote_contract"] = quote_contract
     _emit_scanner_reference_trace("final_context_build", context)
@@ -4999,7 +5019,8 @@ def _merge_snapshot_fields(context, snapshot_data):
         return
     for name in ("last_price", "bid", "ask", "volume", "close"):
         context["snapshot_" + name] = snapshot_data.get(name)
-        if context.get(name) is None and snapshot_data.get(name) is not None:
+        if (context.get(name) is None and snapshot_data.get(name) is not None
+                and not (name == "volume" and context.get("volume_evidence") is not None)):
             context[name] = snapshot_data[name]
             context.setdefault("snapshot_supplemented_fields", {})[name] = {
                 "source": "MarketSnapshotEnricher", "returned_market_data_type": "UNKNOWN",
