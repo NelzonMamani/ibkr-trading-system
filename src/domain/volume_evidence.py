@@ -66,6 +66,9 @@ def ross_adv20_volume_rejection(evidence, basis):
         return "ROSS_VOLUME_CALIBRATION_UNAVAILABLE"
     if not isinstance(basis, Mapping) or basis.get("unit") != VERIFIED_SHARE_UNIT:
         return "ROSS_RVOL_ADV20_UNIT_UNVERIFIED"
+    if (type(basis.get("average")) is not int or basis["average"] <= 0
+            or type(basis.get("sample_count")) is not int or not 1 <= basis["sample_count"] <= 20):
+        return "ROSS_RVOL_ADV20_VALUE_UNAVAILABLE"
     if (basis.get("basis") != "IBKR_RTH_TRADES_DAILY" or basis.get("end_received") is not True
             or type(basis.get("request_id")) is not int
             or any(basis.get(field) != evidence.get(field) for field in
@@ -104,7 +107,7 @@ def ross_entry_volume_rejection(intent, mode, *, client_id=None, connection_epoc
             return "ROSS_VOLUME_BELOW_STOCK_SELECTION_MINIMUM"
     elif session not in {"PRE", "PREMARKET", "AH"}:
         return "ROSS_VOLUME_SESSION_UNSUPPORTED"
-    if os.environ.get("ROSS_PAPER_RELEASE_ENABLED") == "1":
+    if evidence.get("calibration_id") or os.environ.get("ROSS_PAPER_RELEASE_ENABLED") == "1":
         rvol_rejection = ross_adv20_volume_rejection(evidence, evidence.get("adv20_volume_basis"))
         if rvol_rejection:
             return rvol_rejection

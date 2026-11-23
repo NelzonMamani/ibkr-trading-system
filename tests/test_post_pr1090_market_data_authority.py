@@ -987,8 +987,7 @@ def test_completed_holdings_timing_with_five_native_quotes(
     assert not client._position_queries
 
 
-def test_live_stock_volume_is_joined_to_exact_comparator_and_current_request(native, monkeypatch, tmp_path):
-    import json
+def test_live_stock_volume_is_joined_to_exact_comparator_and_current_request(native, monkeypatch):
     from src.domain.volume_evidence import ross_entry_volume_rejection, verified_volume_shares
 
     selected = contract()
@@ -1020,19 +1019,18 @@ def test_live_stock_volume_is_joined_to_exact_comparator_and_current_request(nat
     assert ross_entry_volume_rejection(intent, "PAPER") == "ROSS_VOLUME_UNIT_UNVERIFIED"
     assert ross_entry_volume_rejection(intent, "READ_ONLY") is None
 
-    comparator = tmp_path / "volume-comparator.json"
-    monkeypatch.setenv("ROSS_TWS_VOLUME_COMPARATOR_PATH", str(comparator))
-    def write_comparator(shares, *, lots=False):
-        comparator.write_text(json.dumps({
-            "reference_shares": shares, "send_us_stock_market_data_in_lots": lots,
-            "con_id": selected.conId, "observed_at": datetime.now(timezone.utc).isoformat(),
-        }), encoding="utf-8")
-
-    write_comparator(3_901_800)
+    comparator_scope = dict(con_id=selected.conId, observed_at=datetime.now(timezone.utc))
+    assert not native.verify_us_stock_share_volume(
+        unknown, reference_shares=3_901_800, send_us_stock_market_data_in_lots=False, **comparator_scope,
+    )
     assert verified_volume_shares(native.get_market_snapshot(selected.symbol).volume_evidence) is None
-    write_comparator(39018, lots=True)
-    assert verified_volume_shares(native.get_market_snapshot(selected.symbol).volume_evidence) is None
-    write_comparator(39018)
+    latest = native.get_market_snapshot(selected.symbol).volume_evidence
+    assert not native.verify_us_stock_share_volume(
+        latest, reference_shares=39018, send_us_stock_market_data_in_lots=True, **comparator_scope,
+    )
+    assert native.verify_us_stock_share_volume(
+        latest, reference_shares=39018, send_us_stock_market_data_in_lots=False, **comparator_scope,
+    )
     sample = native.get_market_snapshot(selected.symbol).volume_evidence
     assert verified_volume_shares(sample) == 39018
     assert native.ross_volume_source_current(sample)
@@ -1124,6 +1122,8 @@ def test_private_exact_contract_calibration_binds_fresh_ticks_and_native_complet
     assert adv20.volume_basis["unit"] == "SHARES"
     evidence = dict(live, scanner_session="OPENING_0_30", scanner_execution_eligible=True)
     intent = dict(strategy_name="ross_momentum", symbol=selected.symbol, volume_evidence=evidence)
+    assert ross_entry_volume_rejection(intent, "PAPER") == "ROSS_RVOL_ADV20_UNIT_UNVERIFIED"
+    monkeypatch.delenv("ROSS_PAPER_RELEASE_ENABLED")
     assert ross_entry_volume_rejection(intent, "PAPER") == "ROSS_RVOL_ADV20_UNIT_UNVERIFIED"
     evidence["adv20_volume_basis"] = dict(adv20.volume_basis, connection_epoch=4)
     assert ross_entry_volume_rejection(intent, "PAPER") == "ROSS_RVOL_ADV20_BASIS_MISMATCH"

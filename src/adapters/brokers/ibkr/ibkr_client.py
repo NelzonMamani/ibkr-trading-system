@@ -50,6 +50,7 @@ from src.ibkr.market_data_client import (
     _record_field_receipt,
     _snapshot_authority_metadata,
     _copy_snapshot_ticker,
+    average_daily_bar_volume,
 )
 from src.ibkr.read_only_guard import assert_read_only_allows
 from src.ibkr.evidence_safety import register_account, sanitize
@@ -3168,8 +3169,6 @@ class IbkrClient(EWrapper, EClient):
 
     # --- Market data snapshot ---
     def _paper_volume_calibration(self):
-        if os.environ.get("ROSS_PAPER_RELEASE_ENABLED") != "1":
-            return None
         path = os.environ.get("ROSS_TWS_VOLUME_COMPARATOR_PATH")
         if not path or getattr(self, "_volume_calibration_invalidated", False):
             return None
@@ -3196,6 +3195,7 @@ class IbkrClient(EWrapper, EClient):
         spec, identity = state.get("request_spec"), state.get("contract_identity")
         if (state["status"] != "COMPLETE_BARS" or not state["end_received"] or spec is None
                 or spec.what_to_show != "TRADES" or spec.bar_size_setting != "1 day"
+                or spec.duration_str != "20 D" or spec.end_date_time != "" or spec.format_date != 1
                 or spec.use_rth != 1 or spec.keep_up_to_date or not spec.chart_options_empty
                 or identity is None or identity.con_id is None):
             return None
@@ -3203,10 +3203,12 @@ class IbkrClient(EWrapper, EClient):
             scope = (self.client_id, self._position_connection_epoch, self.serverVersion())
             if state.get("volume_scope") != scope or self._request_id_conflicted(request_id):
                 return None
+            historical_average, sample_count = average_daily_bar_volume(state["bars"], 20)
             basis = {"basis": HISTORICAL_BASIS, "con_id": identity.con_id, "client_id": scope[0],
                      "connection_epoch": scope[1], "server_version": scope[2], "request_id": request_id,
                      "completed_at_utc": state.get("completed_at_utc"), "end_received": True,
-                     "unit": "UNKNOWN", "calibration_id": None}
+                     "unit": "UNKNOWN", "calibration_id": None,
+                     "average": historical_average, "sample_count": sample_count}
             calibration = self._paper_volume_calibration()
             if (calibration is not None and calibration["con_id"] == identity.con_id
                     and identity.symbol == calibration["symbol"] and identity.sec_type == "STK"
@@ -3260,47 +3262,22 @@ class IbkrClient(EWrapper, EClient):
                 if native_stock_volume_rejection(evidence) is None:
                     calibration = self._paper_volume_calibration()
                     witness = (*scope, evidence["con_id"])
-                    if os.environ.get("ROSS_PAPER_RELEASE_ENABLED") == "1":
-                        if (calibration is not None and calibration["con_id"] == evidence["con_id"]
-                                and calibration["symbol"] == evidence["symbol"]
-                                and calibration["primary_exchange"] == evidence["primary_exchange"]):
-                            evidence.update(unit=VERIFIED_SHARE_UNIT, unit_source=SHARE_UNIT_SOURCE,
-                                            shares=evidence["raw_value"], calibration_id=calibration["calibration_id"])
-                    else:
-                        if getattr(self, "_volume_unit_witness", None) != witness:
-                            self._verify_local_volume_comparator(evidence)
-                        if getattr(self, "_volume_unit_witness", None) == witness:
-                            evidence.update(unit=VERIFIED_SHARE_UNIT, unit_source=SHARE_UNIT_SOURCE,
-                                            shares=evidence["raw_value"])
+                    if (calibration is not None and calibration["con_id"] == evidence["con_id"]
+                            and calibration["symbol"] == evidence["symbol"]
+                            and calibration["primary_exchange"] == evidence["primary_exchange"]):
+                        evidence.update(unit=VERIFIED_SHARE_UNIT, unit_source=SHARE_UNIT_SOURCE,
+                                        shares=evidence["raw_value"], calibration_id=calibration["calibration_id"])
+                    elif (os.environ.get("ROSS_PAPER_RELEASE_ENABLED") != "1"
+                            and not os.environ.get("ROSS_TWS_VOLUME_COMPARATOR_PATH")
+                            and getattr(self, "_volume_unit_witness", None) == witness):
+                        evidence.update(unit=VERIFIED_SHARE_UNIT, unit_source=SHARE_UNIT_SOURCE,
+                                        shares=evidence["raw_value"])
                 self._last_native_volume_sample = dict(evidence)
                 retained = self.__dict__.setdefault("_native_volume_evidence", {})
                 if len(retained) >= QuoteDiagnostics.MAX_REQUESTS:
                     retained.pop(next(iter(retained)), None)
                 retained[evidence["request_id"]] = dict(evidence)
         return evidence
-
-    def _verify_local_volume_comparator(self, evidence):
-        path = os.environ.get("ROSS_TWS_VOLUME_COMPARATOR_PATH")
-        if not path:
-            return
-        try:
-            comparator_path = Path(path)
-            if not comparator_path.is_file() or comparator_path.stat().st_size > 1024:
-                return
-            with comparator_path.open("rb") as comparator:
-                record = json.loads(comparator.read(1025))  # Comparator is one small private record.
-            if type(record) is not dict or set(record) != {
-                "con_id", "observed_at", "reference_shares", "send_us_stock_market_data_in_lots",
-            }:
-                return
-            if record["con_id"] == evidence["con_id"]:
-                self.verify_us_stock_share_volume(
-                    evidence, con_id=record["con_id"], reference_shares=record["reference_shares"],
-                    observed_at=datetime.fromisoformat(record["observed_at"]),
-                    send_us_stock_market_data_in_lots=record["send_us_stock_market_data_in_lots"],
-                )
-        except (OSError, ValueError, TypeError, OverflowError):
-            return
 
     def ross_volume_source_current(self, evidence):
         with self._lock:
@@ -3310,14 +3287,15 @@ class IbkrClient(EWrapper, EClient):
                         evidence, client_id=scope[0], connection_epoch=scope[1],
                     ) or evidence["server_version"] != scope[2]):
                 return False
-            if os.environ.get("ROSS_PAPER_RELEASE_ENABLED") == "1":
+            if evidence.get("calibration_id") or os.environ.get("ROSS_PAPER_RELEASE_ENABLED") == "1":
                 calibration = self._paper_volume_calibration()
                 basis = evidence.get("adv20_volume_basis")
                 if (calibration is None or calibration["calibration_id"] != evidence.get("calibration_id")
                         or not isinstance(basis, Mapping) or self._request_id_conflicted(basis.get("request_id"))
                         or getattr(self, "_calibrated_history_requests", {}).get(basis.get("request_id")) != basis):
                     return False
-            elif getattr(self, "_volume_unit_witness", None) != (*scope, evidence["con_id"]):
+            elif (os.environ.get("ROSS_TWS_VOLUME_COMPARATOR_PATH")
+                  or getattr(self, "_volume_unit_witness", None) != (*scope, evidence["con_id"])):
                 return False
             retained = getattr(self, "_native_volume_evidence", {})
             original = retained.get(evidence["request_id"])
@@ -3329,12 +3307,10 @@ class IbkrClient(EWrapper, EClient):
 
     def verify_us_stock_share_volume(self, sample, *, reference_shares, observed_at, con_id,
                                      send_us_stock_market_data_in_lots):
-        """Bind the exact private TWS watchlist share comparator to this connection.
+        """Retain the existing in-process watchlist-only component witness.
 
-        The caller must compare the same current-day native volume, in explicit
-        shares, on the same qualified contract and market-data session, and confirm
-        the TWS API settings explicitly disable US stock lots. The witness stays
-        bound to that contract. Historical bars and RTVolume have different populations.
+        Runtime preparation uses the private paired calibration file, which
+        also checks an independent historical-volume observation.
         """
         with self._lock:
             self._volume_unit_witness = None

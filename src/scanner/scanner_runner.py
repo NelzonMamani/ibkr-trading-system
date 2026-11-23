@@ -2306,10 +2306,12 @@ def _evaluate_focus_gates(
             context["volume_rejection"] = "ROSS_VOLUME_UNIT_UNVERIFIED"
         elif session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"} and volume is not None and volume < thresholds.min_volume:
             context["volume_rejection"] = "ROSS_VOLUME_BELOW_STOCK_SELECTION_MINIMUM"
-        if not context.get("volume_rejection") and os.environ.get("ROSS_PAPER_RELEASE_ENABLED") == "1":
-            context["volume_rejection"] = ross_adv20_volume_rejection(
-                volume_evidence, context.get("adv20_volume_basis"),
-            )
+        if not context.get("volume_rejection") and (
+                volume_evidence.get("calibration_id") or os.environ.get("ROSS_PAPER_RELEASE_ENABLED") == "1"):
+            basis = context.get("adv20_volume_basis")
+            context["volume_rejection"] = ross_adv20_volume_rejection(volume_evidence, basis)
+            if not context["volume_rejection"] and basis["average"] != context.get("avg_volume_20d"):
+                context["volume_rejection"] = "ROSS_RVOL_ADV20_VALUE_MISMATCH"
         _apply_degraded_contract(context)
     spread_pct = _safe_float(context.get("spread_pct"), None)
     bid = _safe_float(context.get("bid"), None)

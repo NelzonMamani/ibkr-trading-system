@@ -184,6 +184,15 @@ def historical_binding_result(result, contract, expected_spec):
     return result
 
 
+def average_daily_bar_volume(bars, window):
+    volumes = [_clean(getattr(bar, "volume", None)) for bar in bars]
+    volumes = [int(value) for value in volumes if value is not None]
+    if not volumes:
+        return None, None
+    sample = volumes[-min(window, len(volumes)):]
+    return int(sum(sample) / len(sample)), len(sample)
+
+
 def historical_bar_facts(bars):
     """Detached callback input values; mutable SDK bar objects are not a fence."""
     return tuple({key: copy.deepcopy(getattr(bar, key, None)) for key in
@@ -1462,12 +1471,8 @@ class MarketDataClient:
 
     def average_daily_volume_from_history(self, contract_or_symbol, *, window: int = 20, use_rth: bool = True) -> tuple[Optional[int], Optional[int]]:
         bars = self.daily_bars_from_history(contract_or_symbol, lookback_days=max(window, 3), use_rth=use_rth)
-        volumes = [_clean(getattr(bar, "volume", None)) for bar in bars]
-        volumes = [int(v) for v in volumes if v is not None]
-        if not volumes:
-            return HistoricalVolumeResult(None, None, bars)
-        sample = volumes[-min(window, len(volumes)):]
-        return HistoricalVolumeResult(int(sum(sample) / len(sample)), len(sample), bars)
+        average, sample_count = average_daily_bar_volume(bars, window)
+        return HistoricalVolumeResult(average, sample_count, bars)
 
     def _empty_snapshot(
         self,
