@@ -1065,8 +1065,10 @@ def test_live_stock_volume_is_joined_to_exact_comparator_and_current_request(nat
     assert not native.ross_volume_source_current(good)
 
 
+@pytest.mark.parametrize("replace_after_preflight", [False, True])
 def test_private_exact_contract_calibration_binds_fresh_ticks_and_native_completed_adv20(
-        native, monkeypatch, tmp_path):
+        native, monkeypatch, tmp_path, replace_after_preflight):
+    from hashlib import sha256
     import json
     from src.domain.volume_evidence import ross_entry_volume_rejection, verified_volume_shares
     from src.ibkr.volume_calibration import prepare_paper_volume_calibration
@@ -1112,6 +1114,14 @@ def test_private_exact_contract_calibration_binds_fresh_ticks_and_native_complet
     prepare_paper_volume_calibration(probe, comparison, witness)
     monkeypatch.setenv("ROSS_PAPER_RELEASE_ENABLED", "1")
     monkeypatch.setenv("ROSS_TWS_VOLUME_COMPARATOR_PATH", str(witness))
+    checked = witness.read_bytes()
+    monkeypatch.setenv("ROSS_TWS_VOLUME_CALIBRATION_SHA256", sha256(checked).hexdigest())
+    if replace_after_preflight:
+        witness.write_bytes(checked + b"\n")
+        assert verified_volume_shares(native.get_market_snapshot(selected.symbol).volume_evidence) is None
+        witness.write_bytes(checked)
+        assert verified_volume_shares(native.get_market_snapshot(selected.symbol).volume_evidence) is None
+        return
 
     # Later watchlist data uses today's calibration and its own fresh receipt.
     volume[0] = 1_650_000
