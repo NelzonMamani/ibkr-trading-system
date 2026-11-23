@@ -784,3 +784,40 @@ def test_pre_symbol_survives_pct_gate_with_historical_reference() -> None:
     assert context is not None
     assert context["pct_change"] == 10.0
     assert _evaluate_gates(context, _thresholds()) is None
+
+
+@pytest.mark.parametrize(("shares", "focus_reason", "execution_eligible"), [
+    (39_018, "SOFT_FAIL_VOLUME", False),
+    (300_000, None, False),
+    (1_000_000, None, True),
+])
+def test_opening_focus_volume_does_not_establish_paper_execution(shares, focus_reason, execution_eligible):
+    from dataclasses import replace
+
+    now = datetime.now(timezone.utc).isoformat()
+    volume_evidence = {
+        "source": "IBKR_NATIVE_TICK_SIZE", "sdk_distribution": "9.81.1.post1",
+        "session_basis": "IBKR_CURRENT_TRADING_DAY_CUMULATIVE",
+        "security_type": "STK", "currency": "USD", "primary_exchange": "NASDAQ",
+        "symbol": "AAPL", "con_id": 123, "request_id": 1, "client_id": 71, "connection_epoch": 0,
+        "server_version": 157, "market_data_status": "LIVE", "tick_type": 8,
+        "market_timestamp_utc": now, "received_at_utc": now,
+        "unit": "SHARES", "unit_source": "TWS_WATCHLIST_SHARE_COMPARISON",
+        "raw_value": shares, "shares": shares,
+    }
+    context = {
+        "symbol": "AAPL", "con_id": 123, "session": "RTH_OPEN", "last_price": 5.0,
+        "bid": 4.99, "ask": 5.01, "spread_pct": 0.4, "volume": shares,
+        "volume_evidence": volume_evidence,
+        "pct_change": 20.0, "pct_change_qualification_usable": True, "pct_change_execution_usable": True,
+        "reference_quality_tier": "PRIMARY", "continuity_usable_reference": True, "adv20_resolved": True,
+        "rvol_status": "RESOLVED", "rvol": 6.0, "rvol_discovery": 6.0, "rvol_phase": 6.0,
+        "execution_ready": True, "quote_timestamp_utc": now, "quote_timestamp_source": "LAST_TRADE",
+    }
+    thresholds = replace(_thresholds(), run_mode="PAPER", ross_paper_volume_required=True,
+                         min_volume=1_000_000, session_focus_volume_min={"RTH_OPEN": 250_000})
+    assert scanner_runner._evaluate_focus_gates(context, thresholds) == focus_reason
+    assert context["execution_eligible"] is execution_eligible
+    assert context["execution_ready"] is execution_eligible
+    if not execution_eligible:
+        assert "ROSS_VOLUME_BELOW_STOCK_SELECTION_MINIMUM" in context["eligibility_reason_codes"]

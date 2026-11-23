@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedCommit,
-      [ValidateSet('quotes','final-orders')][string]$DiagnosticProfile = 'quotes',
+      [ValidateSet('quotes','final-orders','live-volume')][string]$DiagnosticProfile = 'quotes',
       [ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedTree)
-if ($DiagnosticProfile -eq 'final-orders' -and !$ExpectedTree) { throw 'Final orders requires explicit reviewed tree.' }
+if ($DiagnosticProfile -ne 'quotes' -and !$ExpectedTree) { throw 'This profile requires the reviewed tree.' }
 & {
     $ErrorActionPreference = 'Stop'
     $pin = $ExpectedCommit
@@ -16,14 +16,14 @@ if ($DiagnosticProfile -eq 'final-orders' -and !$ExpectedTree) { throw 'Final or
         throw 'Verified Python/base directory missing.'
     }
     # Interpreter/platform checks run inside the supervised120s child.
-    $publishedRef = if ($DiagnosticProfile -eq 'final-orders') { $pin } else { 'codex/quote-transport-diagnostic' }
+    $publishedRef = if ($DiagnosticProfile -ne 'quotes') { $pin } else { 'codex/quote-transport-diagnostic' }
     & git -C $source fetch origin $publishedRef
     if ($global:LASTEXITCODE -ne 0) { throw 'Fetch failed.' }
     $published = (& git -C $source rev-parse FETCH_HEAD | Out-String).Trim()
     if ($global:LASTEXITCODE -ne 0 -or $published -cne $pin) { throw 'Published head differs from reviewed pin.' }
     $tree = (& git -C $source rev-parse ($pin + '^{tree}') | Out-String).Trim()
     if ($global:LASTEXITCODE -ne 0) { throw 'Reviewed tree unavailable.' }
-    if ($DiagnosticProfile -eq 'final-orders' -and $tree -cne $ExpectedTree) { throw 'Reviewed tree differs.' }
+    if ($DiagnosticProfile -ne 'quotes' -and $tree -cne $ExpectedTree) { throw 'Reviewed tree differs.' }
     $entries = @(& git -C $source ls-tree -r -l $pin)
     if ($global:LASTEXITCODE -ne 0) { throw 'Cannot estimate checkout size.' }
     [long]$bytes = 0
@@ -51,7 +51,12 @@ if ($DiagnosticProfile -eq 'final-orders' -and !$ExpectedTree) { throw 'Final or
     Write-Host 'Normal RTH and PAPER TWS Read-Only API127.0.0.1:7497; unused client71 required.'
     Write-Host "Cooperative stop: New-Item -ItemType File -Force '$evidence\STOP_REQUESTED'"
     $profileArgs = @()
-    if ($DiagnosticProfile -eq 'final-orders') { $profileArgs = @($DiagnosticProfile,$ExpectedTree) }
+    if ($DiagnosticProfile -ne 'quotes') { $profileArgs = @($DiagnosticProfile,$ExpectedTree) }
+    $scope = switch ($DiagnosticProfile) {
+        'final-orders' { 'FINAL_ORDERS_DIAGNOSTIC_ONLY' }
+        'live-volume'  { 'LIVE_VOLUME_DIAGNOSTIC_ONLY' }
+        default        { 'QUOTE_DIAGNOSTIC_ONLY' }
+    }
     $probe = Invoke-ObservationChild -Python $python `
         -ChildArguments (@('-E','-u',$payload,'probe',$root,$pin) + $profileArgs) `
         -LogPrefix (Join-Path $evidence 'probe-process') `
@@ -60,7 +65,7 @@ if ($DiagnosticProfile -eq 'final-orders' -and !$ExpectedTree) { throw 'Final or
     if (!$probe.Exited) { throw 'Probe exit unverified; retain local evidence.' }
     $exitCode = if ($probe.TimedOut) { 124 } else { $probe.ExitCode }
     @{ probe_exit=$probe.ExitCode; probe_timed_out=$probe.TimedOut; final_exit=$exitCode;
-       scope=$(if ($DiagnosticProfile -eq 'final-orders') { 'FINAL_ORDERS_DIAGNOSTIC_ONLY' } else { 'QUOTE_DIAGNOSTIC_ONLY' }); PAPER_READY=$false; PAPER_READINESS_GATE='FAIL' } |
+       scope=$scope; PAPER_READY=$false; PAPER_READINESS_GATE='FAIL' } |
         ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $evidence 'outer-status.json')
     $packagePrefix = Join-Path $root 'package-process'
     $package = Invoke-ObservationChild -Python $python `
@@ -77,13 +82,20 @@ if ($DiagnosticProfile -eq 'final-orders' -and !$ExpectedTree) { throw 'Final or
         -ChildArguments (@('-E','-u',$payload,'seal',$root,$pin) + $profileArgs) `
         -LogPrefix (Join-Path $root 'seal-process') `
         -StopPath (Join-Path $evidence 'PACKAGE_STOP_REQUESTED') -BudgetSeconds 90 -StopSeconds 30
-    $zipName = if ($DiagnosticProfile -eq 'final-orders') { 'final-orders-diagnostic-upload.zip' } else { 'quote-diagnostic-upload.zip' }
+    $zipName = switch ($DiagnosticProfile) {
+        'final-orders' { 'final-orders-diagnostic-upload.zip' }
+        'live-volume'  { 'live-volume-diagnostic-upload.zip' }
+        default        { 'quote-diagnostic-upload.zip' }
+    }
     $zip = Join-Path $root $zipName
     if (!$sealed.Exited -or $sealed.TimedOut -or $sealed.ExitCode -ne 0 -or !(Test-Path $zip -PathType Leaf)) {
         throw "Privacy sealing failed; retain $root. No ZIP announced."
     }
     Write-Host "PRIVACY-VERIFIED DIAGNOSTIC ZIP: $zip"
     Write-Host "Probe effective exit: $exitCode. Inspect result.json and outer-status.json separately."
+    if ($DiagnosticProfile -eq 'live-volume') {
+        Write-Host "Private native volume: $root\native-volume.json. Keep this file on the laptop."
+    }
     Write-Host 'Exit0 means this bounded diagnostic completed; it is not natural Ross acceptance.'
     Write-Host "Retained root: $root; PAPER_READY=NO. Do not retry automatically."
     if ($exitCode -ne 0) { throw "Diagnostic nonzero exit $exitCode; preserve the archive and all local evidence." }

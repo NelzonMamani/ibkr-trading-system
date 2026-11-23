@@ -32,6 +32,7 @@ class QuoteData:
     request_id: Optional[int] = None
     snapshot_complete: bool = False
     snapshot_evidence: Mapping[str, Any] = field(default_factory=dict)
+    volume_evidence: Optional[dict[str, object]] = None
 
 
 @dataclass(frozen=True)

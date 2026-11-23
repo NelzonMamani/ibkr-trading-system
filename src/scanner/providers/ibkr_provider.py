@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.domain.volume_evidence import verified_volume_shares
+
 import logging
 
 from src.core.acquisition import checkpoint
@@ -340,6 +342,7 @@ class IbkrScannerProvider(ScannerDataProvider):
             close=snapshot.close,
             change_percent=snapshot.change_percent,
             volume=snapshot.volume,
+            volume_evidence=getattr(snapshot, "volume_evidence", None),
             timestamp_utc=snapshot.timestamp_utc,
             data_quality_flags=tuple(flags),
             requested_market_data_type=getattr(snapshot, "requested_market_data_type", "UNKNOWN"),
@@ -484,7 +487,7 @@ class IbkrScannerProvider(ScannerDataProvider):
 
     def get_intraday_stats(self, symbol: str) -> IntradayStats:
         snapshot = self.get_quote(symbol)
-        volume = int(snapshot.volume) if snapshot.volume is not None else None
+        volume = verified_volume_shares(snapshot.volume_evidence)
         avg_volume = None
         window_days = None
         history = None

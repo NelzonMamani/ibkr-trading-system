@@ -345,6 +345,7 @@ class MarketDataSnapshotManager:
             ask=raw.ask,
             last=snapshot_last,
             volume=raw.volume,
+            volume_evidence=getattr(raw, "volume_evidence", None),
             asof_utc=datetime.now(timezone.utc),
             market_data_type=returned_type,
             returned_market_data_type=returned_type,

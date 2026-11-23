@@ -37,6 +37,7 @@ class QuoteDiagnostics:
             sdk_version = version('ibapi')
         except PackageNotFoundError:
             sdk_version = 'UNKNOWN'
+        self.sdk_distribution = sdk_version
         self._emit('environment', None, {'python': sys.version.split()[0],
             'ibapi_distribution': self._text(sdk_version), 'transport': 'native_ibapi'})
 

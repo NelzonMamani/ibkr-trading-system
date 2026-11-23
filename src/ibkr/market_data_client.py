@@ -441,6 +441,7 @@ class MarketDataSnapshot:
     con_id: Optional[int] = None
     client_id: Optional[int] = None
     connection_epoch: Optional[int] = None
+    volume_evidence: Optional[dict[str, object]] = None
 
 
 class MarketDataClient:
@@ -964,6 +965,9 @@ class MarketDataClient:
                     "missing_fields": missing_fields,
                     **_snapshot_authority_metadata(observed, raw_fields, completed_at=completed_at, completion_reason=completion_reason),
                 }
+                volume_evidence = getattr(ib, "snapshot_volume_evidence", None)
+                if callable(volume_evidence):
+                    attempt_debug["volume_evidence"] = volume_evidence(observed)
                 debug["attempts"].append(attempt_debug)
                 attempt_finished = True
                 if completion_reason == "timeout":
@@ -1050,6 +1054,7 @@ class MarketDataClient:
             ask_size=best_fields["ask_size"],
             last_size=best_fields["last_size"],
             volume=best_fields["volume"],
+            volume_evidence=best_debug.get("volume_evidence"),
             vwap=best_fields["vwap"],
             open=best_fields["open"],
             high=best_fields["high"],

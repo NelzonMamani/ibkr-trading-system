@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from src.domain.quote_freshness import quote_time_rejection
+from src.domain.volume_evidence import (
+    SHARE_UNIT_SOURCE, VERIFIED_SHARE_UNIT, native_stock_volume_rejection,
+)
 from src.ibkr.quote_diagnostics import record_time_assessment
 
 from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, wait_event, bounded_timeout
@@ -1390,6 +1393,9 @@ class IbkrClient(EWrapper, EClient):
         self._connection_event.clear()
         self._position_upstream_lost = False
         with self._lock:
+            self._volume_unit_witness = None
+            self._last_native_volume_sample = None
+            self._native_volume_evidence = {}
             attempts = getattr(self, "_commission_connection_attempts", None)
             if type(attempts) is not int or not hasattr(self, "_commission_constructor_queue"):
                 self._commission_zero_disabled = True
@@ -1642,6 +1648,12 @@ class IbkrClient(EWrapper, EClient):
     def _build_ticker(self, contract) -> object:
         return SimpleNamespace(
             contract=contract,
+            volumeTickType=None,
+            volumeRawValue=None,
+            mixedVolumeTickTypes=False,
+            volumeConnectionEpoch=self._position_connection_epoch,
+            volumeClientId=self.client_id,
+            volumeServerVersion=self.serverVersion(),
             bid=None,
             ask=None,
             last=None,
@@ -2159,6 +2171,9 @@ class IbkrClient(EWrapper, EClient):
             for query in getattr(self, "_price_rule_requests", {}).values():
                 self._finish_price_rule(query, "DISCONNECTED")
             self._position_connection_epoch += 1
+            self._volume_unit_witness = None
+            self._last_native_volume_sample = None
+            self._native_volume_evidence = {}
             self._position_transport_available = False
             self._position_upstream_lost = True
             if clear_account_scope:
@@ -3142,6 +3157,127 @@ class IbkrClient(EWrapper, EClient):
             getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 
     # --- Market data snapshot ---
+    def snapshot_volume_evidence(self, ticker):
+        """Capture native volume facts separately from the unqualified quote value."""
+        tick_type = getattr(ticker, "volumeTickType", None)
+        if tick_type is None:
+            return None
+        contract = ticker.contract
+        timestamp = _resolve_snapshot_timestamp(ticker)
+        evidence = {
+            "raw_value": ticker.volumeRawValue,
+            "source": "IBKR_NATIVE_TICK_SIZE",
+            "tick_type": tick_type,
+            "session_basis": "IBKR_CURRENT_TRADING_DAY_CUMULATIVE",
+            "symbol": str(getattr(contract, "symbol", "")).upper(),
+            "con_id": getattr(contract, "conId", None),
+            "security_type": getattr(contract, "secType", None),
+            "currency": getattr(contract, "currency", None),
+            "primary_exchange": getattr(contract, "primaryExchange", None),
+            "request_id": ticker.reqId,
+            "client_id": ticker.volumeClientId,
+            "connection_epoch": ticker.volumeConnectionEpoch,
+            "server_version": ticker.volumeServerVersion,
+            "sdk_distribution": self._quote_trace.sdk_distribution,
+            "received_at_utc": ticker.fieldReceivedAt.get("volume"),
+            "market_timestamp_utc": timestamp.isoformat() if timestamp else None,
+            "market_data_status": _returned_market_data_type(ticker),
+            "mixed_volume_tick_types": ticker.mixedVolumeTickTypes,
+            "nonlive_type_observed": (
+                getattr(ticker, "volumeNonLiveTypeObserved", False)
+                or getattr(ticker, "strictSnapshotNonLive", False)
+            ),
+            "broker_error_observed": bool(ticker.brokerErrors),
+            "unit": "UNKNOWN",
+            "unit_source": "UNVERIFIED_NATIVE_VOLUME_SETTING",
+            "shares": None,
+        }
+        with self._lock:
+            scope = (self.client_id, self._position_connection_epoch, self.serverVersion())
+            if scope == (ticker.volumeClientId, ticker.volumeConnectionEpoch, ticker.volumeServerVersion):
+                self._last_native_volume_sample = dict(evidence)
+                if native_stock_volume_rejection(evidence) is None:
+                    witness = (*scope, evidence["con_id"])
+                    if getattr(self, "_volume_unit_witness", None) != witness:
+                        self._verify_local_volume_comparator(evidence)
+                    if getattr(self, "_volume_unit_witness", None) == witness:
+                        evidence.update(unit=VERIFIED_SHARE_UNIT, unit_source=SHARE_UNIT_SOURCE,
+                                        shares=evidence["raw_value"])
+                self._last_native_volume_sample = dict(evidence)
+                retained = self.__dict__.setdefault("_native_volume_evidence", {})
+                if len(retained) >= QuoteDiagnostics.MAX_REQUESTS:
+                    retained.pop(next(iter(retained)), None)
+                retained[evidence["request_id"]] = dict(evidence)
+        return evidence
+
+    def _verify_local_volume_comparator(self, evidence):
+        path = os.environ.get("ROSS_TWS_VOLUME_COMPARATOR_PATH")
+        if not path:
+            return
+        try:
+            comparator_path = Path(path)
+            if not comparator_path.is_file() or comparator_path.stat().st_size > 1024:
+                return
+            with comparator_path.open("rb") as comparator:
+                record = json.loads(comparator.read(1025))  # Comparator is one small private record.
+            if type(record) is not dict or set(record) != {
+                "con_id", "observed_at", "reference_shares", "send_us_stock_market_data_in_lots",
+            }:
+                return
+            if record["con_id"] == evidence["con_id"]:
+                self.verify_us_stock_share_volume(
+                    evidence, con_id=record["con_id"], reference_shares=record["reference_shares"],
+                    observed_at=datetime.fromisoformat(record["observed_at"]),
+                    send_us_stock_market_data_in_lots=record["send_us_stock_market_data_in_lots"],
+                )
+        except (OSError, ValueError, TypeError, OverflowError):
+            return
+
+    def ross_volume_source_current(self, evidence):
+        with self._lock:
+            scope = (self.client_id, self._position_connection_epoch, self.serverVersion())
+            if (not self.isConnected() or self._stop_event.is_set()
+                    or native_stock_volume_rejection(
+                        evidence, client_id=scope[0], connection_epoch=scope[1],
+                    ) or getattr(self, "_volume_unit_witness", None) != (*scope, evidence["con_id"])
+                    or evidence["server_version"] != scope[2]):
+                return False
+            retained = getattr(self, "_native_volume_evidence", {})
+            original = retained.get(evidence["request_id"])
+            if original is None or any(evidence.get(key) != value for key, value in original.items()):
+                return False
+            latest = next((sample for sample in reversed(retained.values())
+                           if sample["con_id"] == evidence["con_id"]), None)
+            return latest is not None and native_stock_volume_rejection(latest) is None
+
+    def verify_us_stock_share_volume(self, sample, *, reference_shares, observed_at, con_id,
+                                     send_us_stock_market_data_in_lots):
+        """Bind the exact private TWS watchlist share comparator to this connection.
+
+        The caller must compare the same current-day native volume, in explicit
+        shares, on the same qualified contract and market-data session, and confirm
+        the TWS API settings explicitly disable US stock lots. The witness stays
+        bound to that contract. Historical bars and RTVolume have different populations.
+        """
+        with self._lock:
+            self._volume_unit_witness = None
+            now = datetime.now(timezone.utc)
+            scope = (self.client_id, self._position_connection_epoch, self.serverVersion())
+            if (not self.isConnected() or self._stop_event.is_set()
+                    or send_us_stock_market_data_in_lots is not False
+                    or not isinstance(observed_at, datetime) or type(con_id) is not int or con_id <= 0
+                    or quote_time_rejection(observed_at, "LAST_TRADE", now=now)
+                    or sample != getattr(self, "_last_native_volume_sample", None)
+                    or native_stock_volume_rejection(sample, client_id=scope[0],
+                        connection_epoch=scope[1], con_id=con_id, now=now)
+                    or sample["server_version"] != scope[2]
+                    or quote_time_rejection(sample["market_timestamp_utc"], "LAST_TRADE", now=observed_at)
+                    or type(reference_shares) is not int or reference_shares <= 0
+                    or reference_shares != sample["raw_value"]):
+                return False
+            self._volume_unit_witness = (*scope, con_id)
+            return True
+
     def get_market_snapshot(self, symbol: str) -> MarketSnapshot:
         details = self.resolve_contract(symbol)
         contract = details.contract
@@ -3214,6 +3350,7 @@ class IbkrClient(EWrapper, EClient):
             snapshot_complete=ticker.snapshotEnd,
             received_at_utc=ticker.receivedAt,
             data_quality_flags=tuple(flags),
+            volume_evidence=self.snapshot_volume_evidence(ticker),
             **_snapshot_authority_metadata(ticker, fields, completed_at=completed_at, completion_reason=completion_reason),
         )
         print(f"[IBKR] Snapshot symbol={symbol} req_id={req_id} requested_type={requested_type} returned_type={returned_type} complete={ticker.snapshotEnd} bid={snapshot.bid} ask={snapshot.ask} last={snapshot.last}")
@@ -3231,6 +3368,7 @@ class IbkrClient(EWrapper, EClient):
             ask_size=snapshot.ask_size,
             last_size=snapshot.last_size,
             volume=snapshot.volume,
+            volume_evidence=snapshot.volume_evidence,
             vwap=None,
             open=snapshot.open,
             high=snapshot.high,
@@ -3333,6 +3471,8 @@ class IbkrClient(EWrapper, EClient):
                 return
             if getattr(ticker, "freeze_on_snapshot_end", False) and marketDataType != 1:
                 ticker.strictSnapshotNonLive = True
+            if marketDataType != 1:
+                ticker.volumeNonLiveTypeObserved = True
             ticker.marketDataType = marketDataType if marketDataType in {1, 2, 3, 4} else None
             ticker.marketDataTypeConfirmed = ticker.marketDataType is not None
             ticker.marketDataTypeReceivedAt = datetime.now(timezone.utc)
@@ -3380,6 +3520,11 @@ class IbkrClient(EWrapper, EClient):
             value = float(size)
             self._market_data[reqId][field] = value
             setattr(ticker, field, value)
+            if field == "volume":
+                previous = ticker.volumeTickType
+                ticker.mixedVolumeTickTypes |= previous is not None and previous != tickType
+                ticker.volumeTickType = tickType
+                ticker.volumeRawValue = size if type(size) is int else _clean(size)
             _record_field_receipt(ticker, [{"bidSize": "bid_size", "askSize": "ask_size", "lastSize": "last_size"}.get(field, field)])
         self._market_update_event.set()
 

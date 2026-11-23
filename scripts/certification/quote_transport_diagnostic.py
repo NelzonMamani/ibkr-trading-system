@@ -23,7 +23,7 @@ def manifest(repo):
     return {name: digest(repo/name) for name in names if name}
 
 
-def acquire(client, put):
+def acquire(client, put, *, put_private=None, requested_type="DELAYED"):
     from ibapi.scanner import ScannerSubscription
     from src.core.acquisition import acquisition_deadline, checkpoint, wait_event
     from src.ibkr.market_data_client import _clean, _returned_market_data_type, _resolve_snapshot_timestamp
@@ -73,7 +73,7 @@ def acquire(client, put):
             req = ticker.reqId
             reason = 'interrupted'
             try:
-                signalled = wait_event(client._market_events[req], 5)
+                signalled = wait_event(client._market_events[req], 12 if put_private is not None else 5)
                 with client._lock:
                     client._raise_if_request_id_conflicted(req)
                     t = copy.deepcopy(vars(ticker))
@@ -95,11 +95,13 @@ def acquire(client, put):
                     and age is not None and 0 <= age <= int(get_config('IBKR_SNAPSHOT_MAX_AGE_SECONDS'))
                     and all(v is not None for v in fields.values()))
                 result['quotes'].append({'symbol': c.symbol, 'con_id': c.conId, 'request_id': req,
-                    'requested_type': 'DELAYED', 'returned_type': returned, 'snapshot_complete': t.snapshotEnd,
+                    'requested_type': requested_type, 'returned_type': returned, 'snapshot_complete': t.snapshotEnd,
                     'market_timestamp_utc': stamp.isoformat() if stamp else None, 'age_seconds': age,
                     'field_presence': {k: v is not None for k, v in fields.items()}, 'diagnostic_fields_available': available,
                     'canonical_qualification': 'NOT_PERFORMED',
                     'completion_reason': reason})
+                if put_private is not None:
+                    put_private("native-volume.json", client.snapshot_volume_evidence(t))
             finally:
                 client.record_quote_completion(req, reason)
                 client.cancelMktData(req)
@@ -144,11 +146,13 @@ def main():
         raise RuntimeError('Expected phase/root/commit and optional explicit profile/tree')
     phase, root_text, expected = args[:3]
     profile, expected_tree = args[3:] if len(args) == 5 else ('quotes', None)
-    if profile not in ('quotes', 'final-orders'):
+    if profile not in ('quotes', 'final-orders', 'live-volume'):
         raise RuntimeError('Unknown diagnostic profile')
-    if profile == 'final-orders' and (not expected_tree or len(expected_tree) != 40 or
+    if profile != 'quotes' and (not expected_tree or len(expected_tree) != 40 or
                                      any(c not in '0123456789abcdef' for c in expected_tree)):
-        raise RuntimeError('Final orders requires explicit reviewed tree')
+        raise RuntimeError('Diagnostic requires explicit reviewed tree')
+    scope = {"quotes": "QUOTE_DIAGNOSTIC_ONLY", "final-orders": "FINAL_ORDERS_DIAGNOSTIC_ONLY",
+             "live-volume": "LIVE_VOLUME_DIAGNOSTIC_ONLY"}[profile]
     root = Path(root_text); repo = root/'s'; evidence = root/'e'
     sys.path.insert(0, str(repo)); os.chdir(repo)
     from src.ibkr.evidence_safety import install_console_protection, scan_artifacts, write_json
@@ -159,9 +163,9 @@ def main():
         proof = json.loads((evidence/'privacy-probe.json').read_text(encoding='utf-8'))
         if not proof.get('passed'):
             raise RuntimeError('Probe privacy verification absent/failed; retain local evidence')
-        if profile == 'final-orders':
+        if profile != 'quotes':
             result = json.loads((evidence/'result.json').read_text(encoding='utf-8'))
-            if result.get('scope') != 'FINAL_ORDERS_DIAGNOSTIC_ONLY' or result.get('accepted') != expected:
+            if result.get('scope') != scope or result.get('accepted') != expected:
                 raise RuntimeError('Package scope/pin differs')
         shutil.copy2(__file__, evidence/'operator.py')
         scan = scan_artifacts(evidence)
@@ -170,7 +174,9 @@ def main():
             raise RuntimeError('Privacy scan failed; no shareable archive')
         if phase == 'package':
             return 0
-        archive = root/('final-orders-diagnostic-upload.zip' if profile == 'final-orders' else 'quote-diagnostic-upload.zip')
+        archive = root/{"final-orders": "final-orders-diagnostic-upload.zip",
+                        "live-volume": "live-volume-diagnostic-upload.zip",
+                        "quotes": "quote-diagnostic-upload.zip"}[profile]
         with zipfile.ZipFile(archive, 'x', zipfile.ZIP_DEFLATED) as z:
             for path in sorted(evidence.rglob('*')):
                 if (evidence/'PACKAGE_STOP_REQUESTED').exists():
@@ -186,7 +192,7 @@ def main():
         timings.append({'stage': name, 'utc': datetime.now(timezone.utc).isoformat(),
                         'elapsed_seconds': time.monotonic()-started})
         put('startup-stages.json', timings)
-    report = {'status': 'FAIL', 'PAPER_READY': False, 'PAPER_READINESS_GATE': 'FAIL', 'scope': 'FINAL_ORDERS_DIAGNOSTIC_ONLY' if profile == 'final-orders' else 'QUOTE_DIAGNOSTIC_ONLY',
+    report = {'status': 'FAIL', 'PAPER_READY': False, 'PAPER_READINESS_GATE': 'FAIL', 'scope': scope,
               'accepted': expected, 'operator_sha256': digest(Path(__file__)), 'scanner_attempted': False, 'broker_audit_completed': False,
               'source_state': 'NOT_VERIFIED', 'operator_state': 'NOT_VERIFIED'}
     diagnostic = None
@@ -251,7 +257,7 @@ def main():
             from ibapi.client import EClient
             stage('imports_complete_source_begin')
             safety.require_clean_certification_worktree(expected)
-            if profile == 'final-orders':
+            if profile != 'quotes':
                 actual_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], cwd=repo, timeout=10).decode().strip()
                 if actual_tree != expected_tree:
                     raise RuntimeError('Reviewed tree differs')
@@ -289,7 +295,8 @@ def main():
                 rc = 0 if complete and transport['coverage_verified'] else 2
                 report['status'] = 'DIAGNOSTIC_COMPLETE' if rc == 0 else 'DIAGNOSTIC_ONLY'
             else:
-                client = IbkrClient('127.0.0.1', 7497, 71, 5, 'DELAYED', True)
+                requested_type = "LIVE" if profile == "live-volume" else "DELAYED"
+                client = IbkrClient('127.0.0.1', 7497, 71, 5, requested_type, True)
                 from src.ibkr.transport_diagnostic import TransportDiagnostic
                 diagnostic = TransportDiagnostic(client)
                 diagnostic.__enter__()
@@ -298,10 +305,16 @@ def main():
                     diagnostic.record('negotiated', server_version=client.serverVersion())
                     stage('connected_acquisition_begin')
                     report['scanner_attempted'] = True
-                    result = acquire(client, put)
+                    if profile == "live-volume":
+                        result = acquire(client, put, requested_type=requested_type,
+                                         put_private=lambda name, value: write_json(root/name, value))
+                    else:
+                        result = acquire(client, put)
                 stage('acquisition_finished')
                 complete = bool(result['selected'] and len(result['quotes']) == len(result['selected'])
-                                and all(q['diagnostic_fields_available'] for q in result['quotes']))
+                                and all(q['diagnostic_fields_available']
+                                    and (profile != "live-volume" or q["returned_type"] == "LIVE")
+                                    for q in result['quotes']))
                 report['status'] = 'DIAGNOSTIC_COMPLETE' if complete else 'DIAGNOSTIC_ONLY'
                 rc = 0 if complete else 2
         except BaseException as exc:

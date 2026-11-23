@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src.domain.quote_freshness import quote_time_rejection, quote_evidence
+from src.domain.volume_evidence import native_stock_volume_rejection, verified_volume_shares
 
 from src.core.acquisition import history_enrichment, acquisition_cycle, checkpoint, acquisition_deadline, cycle_cache
 
@@ -388,6 +389,7 @@ class GateThresholds:
     live_quality_required: bool = True
     validation_override_active: bool = False
     run_mode: str = "LIVE"
+    ross_paper_volume_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -1370,6 +1372,10 @@ def _apply_degraded_contract(context: Dict[str, Any]) -> None:
         focus_eligible = False
         execution_eligible = False
         reason_codes.append("UNQUALIFIED_CONTINUITY_ONLY")
+    volume_rejection = context.get("volume_rejection")
+    if volume_rejection:
+        execution_eligible = False
+        reason_codes.append(volume_rejection)
     if focus_eligible and (degraded_reference or degraded_rvol or degraded_adv20):
         reason_codes.append("DEGRADED_FOCUS_ALLOWED")
 
@@ -1583,6 +1589,7 @@ def _gate_thresholds(policy: StockSelectionPolicy, runtime: RuntimeThresholdReso
         live_quality_required=runtime.live_quality_required,
         validation_override_active=runtime.validation_override_active,
         run_mode=runtime.run_mode,
+        ross_paper_volume_required=runtime.run_mode == "PAPER" and policy.policy_name == "ROSS_MOMENTUM",
     )
 
 
@@ -2280,6 +2287,18 @@ def _evaluate_focus_gates(
     premarket_volume = _safe_float(context.get("premarket_volume"), None)
     dollar_volume = _safe_float(context.get("dollar_volume"), None)
     session = normalize_session_label(str(context.get("session") or ""))
+    if thresholds.ross_paper_volume_required:
+        volume_evidence = context.get("volume_evidence")
+        source_rejection = native_stock_volume_rejection(
+            volume_evidence, con_id=context.get("con_id"), symbol=context.get("symbol"),
+        )
+        if source_rejection:
+            context["volume_rejection"] = source_rejection
+        elif verified_volume_shares(volume_evidence) is None:
+            context["volume_rejection"] = "ROSS_VOLUME_UNIT_UNVERIFIED"
+        elif session in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"} and volume is not None and volume < thresholds.min_volume:
+            context["volume_rejection"] = "ROSS_VOLUME_BELOW_STOCK_SELECTION_MINIMUM"
+        _apply_degraded_contract(context)
     spread_pct = _safe_float(context.get("spread_pct"), None)
     bid = _safe_float(context.get("bid"), None)
     ask = _safe_float(context.get("ask"), None)
@@ -2410,6 +2429,9 @@ def _evaluate_focus_gates(
     if focus_decision == "WAIT":
         return "DROP_RVOL_FOCUS"
     if volume is None:
+        if context.get("volume_evidence") is not None and session not in {"PRE", "OVN"}:
+            context["focus_volume_flag"] = "UNKNOWN_UNIT_OR_SOURCE"
+            return "SOFT_FAIL_VOLUME"
         _log_focus_volume_drop(
             context=context,
             stage="focus",
@@ -4146,6 +4168,7 @@ def _candidate_from_context(
         float_cache_hit=context.get("float_cache_hit"),
         float_millions=float_millions,
         volume=volume,
+        volume_evidence=context.get("volume_evidence"),
         premarket_volume=premarket_volume,
         dollar_volume=context.get("dollar_volume"),
         bid=context.get("bid"),
@@ -4475,8 +4498,16 @@ def _build_symbol_context(
     except Exception:
         intraday = None
 
-    quote_volume = _safe_float(getattr(quote, "volume", None), None)
-    volume = intraday.current_intraday_volume if intraday and intraday.current_intraday_volume is not None else quote_volume
+    volume_evidence = getattr(quote, "volume_evidence", None)
+    if volume_evidence is not None:
+        # Quote, unit and request identity are one observation. A second snapshot
+        # from intraday stats cannot replace its volume.
+        volume = verified_volume_shares(volume_evidence)
+        if volume is None:
+            data_quality_flags.append("VOLUME_UNIT_UNVERIFIED")
+    else:
+        quote_volume = _safe_float(getattr(quote, "volume", None), None)
+        volume = intraday.current_intraday_volume if intraday and intraday.current_intraday_volume is not None else quote_volume
     avg_volume_20d = intraday.average_daily_volume_20d if intraday else None
     avg_volume_window_days = intraday.average_daily_volume_window_days if intraday else None
     intraday_history_end_received = getattr(intraday, "historical_end_received", None)
@@ -4676,6 +4707,7 @@ def _build_symbol_context(
         "persisted_rvol": persisted_rvol,
         "ibkr_change_pct": ibkr_change_pct,
         "volume": volume,
+        "volume_evidence": volume_evidence,
         "_enrichment_reference_snapshot": reference_snapshot,
         "avg_volume_20d": avg_volume_20d,
         "average_daily_volume_window_days": avg_volume_window_days,
