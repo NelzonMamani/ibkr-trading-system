@@ -21678,3 +21678,305 @@ provide separate observational evidence. It does not certify account-wide
 order completion or exclusion of concurrent orders, and grants no order
 binding or write authority. Preservation integration remains closed, all
 five ownership vetoes remain, and PAPER_READY=NO.
+
+### Accepted valuation timing and next local action (2026-11-22)
+
+Automatic main run 45035724334 passed all five jobs for
+7a2070abeb9ef38bf2952bf1e03e7dd919d7ab48, tree
+11db8bb9ee7dba296ff9befe01d5435032e4d832. Linux recorded 8589 passed and
+three skipped. Windows recorded 8590 passed and two skipped. Each included
+39 subtests. The earlier Windows interruptions remain historical.
+
+PR #1248 head 6db4b0457b2087bfe4d17e5ac1f571df814bbdf5 and tree
+1a6a1cbb444e8ae64351e866d5441883b894b7f4 passed 288 focused checks and
+independent review. The review added a chronological check from quote End
+through currency and capital completion to the final position receipt.
+The old accepted source refused the five-contract 11-second End case
+with timeout. The final inert fixture also exercises a backward wall clock
+step and proves matching fresh stamps individually do not establish order.
+Required run 45038869076 passed all five jobs. Linux recorded 8596 passed
+and three skipped. Windows recorded 8597 passed and two skipped. Each
+included 39 subtests. The reviewed tree is identical to merge
+98a5f90ced1d17fd97e45103155a22efe6b2bed9, whose ordered parents are
+7a2070abeb9ef38bf2952bf1e03e7dd919d7ab48 and
+6db4b0457b2087bfe4d17e5ac1f571df814bbdf5. Automatic CI for the timing merge
+was not used as a release receipt.
+
+Use the reviewed November 23 ordinary RTH READ_ONLY launcher at
+2b260cb02ce9a77fd1c77fa533bc839a4221fdac,
+docs/ross/ROSS_ORDINARY_RTH_READ_ONLY_20261123.ps1, SHA-256
+4c2e3a93907155d7e95a1d9104b0eecf5395f3c083cead2a6d737cb813aa64f6.
+The release pins 7a2070ab after verified automatic main CI. Preparation and
+calendar bindings are identical to the previous release. Final admission is
+strictly before 20:39 London in the 14:30–21:00 reviewed session. Existing
+local Windows, TWS Read-Only and exact client 71 prerequisites apply. The
+launcher has not run. No broker operation, preservation enrollment,
+ownership classification or veto change occurred. PAPER_READY=NO.
+
+
+### Explicit invocation attestation without a typed phrase (2026-11-22)
+
+The operator requested a single paste-and-Enter launch without a second
+confirmation word or phrase. The existing external November23 caller now
+accepts the explicit -OperatorFactsVerified switch. Using this switch is the
+operator's affirmation, for this invocation, of the same printed local facts:
+intended PAPER login, Read-Only API and listener already configured, reserved
+client71, no known concurrent operation and existing data access. It is not
+machine proof of those facts and does not assert native client availability.
+
+Release commit79fbbc2fb41e168110b05b3bf56078ddf7f6f267 contains the existing
+docs/ross/ROSS_ORDINARY_RTH_READ_ONLY_20261123.ps1, SHA256
+a10439f1eca6e4685d0f7590340e5d895cc2515262fa4aeac7b0d6f606bebf88.
+Without the switch, the previous interactive phrase remains required.
+With it, no Read-Host prompt is reached. The private local attestation record
+adds attestation_method=EXPLICIT_INVOCATION_SWITCH instead of
+INTERACTIVE_TYPED_PHRASE.
+
+Coordinator source comparison confirmed the ONLY changes are the explicit
+switch declaration, the attestation branch and the recorded method. All
+production/source pins, preparation/calendar bindings, deadline, current-policy
+execution, fresh-root handling, exact native-client admission, machine
+preflight, read-only/mutation protections and owned cleanup are unchanged.
+Published bytes were re-read and match the reviewed source. The pinned
+preparation and observation-runner PowerShell files contain no Read-Host,
+credential or confirmation prompt. Native Windows execution/parser validation
+of this external wrapper change was not run here; no runtime or broker was
+launched. Production source and main are untouched. PAPER_READY=NO.
+
+
+### Single-paste SPY/QQQ benchmark capture handoff (2026-11-22)
+
+The operator retained the planned14:55London benchmark capture before a later,
+exclusive Ross observation and requested a single paste-and-Enter block with
+no typed confirmation phrase. This is a manual invocation, not task registration
+or scheduling. Both routes use exactclient71 and must not overlap.
+
+The maintained benchmark release0daceb0d was recovered from
+docs/pr1241-benchmark-launcher-20261119. It pins reviewed source
+f53aa41d07ac6143503582d8d2980bd72fe1d90b/tree
+8fa63a25c17a3a4567cb1c6cc2f88129c44d796a, whose automatic main
+run44596204048 was re-read as successful. The preparation and finite calendar
+bindings are preserved. This benchmark pin is separate from the Ross7a2070ab
+caller and from latest production98a5f90c.
+
+Release9453c450817f6d21ac965d518bc6911fac6b5ed9 retains the unchanged helper
+docs/ross/PREPARE_READ_ONLY_BENCHMARK_CAPTURE.ps1, SHA256
+63d778aa63def291733b4f8b0eb99deb13aa3e92ae7b026e233cc99868e1f4cd,
+and updates docs/ross/READ_ONLY_BENCHMARK_CAPTURE_REQUIRED.ps1, SHA256
+117c2ce8fde1704c248f7fb9306dafa37a6a1275faa0c654e22abb96e02bb747.
+
+The ONLY caller changes are explicit -OperatorFactsVerified, the conditional
+interactive/invocation attestation branch and attestation_method in the private
+receipt, matching the previously requested Ross caller UX. The default still
+requires its typed phrase. Passing the switch is the operator's confirmation
+of the same displayed local PAPER/read-only/listener/client reservation/no known
+concurrent operation/data-access/private-raw facts for this invocation. It is
+not machine proof or native-client availability. All automatic source/calendar/
+host/profile/exact-client/admission/cleanup/privacy gates remain unchanged.
+
+Both published scripts were re-read and match reviewed bytes. The pinned
+preparation and runner have no Read-Host/Get-Credential/ShouldContinue prompts.
+Native Windows execution/parser testing of this small external caller change
+was not performed here. The supplied local launcher hash-checks and native
+PS5.1-parses BOTH files before running either. No source pin, policy, existing
+working file, task, runtime, broker setting, order or recovery state was changed
+by publication. No capture ran here.
+
+For the planned November23 manual attempt, the outer launcher restricts start
+to09:55–strictly before10:21NewYork (14:55–15:21London). The maintained owner
+still independently requires its full180+360second envelope within the covered
+RTH_OPEN and at least16 completed minutes after actual open. Preparation may
+consume time; the outer check does not promise later admission. Run benchmark
+first and wait for complete owned cleanup before any later Ross observation.
+Raw benchmark records stay private; safe terminal/package evidence is reviewed
+separately. All five ownership vetoes remain. PAPER_READY=NO.
+
+
+### November23 first submitted receipt: SPY/QQQ benchmark refusal
+
+This section covers ONLY the operator's first submitted14:55 benchmark attempt,
+not the later ordinary Ross observation, which has not yet been analysed here.
+Archive ross-natural-readonly-upload(20261123-161221).zip:285319bytes,
+SHA256 d95382e64a5e1cbc4d8553abd8ea7085f0e6e4d02e62a2b50b7d698610704626.
+Companion terminal transcript:12366bytes,
+SHA256 fc8f8675daef4360119b54d1762f149261118140fedb54b9343e4c29e81f65ce.
+The archive's runtime profile is BENCHMARK_CAPTURE_V1 despite its generic name.
+
+The transcript identifies fresh root alias ro-4c2901a1 and source
+f53aa41d07ac6143503582d8d2980bd72fe1d90b. Preparation and preflight exited0;
+preflight reports2026-11-23T15:00:29.094433Z. Observation/package/final exits
+are2, diagnostic-only sealing exited0. The capture summary records
+CAPTURE_PAPER_ACCOUNT_SCOPE_UNVERIFIED / account_scope_status ACCOUNT_NOT_PAPER
+after6.7064712seconds, assets[], capture_completedFalse and retention_completeFalse.
+No SPY/QQQ data acquisition/ATR result is established. Scanner/catalyst/
+downstream fields correctly say NOT_RUN_CAPTURE_PROFILE.
+
+Exact pinned source was fetched and inspected. _benchmark_scope at line2211
+accepts only re.fullmatch(r"DU[0-9]+", account). The supervisor's original
+capture-scope loader independently repeats the same restriction. A bounded
+synthetic string control accepts DU000000001 and rejects DUK000000001.
+Thus the existing validators exclude the DUK-digit PAPER account format
+previously shown by the operator. This is a confirmed compatibility problem
+and a likely explanation for this refusal. The shareable receipt omits the
+actual native managed-account string, so it does not independently bind the
+runtime refusal to that specific prefix or establish a LIVE login.
+
+capture_account_scope is null. Source creates its original account commitment
+only AFTER the rejecting gate; the final auditor requires that commitment
+before acquiring its original-account audit scope. The final broker_audit
+callback failed with RuntimeError, and final broker query/disconnect were
+unconfirmed. A matching source path explains the secondary failure, but the
+shareable callback records only the exception type. Do not relabel the final
+audit as passed or infer an empty broker order set.
+
+Both runtime and independent supervisor SDK counters report place/modify/cancel
+zero; independent mutation validation PASS. Child shutdown identity matched,
+all three capture shutdown hooks completed, process exit was verified without
+forced termination, and independent final runtime inventory completed empty.
+All2722 tracked-file commitments in source-before/source-after are identical;
+operator order-state and source-integrity checks report PASS. These scoped
+facts do not turn terminal FAIL into complete operational acceptance.
+
+Keep this receipt separate from the next Ross archive. Do not rerun unchanged.
+The next source repair must address both PAPER-format validators consistently,
+with positive DUK-format and negative LIVE/unknown/multiple/changed-account
+controls, while retaining contemporaneous PAPER attestation, exactclient71,
+read-only/SDK/mutation guards, original scope commitments and independent audit.
+A prefix match alone is not a new account-type certificate. No production
+change, broker connection, recovery clearing or readiness upgrade occurred
+during this evidence review. PAPER_READY=NO.
+
+
+### November23 second receipt: natural Ross raw-intent progression
+
+This section is ONLY the later ordinary Ross observation. Archive
+ross-natural-readonly-upload(20261123-161642).zip:1675910bytes, SHA256
+744bae80a3a1b9636e48b91765432272263ade52a7d4a1dbc1c48609116487f8.
+Companion terminal transcript:40603bytes, SHA256
+725996cf51973f62219100c3e3289fc4d730564c022af239c251242e9d787aaa.
+Run alias ro-8e455b5b used source7a2070abeb9ef38bf2952bf1e03e7dd919d7ab48;
+it is not the earlier benchmark source/profile. Independent scoped progress
+and terminal-safety reviews were performed against the original archive.
+
+Terminal safety PASS is supported: preparation/preflight/observation/package/
+final exits0; runtime and independent audit place/modify/cancel counters all0;
+all11 shutdown hooks completed; identity matched; graceful process exit without
+force; admission and final recognized-runtime inventories empty. All2724
+source-before/after commitments match, and operator order-state/source checks
+report PASS. The final audit owner reports reqAllOpenOrders End/query completion,
+zero observed orders and completed disconnect. This is its observational scope,
+not a new certificate of globally atomic order truth or a final-write fence.
+The operator summary's RUNNING/null nested phase fields are pre-package facts;
+final phase-status.json supersedes those with PASS/all0.
+
+The first benchmark's packaging completed15:01:01.493UTC. This Ross supervisor
+started15:24:06.317UTC, about23m5s later, with empty admission inventory.
+There is no observed overlap. Ross preflight completed15:24:05.366527UTC.
+
+| Natural stage | Actual observed scope |
+| --- | --- |
+| Scanner | Three native completed50-row responses with scannerDataEnd. |
+| Watchlist/Focus | 205 completed cycles; Watchlist2 throughout; official Focus1 in31 cycles. |
+| Native selections | 24ABCD,3Micro Pullback,3Premarket High Break,1Stair Step. |
+| Raw strategy output | 27 cycle emissions:24ABCD plus3Micro. SyntheticFalse, forced-intent count0, manual Focus disabled. |
+| Admission boundary | Ownership filter rejected all27 with POSITION_TRUTH_BLOCK_NEW_ENTRIES before risk; risk input0, submissions0. |
+| Readiness | No risk approval, executable canonical-artifact acceptance, broker fill/protection or ownership clearance follows. PAPER_READY=NO. |
+
+This closes a bounded historical gap: natural issuer news/cache and native
+setup/trigger owners did produce real raw strategy intents. It does NOT prove
+an all-green executable Ross opportunity. The27 emissions concern one in-play
+symbol, alias R01; repeated family geometry is identical within the24ABCD
+and3Micro rows. Distinct occurrence IDs are not retained, so27 distinct trades
+or opportunities are not claimed.
+
+First direct chain in terminal/stdout.log (one-based lines): canonical catalyst
+6488; Focus evaluation6497; degraded volume6501-6502; official Focus6681; native
+ABCD selection7310; trigger ready7323; intent creation7347-7348; emit7358;
+syntheticFalse7373; actual Core strategy output1 at7375; ownership rejection
+7387-7393; risk input0 at7394; executableFalse7400. Four selected rows did not
+emit:3PMH already holding above its level and1Stair Step awaiting breakout.
+
+The exported news cache retains an issuer Q3 earnings witness published
+12:00UTC and first fetched15:26:12.893234UTC, observed publisher Quiver
+Quantitative through the issuer Google News RSS query. Title ticker/issuer
+matching and runtime EARNINGS/verified_issuer_event_valid are recorded, with
+155 revalidations across the31 Focus cycles. Acquisition coverage remains
+partial/degraded; independent original publisher/event authentication and
+complete search coverage are not certified. No retained R01 financing/dilution
+veto was found; this is archive-local absence only.
+
+A material remaining qualification limit is volume classification and its units. The first Focus row is
+explicitly DEGRADED/SOFT_FAIL_VOLUME: reported39018 against the opening Focus
+minimum250000. Strategy handoff subsequently reports39444 and LOW_VOLUME
+against50000, yet its actual configured regular-session data floor is10000.
+These are different source owners; do not silently treat all as one threshold.
+The stock-selection specification also declares a1000000 execution minimum.
+
+At exact source7a2070ab: scanner_runner.py2444-2456 returns SOFT_FAIL_VOLUME
+and5597-5610 still appends the candidate to ordinary Focus without a READ_ONLY
+condition. ibkr_provider.py485-501 reads snapshot.volume and scanner_runner.py4478-4479
+prefers that field. ross_momentum_strategy_v1.py333-337/389-410 uses configured
+RTH_MIN_VOLUME and does not hard-reject LOW_VOLUME alone. No later250000
+backstop is established by this receipt because ownership rejects before risk.
+At15:30UTC, reassessment drops Focus to0 with CURRENT_POLICY_INCOMPATIBLE on
+the actual RTH_MID transition (stdout37072-37074), not demonstrated news aging.
+
+
+Coordinator also opened IBKR's official tick documentation
+https://interactivebrokers.github.io/tws-api/tick_types.html (tick8) and
+https://www.interactivebrokers.com/docs/tws-api/doc/md/streaming-data
+(tickSize section), both describing a US-stock100 multiplier. At this source,
+ibkr_client.py3208-3220 stores tickSize8/74 as float(size) unchanged and
+market_data_client.py1026/provider485-501 pass it through without unit
+provenance. The run records ibapi9.81.1.post1. Thus39018 raw units could mean
+3901800 shares under the documented legacy convention; that is an inference,
+not a verified conversion for this session. Current protocol/server/TWS build,
+effective compatibility settings, raw bound callback units and a same-time
+shares-based comparator are not established. Do not conclude economic low
+liquidity or apply a blanket100 multiplier from this archive alone.
+
+Next bounded Ross task is source-bound volume-unit and policy-authority
+reconciliation through existing owners. Establish whether the installed native
+SDK/server/settings deliver this US stock volume in shares or lots before any
+normalization or cross-threshold comparison; this archive does not establish
+those units. Do not multiply by100 or change thresholds by assumption. Then
+prove intended weak-volume behavior at actual PAPER admission/final handoff,
+preserving valid diagnostic context and all stricter existing gates. Raw-intent
+formation is accepted within the degraded-volume scope, not full readiness.
+
+The separate benchmark account-format compatibility repair remains necessary.
+No unchanged local rerun is requested. Keep both original archives/private roots,
+all five ownership vetoes and recovery state intact. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
+
+
+### Benchmark PAPER-format compatibility repair prepared (2026-11-23)
+
+The exact observed DU/DUK identifier formats are accepted by the same bounded
+fullmatch in the existing capture startup and original-account audit gates.
+The change adds no new import/helper/module or account-type certificate:
+DUK?[0-9]+ retains ASCII digits and exact whole-string matching. Operator
+PAPER attestation, READ_ONLY/write-disabled/native client71/epoch/generation,
+single completed managed-account scope, expected-account equality, reviewed
+calendar and private original commitment/audit protections remain unchanged.
+
+An isolated source repair started from accepted main98a5f90c. Three new DUK
+causal paths failed before the repair (capture bootstrap, bounded missing-
+bootstrap reply, and actual independent native audit with hash-bound original
+DUK scope). The synthetic-only fixtures retain DU positives and LIVE U,
+other-letter, missing/trailing/internal-space, multiple/changed-account and
+private-commitment refusal coverage. No actual account identifier is published.
+Independent source review found one fixture mistake: native managedAccounts
+strips surrounding whitespace, so a startup leading-space negative was
+incorrect. It was corrected to internal whitespace; the raw private-commitment
+leading-space negative stays. Independent final-delta review CLEAR.
+
+Root final focused verification passed169 cases in7.31s with the offline socket
+guard across tests/test_benchmark_capture_profile.py and
+tests/test_benchmark_completed_opening_history.py; git diff --check passed.
+These are source/inert native callback/SDK audit controls, not a real broker
+capture, actual-account attribution or readiness proof. Full required PR CI
+remains pending when this publication receipt is prepared. No unchanged local
+observation or benchmark retry, source database change, order/holding action,
+recovery clearing, preservation enrollment or gate relaxation occurred.
+All five ownership vetoes remain. PAPER_READY=NO.

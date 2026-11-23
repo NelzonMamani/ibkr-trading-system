@@ -2208,7 +2208,9 @@ def _benchmark_scope(manager, client, epoch, generation, *, window_fingerprint=N
         raise _BenchmarkAccountScopeRefused("CALLBACK_EMPTY")
     if len(accounts) > 1:
         raise _BenchmarkAccountScopeRefused("MULTIPLE_ACCOUNTS")
-    if not isinstance(accounts[0], str) or re.fullmatch(r"DU[0-9]+", accounts[0]) is None:
+    # Admit the observed DU/DUK identifier formats only; the surrounding
+    # native scope, operator PAPER attestation and read-only guards still apply.
+    if not isinstance(accounts[0], str) or re.fullmatch(r"DUK?[0-9]+", accounts[0]) is None:
         raise _BenchmarkAccountScopeRefused("ACCOUNT_NOT_PAPER")
     if expected_accounts is not None and accounts != expected_accounts:
         raise _BenchmarkAccountScopeRefused("ACCOUNT_SCOPE_CHANGED")
