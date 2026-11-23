@@ -22283,3 +22283,92 @@ adds a transport-stop negative. Three focused final-seam cases passed on
 `fbd138d6`. B06 timed pending-entry shutdown remains open until its separate
 owner and joined tests land. B01, B02/B03, B04 and the pinned caller's
 integration and broker acceptance remain open. PAPER_READY=NO.
+
+### PR1250 controlled ABCD operational handoff (2026-11-23)
+
+The controlled route is still default-off and limited to one standalone ABCD
+BUY under the MICRO risk profile. Use the retained state root. The five
+unresolved legacy holdings still veto startup. Restart quarantine, READ_ONLY
+mutation protections and the existing strategy thresholds remain in force.
+
+| ID | Implementation and inert evidence | Remaining laptop fact |
+| --- | --- | --- |
+| B02/B03 | Exact-contract private calibration pairs live native tick 8 and end-confirmed RTH daily TRADES history with two independent TWS share observations. It binds contract, primary exchange, SDK/server and the consuming connection. A changed witness or relevant observable scope invalidates it. Each candidate still needs its own fresh live data. Execution requires compatible verified share units and the matching completed ADV20 denominator. | Same TWS instance/build and effective watchlist and historical share settings, plus the two real independent comparisons. |
+| B04 | Controlled risk and both reservation owners use completed account-bound USD securities settled cash and reserve the risk-approved limit plus the applicable all-fee ceiling. The serialized SDK gate requires the same scoped evidence and exact one-share SMART BUY LMT terms. Missing cash/cost authority and insufficient cash block entry. A no-dispatch refusal releases unused reservations. | The installed PAPER TWS must emit the scoped USD securities settlement field and the operator must have written confirmation of all applicable entry fees. |
+| B06 | Timed stop ends entry admission. One durably recorded owned-order cancel is allowed. Native executions, position truth, order inventory and callback state resolve cancellation/fill races. An attributable fill uses existing ownership and protection owners. Unresolved state keeps the runtime attached and emits a private handoff. The native scope is rechecked at the final disconnect boundary. Initial ABCD stop admission is serialized with the native SDK write. | Supervised broker acceptance of the complete path. |
+| B07/B08 | The Windows caller validates the checkout, calendar, calibration and fee inputs before starting the existing controlled runtime. Its stop-file and active handoff paths are local. | Accepted source pin after reviewed required CI, integration and post-merge CI. Clean exclusive PAPER scope and supervised broker acceptance are still required. |
+
+IBKR documents the per-currency `SettledCashByDate` update, its securities
+segment `-S` variant, and its cumulative future balances. The controlled route
+accepts the minimum observed current/forward USD securities balance from the
+completed scoped updates. The fee ceiling is a private transcription of an
+applicable written broker confirmation. Its `valid_until_utc` must extend beyond the covered
+regular-session close. The confirmation must cover all charges for the
+qualifying regular-session DAY order, including a late fill. Published commission
+schedules can vary by account and plan.
+https://www.interactivebrokers.com/docs/tws-api/doc/accounts/updates
+https://www.interactivebrokers.com/docs/tws-api/doc/accounts/models
+https://www.interactivebrokers.com/docs/tws-api/doc/orders/objects
+https://www.interactivebrokers.com/en/pricing/commissions-stocks.php
+
+#### Laptop preparation and controlled invocation
+
+1. In the same TWS instance used for the later controlled run, record the
+   exact build and effective US stock watchlist and historical volume share
+   settings. During the covered opening window, choose an exact naturally
+   observed candidate to calibrate. The private probe uses the existing
+   READ_ONLY launcher with `-DiagnosticProfile live-volume -ExpectedCommit
+   <reviewed-probe-commit> -ExpectedTree <reviewed-probe-tree> -VolumeSymbol
+   <symbol>`. It reports the local `volume-probe.json` path. Keep it local.
+2. Independently record the unrounded TWS watchlist share count at capture
+   time and the exact unrounded TWS RTH TRADES chart volume for a completed
+   daily bar of the same contract. Supply a private JSON object containing
+   `tws_build`, `con_id`, `watchlist_observed_at` (aware ISO timestamp),
+   `watchlist_shares`, `historical_bar_date` (YYYYMMDD),
+   `historical_bar_shares`, `watchlist_shares_setting` and
+   `historical_shares_setting`. Both settings must confirm shares. Use the
+   evidence directly observed in TWS for these comparison values.
+3. Run the existing diagnostic's offline `prepare-volume <volume-probe.json>
+   <independent-comparison.json> <new-private-volume-witness.json>` command
+   with the pinned source's Python entrypoint. Use the resulting path in the
+   controlled caller. It applies only to the exact calibrated contract,
+   the same NY trading date and the observed supported source scope. Keep
+   the TWS instance, build and volume settings consistent through entry.
+   The SDK does not report those setting toggles to the consumer.
+4. In the retained state root, keep a private `entry-fee-ceiling.json` with
+   schema `IBKR_CONFIRMED_USD_ENTRY_FEE_CEILING_V1`. Its required keys are
+   `schema`, `account`, `currency` (USD), `security_type` (STK),
+   `exchange` (SMART), `side` (BUY), `quantity` (1),
+   `max_limit_price` and `max_fee` (decimal strings),
+   `valid_until_utc` (UTC ISO timestamp), and `broker_reference`. Populate
+   these from the applicable written confirmation. Raw broker records remain
+   on the laptop.
+5. Once published with an accepted pin, use the PowerShell 5.1 caller to
+   attest the stated starting facts and invoke controlled PAPER. Creating
+   the local stop file ends entry admission and starts owned resolution.
+   While `pending-entry-handoff.json` reports
+   `PAPER_RELEASE_SHUTDOWN_HANDOFF_ACTIVE`, leave the runtime attached and
+   inspect the local handoff from a second console. A completed result
+   can also reflect a no-trade session.
+
+The volume contract is scoped to the observed instrument. IBKR documents
+cumulative native tick volume and separately filtered historical trades.
+The installed wire scaling for both fields is established by the independent
+local comparisons. No general stock-class conversion is inferred.
+https://www.interactivebrokers.com/docs/tws-api/doc/md/streaming-data
+https://interactivebrokers.github.io/tws-api/historical_data.html
+https://ibkrcampus.com/docs/tws-api/protobuf/api-settings-config
+
+Final software source under review:
+`38d5e257aa895b23bfa4cf665cb7376470522e39`,
+tree `013ff95bd3484e6ae354ced7b193c754f4179897`. Independent review
+cleared this source for integration after required CI. The preceding complete
+combined source `818a8e345bbc17c1dfd3e66a4935097ba751900b` passed 421 focused
+offline tests and 28 overlapping independently run causal tests. These
+cover the ordinary and controlled production joins, native and Windows
+fallback harnesses, cash/account/fee and limit vetoes, unresolved cancellation,
+late and in-flight fill processing, and a changed working stop. The reviewed
+final delta adds the pre-cancel cached-order amendment test and preserves
+a legacy non-reentrant callback test's lock contract. Current-head required
+CI and actual laptop verification are separate. The controlled launcher
+remains unpinned. PAPER_READY=NO.
