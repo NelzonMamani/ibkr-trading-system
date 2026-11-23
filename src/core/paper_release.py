@@ -8,7 +8,7 @@ from threading import Lock
 from src.config.config_resolver import get_config
 from src.config.runtime_config import RunMode, get_force_clean_start
 from src.execution.position_truth import PositionTruthConfig, collect_broker_position_snapshot
-from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded
+from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint
 from src.market_data.session_pct_change import covered_opening_window
 
 
@@ -112,6 +112,7 @@ class PaperRelease:
         self.check_start(client, engine, now)
         def consume():
             with self.lock:
+                checkpoint()
                 self._check(client, engine, datetime.now(timezone.utc))
                 self.attempted = True
         return consume
