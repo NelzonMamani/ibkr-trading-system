@@ -82,7 +82,7 @@ class IbkrOrderSubmitter:
         self.guard = guard
         self.logger = logger
 
-    def submit_once(self, internal_order: InternalOrder) -> SubmissionResult:
+    def submit_once(self, internal_order: InternalOrder, *, entry_admission=None) -> SubmissionResult:
         self._log_banner()
         client = self.client_provider() if self.client_provider is not None else self.ibkr_client
         self._log_settings()
@@ -131,7 +131,8 @@ class IbkrOrderSubmitter:
             )
 
         try:
-            self._emit_attempted(internal_order, ibkr_order_id=None)
+            if entry_admission is None:
+                self._emit_attempted(internal_order, ibkr_order_id=None)
             try:
                 run_mode = str(getattr(self.config.run_mode, "value", self.config.run_mode)).upper()
                 if run_mode == "LIVE" and self.config.order_submission_enabled:
@@ -141,7 +142,20 @@ class IbkrOrderSubmitter:
                     f"client_order_id={internal_order.client_order_id} symbol={internal_order.symbol} "
                     f"qty={internal_order.quantity} side={internal_order.direction} order_type={internal_order.order_type}"
                 )
-                ibkr_order_id = client.submit_order(contract, order)
+                if entry_admission is None:
+                    ibkr_order_id = client.submit_order(contract, order)
+                else:
+                    prepare, commit = entry_admission
+
+                    def commit_entry(client, order_id, contract, order):
+                        commit(client, order_id, contract, order)
+                        self._emit_attempted(internal_order, ibkr_order_id=None)
+
+                    ibkr_order_id = client.submit_order(
+                        contract, order,
+                        before_submit=lambda order_id, contract, order: prepare(client, order_id, contract, order),
+                        final_entry_admission=commit_entry,
+                    )
                 print(
                     "[EXECUTION][IBKR_ORDER_ID] "
                     f"symbol={internal_order.symbol} order_id={ibkr_order_id}"

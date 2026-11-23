@@ -27,10 +27,11 @@ from src.config.config_resolver import get_config
 from src.config.runtime_config import (
     RunMode,
     get_execution_enabled,
+    get_ibkr_snapshot_max_age_seconds,
     get_ibkr_readonly_enabled,
 )
 from src.core.active_trade_registry import ActiveTradeRegistry
-from src.core.capital_management_authority import CapitalDecision, CapitalManagementAuthority
+from src.core.capital_management_authority import CapitalDecision, CapitalManagementAuthority, PaperEntryCapital
 from src.core.daily_risk_governor import DailyRiskGovernor
 from src.core.event_collector import EventCollector
 from src.core.strategy_capital_allocation_authority import (
@@ -215,6 +216,7 @@ class ExecutionEngine:
         self.position_records: dict[str, dict] = {}
         self._native_orders: dict[str, dict] = {}
         self._native_scope = None
+        self._native_position_scope_identity = None
         self._p02_local = None
         self._native_state = None
         self._native_loaded = False
@@ -932,9 +934,57 @@ class ExecutionEngine:
             and observation["journal_fingerprint"] == fresh["journal_fingerprint"]
             and fresh.assessed_at >= observation.assessed_at)
 
-    def bind_native_order_scope(self, *, account, client, as_of) -> None:
+    def bind_native_order_scope(self, *, account, client, as_of, scope_identity=None) -> None:
         # Existing complete position-snapshot authority, not a caller config flag.
         self._native_scope = (account, client, as_of) if isinstance(account, str) and account.strip() and client is not None else None
+        self._native_position_scope_identity = scope_identity if self._native_scope else None
+
+    @property
+    def paper_entry_capital_required(self) -> bool:
+        from src.brokers.ibkr_live_broker import IbkrLiveBroker
+
+        return (self.run_mode == RunMode.PAPER
+                and isinstance(self._provider, IbkrExecutionProvider)
+                and isinstance(self._provider.broker, IbkrLiveBroker))
+
+    def collect_paper_entry_capital(self) -> PaperEntryCapital | None:
+        if not self.paper_entry_capital_required:
+            return None
+        scope = self._native_scope
+        client = self._native_callback_client()
+        if scope is None or scope[1] is not client or not self._paper_order_scope_fresh(scope, datetime.now(timezone.utc)):
+            return None
+        from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+
+        position_identity = self._native_position_scope_identity
+        if (not isinstance(client, IbkrClient) or position_identity is None
+                or client.account_capital_scope(scope[0]) != position_identity):
+            return None
+        result = client.account_capital_snapshot(expected_account=scope[0])
+        return PaperEntryCapital(client, scope[0], result)
+
+    @staticmethod
+    def _paper_order_scope_fresh(scope, now) -> bool:
+        stamp = scope[2]
+        return (isinstance(stamp, datetime) and stamp.utcoffset() is not None
+                and 0 <= (now - stamp).total_seconds() <= get_ibkr_snapshot_max_age_seconds())
+
+    def _paper_entry_capital(self, evidence, *, now) -> tuple[str | None, dict[str, float]]:
+        if not isinstance(evidence, PaperEntryCapital):
+            return "PAPER_CAPITAL_UNAVAILABLE", {}
+        scope = self._native_scope
+        if (scope is None or scope[0] != evidence.account or scope[1] is not evidence.client
+                or self._native_callback_client() is not evidence.client):
+            return "PAPER_CAPITAL_SCOPE_CHANGED", {}
+        if not self._paper_order_scope_fresh(scope, now):
+            return "PAPER_CAPITAL_POSITION_SCOPE_STALE", {}
+        if (self._native_position_scope_identity is None
+                or evidence.client.account_capital_scope(evidence.account) != self._native_position_scope_identity):
+            return "PAPER_CAPITAL_POSITION_SCOPE_CHANGED", {}
+        return evidence.inspect(now)
+
+    def paper_entry_capital_rejection(self, evidence) -> str | None:
+        return self._paper_entry_capital(evidence, now=datetime.now(timezone.utc))[0]
 
     def _save_native_orders(self) -> None:
         from copy import deepcopy
@@ -1213,6 +1263,8 @@ class ExecutionEngine:
         if direction not in {"BUY", "LONG", "SHORT"}:
             return None
         account = self._capital_account_snapshot(risk_decision)
+        if self.paper_entry_capital_required and not account["broker_truth_available"]:
+            return self._blocked_execution_from_risk_decision(risk_decision, rationale="PAPER_CAPITAL_INVALIDATED")
         context = self._strategy_allocation_context(risk_decision)
         requested_quantity = self._effective_quantity_from_risk_decision(risk_decision)
         decision = self.strategy_allocation_authority.evaluate_entry(
@@ -1368,6 +1420,8 @@ class ExecutionEngine:
         if direction not in {"BUY", "LONG", "SHORT"}:
             return None
         account = self._capital_account_snapshot(risk_decision)
+        if self.paper_entry_capital_required and not account["broker_truth_available"]:
+            return self._blocked_execution_from_risk_decision(risk_decision, rationale="PAPER_CAPITAL_INVALIDATED")
         context = self._capital_portfolio_context(risk_decision.symbol)
         requested_quantity = self._effective_quantity_from_risk_decision(risk_decision)
         decision = self.capital_authority.evaluate_entry(
@@ -1459,6 +1513,14 @@ class ExecutionEngine:
         }
 
     def _capital_account_snapshot(self, risk_decision: RiskDecision) -> dict[str, float | bool | None]:
+        if self.paper_entry_capital_required:
+            reason, values = self._paper_entry_capital(
+                getattr(risk_decision, "paper_entry_capital", None), now=datetime.now(timezone.utc),
+            )
+            if reason:
+                return {"broker_truth_available": False}
+            return {**values, "broker_truth_available": True,
+                    "available_capital": max(0.0, min(values.values()))}
         evaluated = getattr(risk_decision, "evaluated_limits", {}) or {}
         equity = self._float_or_none(
             evaluated.get("account_equity")
@@ -1887,6 +1949,12 @@ class ExecutionEngine:
         if gate_result is not None:
             return gate_result
 
+        paper_entry = self.paper_entry_capital_required and str(risk_decision.direction).upper() in {"LONG", "BUY", "SHORT"}
+        if paper_entry:
+            reason = self.paper_entry_capital_rejection(getattr(risk_decision, "paper_entry_capital", None))
+            if reason:
+                return self._blocked_execution_from_risk_decision(risk_decision, rationale=reason)
+
         strategy_allocation_result = self._strategy_allocation_admission_check(risk_decision)
         if strategy_allocation_result is not None:
             return strategy_allocation_result
@@ -1902,6 +1970,8 @@ class ExecutionEngine:
             self._release_strategy_allocation_for_order(order, reason="ORDER_FIELD_VALIDATION_FAILED")
             self._release_capital_for_order(order, reason="ORDER_FIELD_VALIDATION_FAILED")
             return required_fields_check
+        if paper_entry:
+            return self._route_order(order, paper_entry_risk=risk_decision)
         return self._route_order(order)
 
     def _session_gate_check(self, risk_decision: RiskDecision) -> Optional[ExecutionResult]:
@@ -2365,7 +2435,71 @@ class ExecutionEngine:
         """Accepted native result with retained callback acknowledgement evidence."""
         return ExecutionResult.submission_confirmed(result)
 
-    def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
+    def _check_native_paper_entry(self, request, risk_decision, client, contract, native_order, *, prepare=False):
+        evidence = getattr(risk_decision, "paper_entry_capital", None)
+        reason, values = self._paper_entry_capital(evidence, now=datetime.now(timezone.utc))
+        if reason or client is not evidence.client:
+            raise RuntimeError(reason or "PAPER_CAPITAL_CLIENT_CHANGED")
+
+        side = "SELL" if request.direction.upper() == "SHORT" else "BUY"
+        if (contract.symbol != request.symbol.upper() or contract.secType != "STK" or contract.currency != "USD"
+                or native_order.action != side or native_order.totalQuantity != request.quantity
+                or native_order.orderType != request.order_type):
+            raise RuntimeError("PAPER_NATIVE_ENTRY_MISMATCH")
+        if prepare:
+            if (native_order.account not in ("", evidence.account)
+                    or native_order.orderRef not in ("", request.client_order_id)):
+                raise RuntimeError("PAPER_NATIVE_ENTRY_IDENTITY_CONFLICT")
+            native_order.account = evidence.account
+            native_order.orderRef = request.client_order_id
+        elif native_order.account != evidence.account or native_order.orderRef != request.client_order_id:
+            raise RuntimeError("PAPER_NATIVE_ENTRY_IDENTITY_CONFLICT")
+
+        from src.domain.volume_evidence import ross_entry_volume_rejection
+
+        volume = getattr(risk_decision, "volume_evidence", None)
+        context = {"symbol": request.symbol, "strategy_name": request.strategy_name, "volume_evidence": volume}
+        reason = ross_entry_volume_rejection(
+            context, self.run_mode, client_id=client.client_id, connection_epoch=client._position_connection_epoch,
+            con_id=contract.conId if not prepare or contract.conId else None,
+        )
+        if reason:
+            raise RuntimeError(reason)
+        if volume is not None:
+            if not client.ross_volume_source_current(volume):
+                raise RuntimeError("ROSS_VOLUME_SOURCE_INVALIDATED")
+            if prepare:
+                contract.conId = volume["con_id"]
+
+        price = getattr(risk_decision, "entry_price", None)
+        if (isinstance(price, bool) or not isinstance(price, (int, float)) or not math.isfinite(price)
+                or price <= 0 or request.quantity * price > min(values.values())):
+            raise RuntimeError("INSUFFICIENT_CAPITAL")
+        owners = (
+            (self.capital_authority, self._capital_decisions_by_order_id),
+            (self.strategy_allocation_authority, self._strategy_allocation_decisions_by_order_id),
+        )
+        for owner, decisions in owners:
+            decision_id = decisions.get(request.client_order_id)
+            if not decision_id or not any(
+                reservation.decision_id == decision_id
+                and reservation.order_id == request.client_order_id
+                and reservation.symbol == request.symbol
+                and reservation.remaining_quantity >= request.quantity
+                and reservation.remaining_notional >= request.quantity * price
+                for reservation in owner.active_reservations.values()
+            ):
+                raise RuntimeError("PAPER_CAPITAL_RESERVATION_UNAVAILABLE")
+
+    def _route_order(self, request: BrokerOrderRequest, *, paper_entry_risk=None) -> ExecutionResult:
+        paper_entry = self.paper_entry_capital_required and request.direction.upper() in {"LONG", "BUY", "SHORT"}
+        evidence = getattr(paper_entry_risk, "paper_entry_capital", None)
+        if paper_entry:
+            reason = self.paper_entry_capital_rejection(evidence)
+            if reason:
+                self._release_strategy_allocation_for_order(request, reason=reason)
+                self._release_capital_for_order(request, reason=reason)
+                return self._blocked_execution_from_request(request, rationale=reason)
         # Recheck at the actual route, after order construction/preflight and
         # before native ownership/reservation or any provider dispatch.
         if (str(request.direction).upper() in {"BUY", "LONG"}
@@ -2478,16 +2612,48 @@ class ExecutionEngine:
                 self._retain_relationship_unit_request(request, plan)
             decisions.pop(request.client_order_id, None)
         standalone = None
-        if (not context and self.run_mode == RunMode.PAPER and self._provider.is_live()
-                and request.direction.upper() in {"LONG", "BUY"}):
+        retain_standalone = (not context and self.run_mode == RunMode.PAPER and self._provider.is_live()
+                             and request.direction.upper() in {"LONG", "BUY"})
+        before_dispatch = None
+        dispatch_committed = False
+        if paper_entry:
+            def prepare(client, order_id, contract, native_order):
+                nonlocal before_dispatch
+                try:
+                    self._check_native_paper_entry(request, paper_entry_risk, client, contract, native_order, prepare=True)
+                    guard = getattr(self, "paper_release_guard", None)
+                    if guard is not None:
+                        guard(request, client, contract, native_order, datetime.now(timezone.utc))
+                except RuntimeError as exc:
+                    before_dispatch = str(exc)
+                    raise
+
+            def commit(client, order_id, contract, native_order):
+                nonlocal before_dispatch, dispatch_committed, standalone
+                try:
+                    self._check_native_paper_entry(request, paper_entry_risk, client, contract, native_order)
+                except RuntimeError as exc:
+                    before_dispatch = str(exc)
+                    raise
+                # This durable local preparation precedes the only native send.
+                # Any failure after this point remains uncertain.
+                dispatch_committed = True
+                if retain_standalone:
+                    standalone = self._retain_native_request(request)
+                    self._check_native_paper_entry(request, paper_entry_risk, client, contract, native_order)
+
+        elif retain_standalone:
             standalone = self._retain_native_request(request)
         try:
-            result = self._provider.place_order(request)
+            if paper_entry:
+                result = self._provider.place_order(request, entry_admission=(prepare, commit))
+            else:
+                result = self._provider.place_order(request)
         except Exception as exc:
             if context:
                 plan.orders[request.client_order_id]["submission_uncertain_at"] = datetime.now(timezone.utc).isoformat()
                 manager._save_relationship_state()
-            elif standalone is not None:
+            elif standalone is not None or dispatch_committed:
                 self._failsafe_block_new_entries = True
             else:
                 self._release_strategy_allocation_for_order(request, reason="ENTRY_SUBMISSION_FAILURE")
@@ -2496,7 +2662,7 @@ class ExecutionEngine:
                 symbol=request.symbol,
                 trader_type=request.trader_type or "UNKNOWN",
                 attempted=False,
-                status="SUBMISSION_UNKNOWN" if context or standalone is not None else "FAILED",
+                status="SUBMISSION_UNKNOWN" if context or standalone is not None or dispatch_committed else "FAILED",
                 relationship_context=request.relationship_context,
                 rationale=f"ENTRY_SUBMISSION_FAILURE:{exc}",
                 direction=request.direction,
@@ -2512,6 +2678,19 @@ class ExecutionEngine:
                 attempt_number=request.attempt_number,
                 client_order_id=request.client_order_id,
             )
+        if paper_entry and not dispatch_committed:
+            reason = before_dispatch or result.rejection_reason or result.rationale or "PAPER_FINAL_ADMISSION_UNAVAILABLE"
+            self._release_strategy_allocation_for_order(request, reason=reason)
+            self._release_capital_for_order(request, reason=reason)
+            if context:
+                manager.on_relationship_order_update(relationship_id=plan.relationship_id, order_id=request.client_order_id,
+                    cumulative_quantity=0, average_price=None, terminal=True, status="PRE_DISPATCH_BLOCKED")
+            return self._blocked_execution_from_request(request, rationale=reason)
+        if paper_entry and retain_standalone and standalone is None:
+            # The callback attempted to retain the request before submitting.
+            # Persistence failure is quarantined by the same native owner.
+            self._failsafe_block_new_entries = True
+            return self._blocked_execution_from_request(request, rationale="NATIVE_ORDER_RECOVERY_OR_STORAGE_BLOCKED")
         if standalone is not None:
             native = getattr(result, "ibkr_order_id", None)
             if native is not None:
@@ -2527,6 +2706,14 @@ class ExecutionEngine:
                 self._failsafe_block_new_entries = True
             standalone["last_response"] = {"status": str(result.status), "filled": result.filled_quantity, "remaining": result.remaining_quantity}
             self._save_native_orders()  # Failure retains pre-dispatch uncertainty.
+            if paper_entry:
+                # The route response can report a synchronous fill. Account
+                # ownership still requires the attributable native callback.
+                result.filled_quantity = 0
+                result.remaining_quantity = request.quantity
+                result.fill_status = "NONE"
+                result.average_fill_price = None
+                result.entry_price = None
         from src.brokers.sim_broker import SimBroker
         deterministic_result = (isinstance(self._provider, PaperExecutionProvider)
             and isinstance(self._provider.broker, SimBroker)

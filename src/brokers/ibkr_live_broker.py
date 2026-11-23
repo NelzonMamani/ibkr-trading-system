@@ -153,7 +153,7 @@ class IbkrLiveBroker(BaseBroker):
             return
         self.connection_manager.disconnect(reason=reason)
 
-    def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
+    def place_order(self, request: BrokerOrderRequest, *, entry_admission=None) -> ExecutionResult:
         profile_name = str(get_risk_profile_name() or "NORMAL").upper()
         profile = RISK_PROFILES.get(profile_name)
         if profile and profile.max_shares is not None and request.quantity > profile.max_shares:
@@ -240,7 +240,9 @@ class IbkrLiveBroker(BaseBroker):
         try:
             self.ensure_connection()
             assert self.submitter is not None
-            result = self.submitter.submit_once(internal_order)
+            result = self.submitter.submit_once(
+                internal_order, **({"entry_admission": entry_admission} if entry_admission is not None else {}),
+            )
         except Exception as exc:
             rationale = f"LIVE_SUBMISSION_FAILED: {exc}"
             return ExecutionResult(
@@ -272,7 +274,7 @@ class IbkrLiveBroker(BaseBroker):
         resolved_stop_loss = request.stop_loss_price
         resolved_take_profit = request.take_profit_price
 
-        if fill_status in {"FULL", "PARTIAL"} and filled_quantity > 0:
+        if entry_admission is None and fill_status in {"FULL", "PARTIAL"} and filled_quantity > 0:
             entry_price = average_fill_price
             if entry_price is not None:
                 pattern_name = request.pattern_name

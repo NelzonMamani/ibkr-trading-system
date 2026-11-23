@@ -275,7 +275,7 @@ class IbkrExecutionProvider(ExecutionProvider):
             return {}
         return client.cached_order_status(int(broker_order_id))
 
-    def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
+    def place_order(self, request: BrokerOrderRequest, *, entry_admission=None) -> ExecutionResult:
         if self.run_mode == RunMode.READ_ONLY:
             return ExecutionResult(
                 symbol=request.symbol,
@@ -296,7 +296,9 @@ class IbkrExecutionProvider(ExecutionProvider):
                 client_order_id=request.client_order_id,
                 attempt_number=request.attempt_number,
             )
-        return self.broker.place_order(request)
+        return self.broker.place_order(
+            request, **({"entry_admission": entry_admission} if entry_admission is not None else {}),
+        )
 
     def cancel(self, order_id: str) -> CancelReport:
         return CancelReport(

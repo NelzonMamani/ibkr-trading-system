@@ -1083,3 +1083,87 @@ def test_account_capital_never_dispatches_without_valid_ledger_dependency(accoun
         assert result.status == "TIMEOUT"
     assert [tags for _, _, tags in facts.requests] == ["$LEDGER"]
     assert not result.facts
+
+
+@pytest.mark.parametrize(("fault", "expected"), [
+    ("zero", "INSUFFICIENT_CAPITAL"),
+    ("missing", "PAPER_CAPITAL_MISSING_CAPITAL"),
+    ("conflict", "PAPER_CAPITAL_CONFLICTING_VALUE"),
+    ("wrong_account", "PAPER_CAPITAL_WRONG_ACCOUNT"),
+    ("other_currency", "PAPER_CAPITAL_UNSUPPORTED_CURRENCY"),
+    ("stale", "PAPER_CAPITAL_STALE"),
+    ("reconnected", "PAPER_CAPITAL_SCOPE_CHANGED"),
+    ("unqualified", "PAPER_CAPITAL_UNAVAILABLE"),
+])
+def test_native_paper_risk_and_allocation_require_completed_same_scope_capital(
+    account_currency_client, monkeypatch, fault, expected,
+):
+    from datetime import datetime, timedelta
+
+    from src.brokers.ibkr_live_broker import IbkrLiveBroker
+    from src.config.runtime_config import RunMode
+    from src.execution import execution_engine
+    from src.execution.execution_providers import IbkrExecutionProvider
+    from src.models.data_models import TradeIntent
+    from src.risk import risk_engine
+
+    facts = account_currency_client
+    client = facts.client
+    account = "SYNTHETIC_TEST"
+
+    def dispatch(req_id):
+        currency = "EUR" if fault == "other_currency" else "USD"
+        if facts.requests[-1][2] == "$LEDGER":
+            _currency_rows(client, req_id, currency)
+            return
+        for tag, value in (("NetLiquidation", "10000"), ("AvailableFunds", "0" if fault == "zero" else "1200"),
+                           ("BuyingPower", "9999")):
+            if fault != "missing" or tag != "AvailableFunds":
+                client.accountSummary(req_id, "OTHER" if fault == "wrong_account" else account, tag, value, currency)
+        if fault == "conflict":
+            client.accountSummary(req_id, account, "AvailableFunds", "9876", currency)
+        client.accountSummaryEnd(req_id)
+
+    facts.on_request = dispatch
+
+    class ClockType(type):
+        def __instancecheck__(cls, value):
+            return isinstance(value, datetime)
+
+    class Clock(datetime, metaclass=ClockType):
+        @classmethod
+        def now(cls, tz=None):
+            return facts.clock.now
+
+    monkeypatch.setattr(execution_engine, "datetime", Clock)
+    monkeypatch.setattr(risk_engine, "utc_now", lambda: facts.clock.now)
+    get_config = risk_engine.get_config
+    monkeypatch.setattr(risk_engine, "get_config", lambda key: "PAPER" if key == "RUN_MODE_EFFECTIVE" else get_config(key))
+    broker = IbkrLiveBroker.__new__(IbkrLiveBroker)
+    broker.connection_manager = NS(existing_client=client)
+    broker.account_summary = {"NetLiquidation": 50_000, "AvailableFunds": 50_000, "BuyingPower": 50_000}
+    engine = execution_engine.ExecutionEngine.__new__(execution_engine.ExecutionEngine)
+    engine.run_mode = RunMode.PAPER
+    engine._provider = IbkrExecutionProvider(broker=broker, trade_registry=None, run_mode=RunMode.PAPER)
+    engine.bind_native_order_scope(account=account, client=client, as_of=facts.clock.now,
+                                   scope_identity=client.account_capital_scope(account))
+    evidence = engine.collect_paper_entry_capital() if fault != "unqualified" else None
+    if fault == "stale":
+        facts.clock.now += timedelta(days=1)
+        engine.bind_native_order_scope(account=account, client=client, as_of=facts.clock.now,
+                                       scope_identity=client.account_capital_scope(account))
+    elif fault == "reconnected":
+        client._position_connection_epoch += 1
+        engine.bind_native_order_scope(account=account, client=client, as_of=facts.clock.now,
+                                       scope_identity=client.account_capital_scope(account))
+    trade = TradeIntent("SYNTH", "LONG", "TEST", 1.0, "scoped-capital negative control")
+    decision = risk_engine.RiskEngine().evaluate_trade_intent(trade, paper_capital=evidence)
+    assert not decision.allowed and decision.reason_code == expected
+    config_summary = {"account_equity": 50_000, "available_capital": 50_000, "buying_power": 50_000}
+    bound = engine._capital_account_snapshot(NS(paper_entry_capital=evidence, evaluated_limits=config_summary))
+    if fault == "zero":
+        assert decision.evaluated_limits["available_capital"] == bound["available_capital"] == 0
+        assert bound["broker_truth_available"] is True
+    else:
+        assert decision.evaluated_limits["available_capital"] is None
+        assert bound == {"broker_truth_available": False}

@@ -1746,7 +1746,7 @@ class IbkrClient(EWrapper, EClient):
             print(f"[IBKR][ORDER_ID_SEQUENCE] reserved={order_id} next={self._next_valid_order_id}")
             return order_id
 
-    def submit_order(self, contract: Contract, order, *, before_submit=None) -> int:
+    def submit_order(self, contract: Contract, order, *, before_submit=None, final_entry_admission=None) -> int:
         if not self.is_connected():
             raise RuntimeError("IBKR client is not connected.")
         assert_read_only_allows("PLACE_ORDER")
@@ -1806,7 +1806,14 @@ class IbkrClient(EWrapper, EClient):
                     if type(lease) is not _P02LocalEntryLease or lease.owner is not state["owner"]:
                         raise RuntimeError("P02_LOCAL_ENTRY_ISSUER_INVALID")
                     context["lease"] = lease
-            self.placeOrder(order_id, contract, order)
+            if final_entry_admission is None:
+                self.placeOrder(order_id, contract, order)
+            else:
+                # Serialize the local admission recheck and send against native
+                # callback scope changes. The preparatory hook may await reads.
+                with self._lock:
+                    final_entry_admission(self, order_id, contract, order)
+                    self.placeOrder(order_id, contract, order)
         except Exception as exc:
             print(f"[IBKR][PLACE_ORDER][ERROR] symbol={getattr(contract, 'symbol', None)} order_id={order_id} error={exc}")
             raise
@@ -2256,6 +2263,18 @@ class IbkrClient(EWrapper, EClient):
             return AccountCapitalResult("CLEANUP_UNCONFIRMED", expected_account, currency)
         return self._strict_account_summary(
             expected_account, timeout, capital_currency=currency, deadline=deadline)
+
+    def account_capital_scope(self, expected_account: str, *, request_ids=()) -> tuple[int, int, int] | None:
+        """Return current local identity for a sole, connected account."""
+        with self._lock:
+            if (not self.is_connected() or self._stop_event.is_set()
+                    or not self._position_transport_available
+                    or tuple(self._managed_accounts) != (expected_account,)
+                    or any(self._request_id_conflicted(req_id) for req_id in request_ids)):
+                return None
+            identity = (self.client_id, self._position_connection_epoch,
+                        getattr(self, "_managed_accounts_generation", 0))
+            return identity if all(type(value) is int and value >= 0 for value in identity) else None
 
     def _strict_account_summary(self, expected_account, timeout_seconds, *, capital_currency=None, deadline=None):
         checkpoint()

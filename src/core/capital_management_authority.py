@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal
 from enum import Enum
 import json
 import math
@@ -16,8 +17,71 @@ from src.config.config_resolver import get_config
 from src.config.runtime_config import (
     get_config_max_position_pct,
     get_default_capital,
+    get_ibkr_snapshot_max_age_seconds,
     get_risk_account_equity,
 )
+
+
+@dataclass(frozen=True)
+class PaperEntryCapital:
+    """Process-local account observation carried from risk through native submission."""
+
+    client: Any
+    account: str
+    result: Any
+
+    def inspect(self, now: datetime) -> tuple[str | None, dict[str, float]]:
+        from src.adapters.brokers.ibkr.ibkr_client import (
+            AccountCapitalFact, AccountCapitalResult, AccountCurrencyResult, IbkrClient,
+        )
+
+        result = self.result
+        if not isinstance(result, AccountCapitalResult):
+            return "PAPER_CAPITAL_UNAVAILABLE", {}
+        if result.status != "COMPLETE":
+            return f"PAPER_CAPITAL_{result.status}", {}
+        currency = result.currency_evidence
+        if (not isinstance(currency, AccountCurrencyResult) or currency.status != "COMPLETE"
+                or not currency.cleanup_complete
+                or not currency.cancellation_attempted or not result.cancellation_attempted
+                or currency.source != "IBKR_ACCOUNT_SUMMARY_LEDGER"
+                or any(type(req_id) is not int or req_id <= 0 for req_id in (currency.request_id, result.request_id))
+                or currency.request_id == result.request_id):
+            return "PAPER_CAPITAL_INCOMPLETE", {}
+        scope = (self.client.account_capital_scope(self.account, request_ids=(currency.request_id, result.request_id))
+                 if isinstance(self.client, IbkrClient) else None)
+        if scope is None:
+            return "PAPER_CAPITAL_SCOPE_CHANGED", {}
+        for observation in (result, currency):
+            identity = (observation.client_id, observation.connection_epoch, observation.account_scope_generation)
+            if (observation.account != self.account
+                    or any(type(value) is not int for value in identity) or identity != scope):
+                return "PAPER_CAPITAL_SCOPE_CHANGED", {}
+        if currency.currency != "USD":
+            return "PAPER_CAPITAL_UNSUPPORTED_CURRENCY", {}
+        stamps = (currency.completed_at, result.started_at, result.completed_at)
+        max_age = get_ibkr_snapshot_max_age_seconds()
+        if (any(not isinstance(stamp, datetime) or stamp.utcoffset() is None for stamp in stamps)
+                or not stamps[0] <= stamps[1] <= stamps[2] <= now):
+            return "PAPER_CAPITAL_INVALID_TIMING", {}
+        if (now - stamps[0]).total_seconds() > max_age:
+            return "PAPER_CAPITAL_STALE", {}
+
+        fields = {"NetLiquidation": "account_equity", "AvailableFunds": "available_capital",
+                  "BuyingPower": "buying_power"}
+        values = {}
+        for fact in result.facts:
+            if (not isinstance(fact, AccountCapitalFact) or fact.tag not in fields
+                    or fields[fact.tag] in values or fact.account != self.account
+                    or fact.currency != currency.currency or not isinstance(fact.value, Decimal)
+                    or not fact.value.is_finite() or not math.isfinite(float(fact.value))
+                    or not isinstance(fact.received_at, datetime) or fact.received_at.utcoffset() is None
+                    or not result.started_at <= fact.received_at <= result.completed_at):
+                return "PAPER_CAPITAL_INVALID_FACT", {}
+            values[fields[fact.tag]] = float(fact.value)
+        if len(values) != len(fields):
+            return "PAPER_CAPITAL_MISSING_CAPITAL", {}
+        return None, values
 
 
 class CapitalDecisionStatus(str, Enum):
