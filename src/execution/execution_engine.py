@@ -2940,6 +2940,8 @@ class ExecutionEngine:
         def authorize(_, contract, native_order):
             if (self._native_callback_client() is not client or not client.is_connected()
                     or tuple(client._managed_accounts) != (account,)
+                    or getattr(client, "_managed_accounts_generation", 0)
+                        != parent.get("native_account_scope_generation")
                     or client.client_id != parent.get("native_client_id")
                     or client._position_connection_epoch != parent.get("native_connection_epoch")
                     or contract.conId != con_id or contract.symbol != parent["symbol"]
