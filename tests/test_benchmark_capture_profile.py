@@ -322,10 +322,15 @@ def deliver_accounts_before_fallback(monkeypatch, client, accounts):
 
 @pytest.mark.parametrize(('bootstrap', 'reply', 'failure', 'crossing'), [
     ('DU000000001', None, None, False),
+    ('DUK000000001', None, None, False),
     (None, 'DU000000001', None, False),
+    (None, 'DUK000000001', None, False),
     (None, None, 'CALLBACK_MISSING', False),
     ('', 'DU000000001', 'CALLBACK_EMPTY', False),
     ('U000000001', 'DU000000001', 'ACCOUNT_NOT_PAPER', False),
+    ('DUL000000001', None, 'ACCOUNT_NOT_PAPER', False),
+    ('DUK000000001X', None, 'ACCOUNT_NOT_PAPER', False),
+    ('DUK000 000001', None, 'ACCOUNT_NOT_PAPER', False),
     ('DU000000001,DU000000002', 'DU000000001', 'MULTIPLE_ACCOUNTS', False),
     ('', 'DU000000001', 'CALLBACK_EMPTY', True),
     ('U000000001', 'DU000000001', 'ACCOUNT_NOT_PAPER', True),
@@ -373,6 +378,7 @@ def test_capture_startup_preserves_completed_paper_account_facts(
     public = (component.shared / 'benchmark-capture-summary.json').read_text()
     assert json.loads(public).get('account_scope_status') == failure
     assert 'U000000001' not in public and 'DU000000002' not in public
+    assert 'DUK000000001' not in public
 
 
 def test_ordinary_startup_still_refreshes_managed_accounts(component, monkeypatch):
@@ -617,12 +623,37 @@ def native_profile_audit(monkeypatch,tmp_path):
         source=source,proof=proof,identity=identity,connected=connected)
 
 
-def test_matched_original_paper_scope_uses_one_actual_native_query_and_cleanup(native_profile_audit):
+def _set_original_audit_account(f, account):
+    import hashlib
+
+    f.source['accounts'] = [account]
+    raw = capture.benchmark_json_bytes(f.source)
+    path = f.output.parent.parent / 'private' / 'capture' / 'original-account-scope.json'
+    path.write_bytes(raw)
+    f.proof['capture_account_scope'] = {'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()}
+    (f.output / 'shutdown_evidence.json').write_text(json.dumps(f.proof))
+    f.state.account = account
+
+
+@pytest.mark.parametrize('account', ['DU000000001', 'DUK000000001'])
+def test_matched_original_paper_scope_uses_one_actual_native_query_and_cleanup(native_profile_audit, account):
     f=native_profile_audit
+    _set_original_audit_account(f, account)
     result=f.invoke()
     assert result['query_completed'] and result['disconnected'] and result['end_received']
     assert f.packets.count('16')==1 and f.packets.count('17')==0
     assert len(f.instances)==1 and not f.instances[0]._thread.is_alive()
+
+
+@pytest.mark.parametrize('account', [
+    'U000000001', 'DUL000000001', 'DUK', 'DUK000000001X', ' DUK000000001',
+])
+def test_original_capture_account_format_refuses_before_audit_connect(native_profile_audit, account):
+    f = native_profile_audit
+    _set_original_audit_account(f, account)
+    with pytest.raises(RuntimeError, match='Original capture PAPER account scope unavailable'):
+        f.invoke()
+    assert not f.instances and not f.packets
 
 
 @pytest.mark.parametrize('account',['U000000001','','DU000000001,DU000000002','DU000000002'])

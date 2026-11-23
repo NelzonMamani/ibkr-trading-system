@@ -227,7 +227,9 @@ def _capture_audit_original_accounts(directory, runtime_identity):
             or type(source["SDK_client_id"]) is not int or source["SDK_client_id"] != 71
             or type(source["connection_epoch"]) is not int or source["connection_epoch"] < 0
             or not isinstance(source["accounts"],list) or len(source["accounts"]) != 1
-            or not isinstance(source["accounts"][0],str) or re.fullmatch(r"DU[0-9]+",source["accounts"][0]) is None):
+            # Keep the same observed formats as the original capture gate;
+            # identifier syntax alone does not establish PAPER account truth.
+            or not isinstance(source["accounts"][0],str) or re.fullmatch(r"DUK?[0-9]+",source["accounts"][0]) is None):
         raise RuntimeError("Original capture PAPER account scope unavailable")
     return tuple(source["accounts"])
 
