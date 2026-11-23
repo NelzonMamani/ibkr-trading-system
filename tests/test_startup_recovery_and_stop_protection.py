@@ -504,7 +504,9 @@ def validate_pristine_paper_memory_write(*, actual_client, expected_client, core
             'capital_source') == 'IBKR_ACCOUNT_CAPITAL'
         order_identity = ((native.account, native.orderRef) == (plan['account'], root_id)
             if scoped_entry else not native.orderRef)
-        require(native.action == 'BUY' and native.orderType == 'MKT'
+        entry_type = plan.get('entry_order_type', 'MKT')
+        require(native.action == 'BUY' and native.orderType == request['order_type'] == entry_type
+            and (entry_type != 'LMT' or native.lmtPrice == request['limit_price'] == plan['entry_price'])
             and native.parentId == 0 and order_identity
             and parent['status'] == 'DISPATCH_UNCERTAIN' and parent['broker_order_id'] is None
             and parent['filled'] == 0 and not parent['terminal'], 'ENTRY')
@@ -518,6 +520,7 @@ def validate_pristine_paper_memory_write(*, actual_client, expected_client, core
         require(isinstance(capital.decision_id,str) and capital.decision_id
             and isinstance(allocation.decision_id,str) and allocation.decision_id
             and allocation.global_capital_decision_id == capital.decision_id, 'RESERVATION_LINK')
+        bounded_spend = plan.get('entry_spend', quantity * plan['entry_price'])
         for reservation in (capital,allocation):
             require(reservation.order_id == root_id and reservation.symbol == request['symbol']
                 and reservation.side == request['direction'].upper()
@@ -526,8 +529,8 @@ def validate_pristine_paper_memory_write(*, actual_client, expected_client, core
                 and type(reservation.quantity) is int and reservation.quantity == quantity
                 and type(reservation.remaining_quantity) is int and reservation.remaining_quantity == quantity
                 and reservation.filled_quantity == 0 and reservation.exposure_notional == 0
-                and reservation.notional == reservation.remaining_notional == quantity*plan['entry_price'], 'RESERVATION_BINDING')
-        require(engine.capital_authority.total_reserved_capital == quantity*plan['entry_price']
+                and reservation.notional == reservation.remaining_notional == bounded_spend, 'RESERVATION_BINDING')
+        require(engine.capital_authority.total_reserved_capital == bounded_spend
             and engine.capital_authority.total_used_exposure == 0
             and not engine.position_records and not engine.trade_registry.snapshot(), 'RESERVATION')
         role = 'entry'
@@ -633,7 +636,9 @@ def validate_pristine_paper_execution_fact(*, actual_client, expected_client, co
             and entries[0]['order'].get('totalQuantity') == quantity, 'DISPATCH_QUANTITY')
     if raw['leg'] == 'entry':
         require(execution['side'] == 'BOT' and native['action'] == 'BUY'
-            and native['orderType'] == 'MKT' and native['parentId'] == 0, 'ENTRY')
+            and native['orderType'] == plan.get('entry_order_type', 'MKT')
+            and (native['orderType'] != 'LMT' or native['lmtPrice'] == plan['entry_price'])
+            and native['parentId'] == 0, 'ENTRY')
     else:
         require(execution['side'] == 'SLD' and native['action'] == 'SELL'
             and native['orderType'] == 'STP' and native['auxPrice'] == plan['stop_price']
@@ -1659,6 +1664,19 @@ try:
     owned_position_reads = set()
     capital_owner_read = [False]
     pending_shutdown_history = []
+    prepared_limit_order = [None]
+    if facts.get('paper_test_reprice_after_prepare'):
+        from src.adapters.brokers.ibkr.ibkr_order_translator import IbkrOrderTranslator
+        actual_translate = IbkrOrderTranslator.translate
+
+        def retain_translated_limit(translator, internal):
+            contract, order = actual_translate(translator, internal)
+            if order.orderType == 'LMT':
+                prepared_limit_order[0] = order
+            return contract, order
+
+        IbkrOrderTranslator.translate = retain_translated_limit
+
     def send_message(message):
         fields = str(message).split('\0')
         opcode = fields[0]
@@ -1680,8 +1698,32 @@ try:
                     client.execDetails(request_id, contract, execution)
                 client.execDetailsEnd(request_id)
                 return
+            if opcode == str(OUT.REQ_OPEN_ORDERS) and prepared_limit_order[0] is not None:
+                prepared_limit_order[0].lmtPrice += 0.01
+                prepared_limit_order[0] = None
             # Only this supplied security's real read encoders reach a memory
             # transport. The actual Native callbacks retain request ownership.
+            if (capital_owner_read[0] and opcode in {str(OUT.REQ_ACCOUNT_UPDATES_MULTI),
+                    str(OUT.CANCEL_ACCOUNT_UPDATES_MULTI)}):
+                request_id = int(fields[2])
+                report['wire_attempts'][-1]['purpose'] = 'ENTRY_SETTLED_CASH'
+                if opcode == str(OUT.CANCEL_ACCOUNT_UPDATES_MULTI):
+                    if request_id not in owned_capital_reads:
+                        raise ForbiddenExternalIO('UNOWNED_SYNTHETIC_SETTLED_CASH_CANCEL')
+                    owned_capital_reads.remove(request_id)
+                    return
+                query = client._request_context_by_req_id.get(request_id, {}).get('account_currency_query')
+                if (not query or not query.get('settled_usd') or fields[3:6] != [account, '', '1']
+                        or 'paper_settled_cash_rows' not in facts):
+                    raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_SETTLED_CASH_REQUEST')
+                owned_capital_reads.add(request_id)
+                for row in facts['paper_settled_cash_rows']:
+                    client.accountUpdateMulti(request_id, row.get('account', account), '',
+                        row['tag'], row['value'], row['currency'])
+                client.accountUpdateMultiEnd(request_id)
+                report['native_read_requests'].append(dict(opcode=opcode, request_id=request_id,
+                    request_type='USD_SECURITIES_SETTLED_CASH', status=query['status']))
+                return
             if (facts.get('observe_pristine_paper_cycle') and capital_owner_read[0]
                     and opcode in {str(OUT.REQ_ACCOUNT_SUMMARY), str(OUT.CANCEL_ACCOUNT_SUMMARY)}):
                 report['wire_attempts'][-1]['purpose'] = 'ENTRY_CAPITAL'

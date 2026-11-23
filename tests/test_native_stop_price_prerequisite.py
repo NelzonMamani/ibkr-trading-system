@@ -2949,7 +2949,7 @@ def test_pristine_fresh_process_pmh_paper_ack_then_later_accounted_protected_fil
 
 
 def _pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,*,loss_limit=.20,candidate='PMH',
-        account='SYNTHETIC_TEST'):
+        account='SYNTHETIC_TEST', bounded_entry=False):
     """Shared external five-step tape; every application owner remains real."""
     facts=_pristine_native_cycle_facts(reassessment,monkeypatch,tmp_path,candidate=candidate)
     facts['account'] = account
@@ -2962,12 +2962,15 @@ def _pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,*,loss_limit=.2
         DAILY_RISK_GOVERNOR_ENABLED=True,DAILY_RISK_INCLUDE_UNREALIZED=False,
         DAILY_RISK_MAX_LOSS_AMOUNT=loss_limit)
     entry_price, stop_price, fill_price, stop_fill_price = (
-        (11.0, 10.35, 11.02, 10.34) if candidate == 'ABCD' else (10.3, 10.2897, 10.53, 10.28))
+        (11.0, 10.35, 11.0 if bounded_entry else 11.02, 10.34)
+        if candidate == 'ABCD' else (10.3, 10.2897, 10.53, 10.28))
     facts['paper_memory_plan']=dict(account=account,client_id=999,epoch=0,symbol='JPM',
         con_id=123,currency='USD',exchange='SMART',entry_price=entry_price,stop_price=stop_price,
         fill_price=fill_price,stop_fill_price=stop_fill_price)
     if candidate == 'ABCD':
         facts['paper_memory_plan'].update(setup_family='ABCD', invalidation_price=stop_price)
+    if bounded_entry:
+        facts['paper_memory_plan'].update(entry_order_type='LMT', entry_spend=11.50)
     stamp=datetime.fromisoformat(facts['now'])
     contract=dict(symbol='JPM',conId=123,exchange='SMART',currency='USD',secType='STK')
     position=dict(symbol='JPM',position=1,con_id=123,avgCost=fill_price,account=account)
@@ -3011,6 +3014,20 @@ def supply_paper_release_volume_comparison(facts):
     ]
 
 
+def _prepare_pristine_paper_cash_facts(facts, tmp_path, monkeypatch, *, cash="10000", fee="0.50"):
+    import json
+
+    fee_file = tmp_path / 'entry-fee-ceiling.json'
+    fee_file.write_text(json.dumps(dict(schema='IBKR_CONFIRMED_USD_ENTRY_FEE_CEILING_V1',
+        account=facts['account'], currency='USD', security_type='STK', exchange='SMART',
+        side='BUY', quantity=1, max_limit_price='12.00', max_fee=fee,
+        valid_until_utc='2026-10-20T14:30:00Z', broker_reference='INERT BROKER REPLY FIXTURE')),
+        encoding='utf-8')
+    monkeypatch.setenv('ROSS_PAPER_ENTRY_FEE_CEILING_PATH', str(fee_file))
+    facts['paper_settled_cash_rows'] = [] if cash is None else [
+        dict(tag='SettledCashByDate-S', value='20261020:' + cash, currency='USD')]
+
+
 @pytest.mark.parametrize('release_profile, stop_observation', [
     (False, 'working'), (True, 'working'), (True, 'missing'),
     (True, 'rejected'), (True, 'wrong-price'),
@@ -3026,7 +3043,7 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
     from test_startup_recovery_and_stop_protection import run_native_core_cold_start
 
     facts = _pristine_paper_loss_facts(reassessment, monkeypatch, tmp_path,
-        candidate='ABCD', account='DU10001')
+        candidate='ABCD', account='DU10001', bounded_entry=release_profile)
     facts['config'].update(RISK_PROFILE='MICRO', FORCE_EXECUTION_ON_TRADE_READY=False,
         FORCE_RISK_APPROVAL_FOR_TRADE_READY=False,
         MARKET_SESSION_COVERAGE=json.dumps(receipt('2026-10-19', '2026-10-20')))
@@ -3035,6 +3052,7 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
         supply_paper_release_volume_comparison(facts)
         monkeypatch.setenv('ROSS_PAPER_EXPECTED_ACCOUNT', facts['account'])
         monkeypatch.setenv('ROSS_PAPER_EXCLUSIVE_START_ATTESTED', '1')
+        _prepare_pristine_paper_cash_facts(facts, tmp_path, monkeypatch)
     facts['observe_pristine_native_scanner'] = True
     facts['force_stdlib_socketpair'] = force_stdlib_socketpair
     if stop_observation != 'working':
@@ -3060,10 +3078,11 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
     assert any(row['request_type'] == 'POSITIONS_MULTI' and row['rows'] == 0
         for row in report['native_read_requests'])
     capital = [row for row in report['native_read_requests']
-        if row['request_type'] in {'ACCOUNT_CAPITAL_CURRENCY', 'ACCOUNT_CAPITAL'}]
+        if row['request_type'] in {'ACCOUNT_CAPITAL_CURRENCY', 'ACCOUNT_CAPITAL', 'USD_SECURITIES_SETTLED_CASH'}]
     assert len(capital) >= 2 and len(capital) % 2 == 0
     assert [(row['request_type'], row['status']) for row in capital] == [
-        ('ACCOUNT_CAPITAL_CURRENCY', 'COMPLETE'), ('ACCOUNT_CAPITAL', 'COMPLETE')] * (len(capital) // 2)
+        ('USD_SECURITIES_SETTLED_CASH' if release_profile else 'ACCOUNT_CAPITAL_CURRENCY', 'COMPLETE'),
+        ('ACCOUNT_CAPITAL', 'COMPLETE')] * (len(capital) // 2)
     assert report['verified_native_volume_source']
     assert report['native_scanner_loop'] == dict(created=True,
         stdlib_fallback_forced=force_stdlib_socketpair)
@@ -3087,7 +3106,11 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
     assert admission[0]['decision']['evaluated_limits']['capital_source'] == 'IBKR_ACCOUNT_CAPITAL'
     assert admission[0]['intent']['decision_id'] == admission[0]['decision']['decision_id']
     assert root.startswith(admission[0]['decision']['decision_id'])
-    assert ack['engine']['capital_reserved'] == 11 and ack['engine']['capital_used'] == 0
+    assert ack['engine']['capital_reserved'] == (11.50 if release_profile else 11.0)
+    assert ack['engine']['capital_used'] == 0
+    if release_profile:
+        assert request['order_type'] == buy['order']['orderType'] == 'LMT'
+        assert request['limit_price'] == buy['order']['lmtPrice'] == admission[0]['intent']['entry_price']
     assert not ack['engine']['post_fill'] and not ack['engine']['position_records']
     if stop_observation != 'working':
         repeated, = remaining
@@ -3096,7 +3119,7 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
             assert cycle['engine']['native_quarantined']
             assert not cycle['engine']['protection'][root]['protected']
             assert cycle['engine']['position_records'][root]['filled_qty'] == 1
-            assert cycle['engine']['capital_used'] == 11.02
+            assert cycle['engine']['capital_used'] == facts['paper_memory_plan']['fill_price']
         assert not any(row['mutation'] for row in report['wire_attempts'])
         return
 
@@ -3106,7 +3129,7 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
     for cycle in (filled, protected):
         assert cycle['engine']['protection'][root]['protected']
         assert cycle['engine']['canonical_trades'][root]['quantity_open'] == 1
-        assert cycle['engine']['capital_used'] == 11.02
+        assert cycle['engine']['capital_used'] == facts['paper_memory_plan']['fill_price']
     for cycle in (closed, replayed):
         assert cycle['engine']['canonical_trades'][root]['quantity_open'] == 0
         assert not cycle['engine']['registry'] and not cycle['engine']['managed_positions']
@@ -3127,13 +3150,15 @@ def test_controlled_abcd_timed_shutdown_resolves_only_authoritative_owned_eviden
     from test_startup_recovery_and_stop_protection import run_native_core_cold_start
 
     facts = _pristine_paper_loss_facts(reassessment, monkeypatch, tmp_path,
-        candidate='ABCD', account='DU10001')
+        candidate='ABCD', account='DU10001', bounded_entry=True)
     facts['config'].update(RISK_PROFILE='MICRO', FORCE_EXECUTION_ON_TRADE_READY=False,
         FORCE_RISK_APPROVAL_FOR_TRADE_READY=False,
         MARKET_SESSION_COVERAGE=json.dumps(receipt('2026-10-19', '2026-10-20')))
     monkeypatch.setenv('ROSS_PAPER_RELEASE_ENABLED', '1')
     monkeypatch.setenv('ROSS_PAPER_EXPECTED_ACCOUNT', facts['account'])
     monkeypatch.setenv('ROSS_PAPER_EXCLUSIVE_START_ATTESTED', '1')
+    supply_paper_release_volume_comparison(facts)
+    _prepare_pristine_paper_cash_facts(facts, tmp_path, monkeypatch)
     facts['observe_pristine_native_scanner'] = True
     facts['paper_pending_shutdown'] = outcome
     facts['paper_shutdown_fill'] = facts['paper_cycle_steps'][1]['executions'][0]
@@ -3151,12 +3176,12 @@ def test_controlled_abcd_timed_shutdown_resolves_only_authoritative_owned_eviden
     assert entry['role'] == 'entry' and shutdown['cancel_calls'] == [entry['native_id']]
     assert not report['network_attempts'] and not report['sdk_attempts'] and not no_external_activity
     ack = report['cycles'][0]['engine']
-    assert not ack['position_records'] and ack['capital_reserved'] == 11
+    assert not ack['position_records'] and ack['capital_reserved'] == 11.50
     assert shutdown['disconnected']
     events = shutdown['evidence']['events']
     assert any(row['event'] == 'SHUTDOWN_COMPLETE' and row['completed'] for row in events)
     holds = shutdown['holds']
-    assert holds and all(h['connected'] and not h['shutdown_finished'] and h['reserved'] == 11 for h in holds)
+    assert holds and all(h['connected'] and not h['shutdown_finished'] and h['reserved'] == 11.50 for h in holds)
     assert all(h['receipt']['status'] == 'PAPER_RELEASE_SHUTDOWN_HANDOFF_ACTIVE' for h in holds)
     resolved, = [row for row in events if row['event'] == 'PAPER_RELEASE_SHUTDOWN_RESOLVED']
     state = shutdown['after']
@@ -3166,7 +3191,7 @@ def test_controlled_abcd_timed_shutdown_resolves_only_authoritative_owned_eviden
         assert state['protection'][entry['root_id']]['protected']
         assert resolved['gate'] == 'PAPER_RELEASE_SHUTDOWN_FILL_PROTECTED'
         assert state['canonical_trades'][entry['root_id']]['quantity_open'] == 1
-        assert state['capital_reserved'] == 0 and state['capital_used'] == 11.02
+        assert state['capital_reserved'] == 0 and state['capital_used'] == facts['paper_memory_plan']['fill_price']
         if outcome == 'late_fill':
             assert shutdown['execution_queries'] == [1]
         if outcome == 'late_fill_at_disconnect':
@@ -3181,6 +3206,59 @@ def test_controlled_abcd_timed_shutdown_resolves_only_authoritative_owned_eviden
             assert len(holds) == 2
         if outcome == 'wrong_client_cancel':
             assert any(h['receipt']['gate'] == 'PAPER_RELEASE_SHUTDOWN_CALLBACK_SCOPE_CONFLICT' for h in holds)
+
+
+@pytest.mark.parametrize("cash, tamper, reason", [
+    (None, False, "PAPER_CAPITAL_SETTLED_CASH_UNAVAILABLE"),
+    ("0", False, "PAPER_CAPITAL_SETTLED_CASH_INSUFFICIENT"),
+    ("11.20", False, "PAPER_CAPITAL_SETTLED_CASH_INSUFFICIENT"),
+    ("10000", True, "PAPER_RELEASE_NATIVE_LIMIT_PRICE_MISMATCH"),
+])
+def test_controlled_paper_cash_spend_and_final_limit_refuse_without_native_entry(
+        reassessment, monkeypatch, tmp_path, no_external_activity, runtime_schema_template, cash, tamper, reason):
+    import json
+    import shutil
+
+    from test_next_session_catalyst import receipt
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+
+    facts = _pristine_paper_loss_facts(reassessment, monkeypatch, tmp_path,
+        candidate="ABCD", account="DU10001", bounded_entry=True)
+    facts['config'].update(RISK_PROFILE="MICRO", FORCE_EXECUTION_ON_TRADE_READY=False,
+        FORCE_RISK_APPROVAL_FOR_TRADE_READY=False,
+        MARKET_SESSION_COVERAGE=json.dumps(receipt('2026-10-19', '2026-10-20')))
+    supply_paper_release_volume_comparison(facts)
+    facts['observe_pristine_native_scanner'] = True
+    facts['paper_test_reprice_after_prepare'] = tamper
+    facts['paper_cycle_steps'] = facts['paper_cycle_steps'][:1]
+    monkeypatch.setenv('ROSS_PAPER_RELEASE_ENABLED', '1')
+    monkeypatch.setenv('ROSS_PAPER_EXPECTED_ACCOUNT', facts['account'])
+    monkeypatch.setenv('ROSS_PAPER_EXCLUSIVE_START_ATTESTED', '1')
+    _prepare_pristine_paper_cash_facts(facts, tmp_path, monkeypatch, cash=cash)
+    database = tmp_path / 'cash-only.sqlite3'
+    shutil.copyfile(runtime_schema_template, database)
+    path = tmp_path / 'cash-only.json'
+    path.write_text(json.dumps(facts, default=str), encoding='utf-8')
+    report = run_native_core_cold_start(database, path, tmp_path / 'cash-only-child')
+    assert report['constructor_complete'] and not report.get('harness_exception'), report
+    assert not report.get('cycle_exception') and len(report['cycles']) == 1, report
+    cycle = report['cycles'][0]
+    assert not report['synthetic_memory_dispatches']
+    assert not any(row['mutation'] for row in report['wire_attempts'])
+    assert not report['network_attempts'] and not report['sdk_attempts'] and not no_external_activity
+    assert cycle['engine']['capital_used'] == cycle['engine']['capital_reserved'] == 0
+    assert not cycle['engine']['allocation_reservations'] and not cycle['engine']['native_orders']
+    if cash is None:
+        assert not cycle['result'] and not report['risk_evaluations']
+        assert cycle['engine']['startup_recovery_result']['reason'] == reason
+    elif tamper:
+        assert cycle['result']
+        assert any(row['decision']['allowed'] for row in report['risk_evaluations'])
+        assert any(event['payload'].get('reason') == reason for event in cycle['events'])
+    else:
+        assert cycle['result']
+        decisions = [row['decision'] for row in report['risk_evaluations']]
+        assert len(decisions) == 1 and not decisions[0]['allowed'] and decisions[0]['reason_code'] == reason
 
 
 @pytest.mark.parametrize('fees,expected',[('gross',-.25),('positive',-.28),('known_zero',-.27),('partial_gross',-.25)])

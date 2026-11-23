@@ -575,6 +575,8 @@ def test_execution_history_without_request_owner_is_not_a_live_fill(strict_execu
 # NET, equity conversion, capital, risk or order authority.
 _NATIVE_REQ_ACCOUNT_SUMMARY = EClient.reqAccountSummary
 _NATIVE_CANCEL_ACCOUNT_SUMMARY = EClient.cancelAccountSummary
+_NATIVE_REQ_ACCOUNT_UPDATES_MULTI = EClient.reqAccountUpdatesMulti
+_NATIVE_CANCEL_ACCOUNT_UPDATES_MULTI = EClient.cancelAccountUpdatesMulti
 
 
 @pytest.fixture
@@ -1235,3 +1237,67 @@ def test_abcd_stop_rechecks_local_scope_under_dispatch_lock(
     else:
         engine._submit_qualified_abcd_stop(parent, **request)
         assert sent == [(71, 901, account, 70, 10.35, True)]
+
+
+@pytest.mark.parametrize(("fault", "status"), [
+    ("forward_debit", "COMPLETE"),
+    ("zero", "COMPLETE"),
+    ("wrong_account", "SETTLED_CASH_SCOPE_MISMATCH"),
+    ("wrong_model", "SETTLED_CASH_SCOPE_MISMATCH"),
+    ("base_only", "SETTLED_CASH_UNAVAILABLE"),
+    ("no_securities_segment", "SETTLED_CASH_UNAVAILABLE"),
+    ("contradiction", "SETTLED_CASH_CONFLICTING"),
+    ("previous_date", "SETTLED_CASH_INVALID"),
+    ("unready", "SETTLED_CASH_ACCOUNT_NOT_READY"),
+    ("wrong_end", "TIMEOUT"),
+    ("epoch_during_cleanup", "DISCONNECTED"),
+])
+def test_usd_settled_securities_cash_requires_scoped_callback_end(account_currency_client, monkeypatch, fault, status):
+    client = account_currency_client.client
+    account = "SYNTHETIC_TEST"
+    owner = client.sendMsg
+    cash_calls = []
+
+    def send(message):
+        fields = message.split("\0")
+        if fields[0] not in {"76", "77"}:
+            return owner(message)
+        req_id = int(fields[2])
+        cash_calls.append((fields[0], req_id))
+        if fields[0] == "77":
+            assert "account_currency_query" not in client._request_context_by_req_id[req_id]
+            if fault == "epoch_during_cleanup":
+                client._position_connection_epoch += 1
+            return
+        assert fields[3:6] == [account, "", "1"]
+        client.accountSummary(req_id, account, "SettledCash", "999999", "USD")
+        client.accountSummaryEnd(req_id)  # The wrong callback owner cannot complete the request.
+        if fault == "unready":
+            client.accountUpdateMulti(req_id, account, "", "AccountReady", "false", "")
+        client.accountUpdateMulti(
+            req_id, "OTHER" if fault == "wrong_account" else account,
+            "OTHER" if fault == "wrong_model" else "",
+            "SettledCashByDate" if fault == "no_securities_segment" else "$LEDGER-SettledCashByDate-S",
+            {"zero": "20261111:0", "previous_date": "20261110:20"}.get(fault, "20261111:20;20261112:15"),
+            "BASE" if fault == "base_only" else "USD",
+        )
+        if fault == "contradiction":
+            client.accountUpdateMulti(req_id, account, "", "SettledCashByDate-S", "20261111:30", "USD")
+        client.accountUpdateMultiEnd(req_id + 1 if fault == "wrong_end" else req_id)
+
+    monkeypatch.setattr(client, "sendMsg", send)
+    monkeypatch.setattr(client, "reqAccountUpdatesMulti", lambda *args: _NATIVE_REQ_ACCOUNT_UPDATES_MULTI(client, *args))
+    monkeypatch.setattr(client, "cancelAccountUpdatesMulti", lambda *args: _NATIVE_CANCEL_ACCOUNT_UPDATES_MULTI(client, *args))
+    account_currency_client.on_request = lambda req_id: [
+        client.accountSummary(req_id, account, tag, "999999", "USD")
+        for tag in ("NetLiquidation", "AvailableFunds", "BuyingPower")
+    ] and client.accountSummaryEnd(req_id)
+    result = client.account_capital_snapshot(expected_account=account, timeout_seconds=.05, require_settled_usd=True)
+    assert result.status == status
+    assert [code for code, _ in cash_calls] == ["76", "77"]
+    assert cash_calls[0][1] == cash_calls[1][1]
+    if status == "COMPLETE":
+        assert result.currency_evidence.settled_cash == Decimal("0" if fault == "zero" else "15")
+        assert result.currency_evidence.source == "IBKR_ACCOUNT_UPDATES_MULTI_USD_SECURITIES"
+    else:
+        assert not account_currency_client.requests and result.currency_evidence.settled_cash is None

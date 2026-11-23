@@ -53,6 +53,35 @@ def test_release_default_and_attestation(monkeypatch):
         paper_release.PaperRelease.from_environment(RunMode.READ_ONLY, False, ["ross_momentum"])
 
 
+def test_release_fee_ceiling_requires_applicable_private_broker_receipt(tmp_path):
+    import json
+    from decimal import Decimal
+
+    from src.core.capital_management_authority import PaperEntryFeeCeiling
+
+    stamp = datetime.fromisoformat("2026-11-23T14:35:00+00:00")
+    path = tmp_path / "entry-fee-ceiling.json"
+    with pytest.raises(RuntimeError, match="PAPER_RELEASE_ENTRY_COST_AUTHORITY_REQUIRED"):
+        PaperEntryFeeCeiling.load(path, expected_account="DU123", now=stamp)
+    receipt = {
+        "schema": "IBKR_CONFIRMED_USD_ENTRY_FEE_CEILING_V1",
+        "account": "DU123", "currency": "USD", "security_type": "STK", "exchange": "SMART",
+        "side": "BUY", "quantity": 1, "max_limit_price": "20", "max_fee": "0",
+        "valid_until_utc": "2026-11-23T15:00:00Z", "broker_reference": "inert receipt",
+    }
+    path.write_text(json.dumps(receipt), encoding="utf-8")
+    assert PaperEntryFeeCeiling.load(path, expected_account="DU123", now=stamp).max_fee == Decimal("0")
+    with pytest.raises(RuntimeError, match="PAPER_RELEASE_ENTRY_COST_AUTHORITY_WRONG_ACCOUNT"):
+        PaperEntryFeeCeiling.load(path, expected_account="DU456", now=stamp)
+    with pytest.raises(RuntimeError, match="PAPER_RELEASE_ENTRY_COST_AUTHORITY_EXPIRED"):
+        PaperEntryFeeCeiling.load(path, expected_account="DU123",
+                                  now=datetime.fromisoformat("2026-11-23T15:00:00+00:00"))
+    receipt.pop("max_fee")
+    path.write_text(json.dumps(receipt), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="PAPER_RELEASE_ENTRY_COST_AUTHORITY_INVALID"):
+        PaperEntryFeeCeiling.load(path, expected_account="DU123", now=stamp)
+
+
 @pytest.mark.parametrize("quantity", [1, 0.125])
 def test_legacy_positions_latch_refusal(engine, quantity):
     gate = paper_release.PaperRelease("DU100")
