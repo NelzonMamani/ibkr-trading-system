@@ -7796,6 +7796,12 @@ class CoreOrchestrator:
         from src.ibkr.evidence_safety import write_json
 
         directory = os.environ.get("PR1090_EVIDENCE_DIR")
+        def log(message):
+            try:
+                print(f"[PAPER_RELEASE][SHUTDOWN] {message}", flush=True)
+            except OSError:
+                pass  # Lost console output cannot terminate retained management.
+
         last_gate = None
         while True:
             try:
@@ -7810,7 +7816,7 @@ class CoreOrchestrator:
             except KeyboardInterrupt:
                 ready, gate = False, "PAPER_RELEASE_SHUTDOWN_MANUAL_HANDOFF_REQUIRED"
             except Exception as exc:
-                print(f"[PAPER_RELEASE][SHUTDOWN] unresolved observation: {type(exc).__name__}: {exc}")
+                log(f"unresolved observation: {type(exc).__name__}: {exc}")
                 detail = str(exc)
                 known = {"PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY", "PAPER_RELEASE_SHUTDOWN_FINAL_SCOPE_CHANGED",
                          "PAPER_RELEASE_SHUTDOWN_PROTECTION_CHANGED"}
@@ -7819,7 +7825,7 @@ class CoreOrchestrator:
                 status = ("PAPER_RELEASE_SHUTDOWN_RESOLVED" if ready
                           else "PAPER_RELEASE_SHUTDOWN_HANDOFF_ACTIVE")
                 proof.record(status, gate=gate, management_continues=not ready)
-                print(f"[PAPER_RELEASE][SHUTDOWN] status={status} gate={gate}", flush=True)
+                log(f"status={status} gate={gate}")
                 if directory:
                     try:
                         write_json(Path(directory) / "pending-entry-handoff.json", {
@@ -7827,7 +7833,7 @@ class CoreOrchestrator:
                             "management_continues": not ready,
                         })
                     except OSError as exc:
-                        print(f"[PAPER_RELEASE][SHUTDOWN] evidence unavailable: {exc}", flush=True)
+                        log(f"evidence unavailable: {exc}")
                 last_gate = gate
             if ready:
                 return gate
