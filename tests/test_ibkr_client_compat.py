@@ -1170,9 +1170,9 @@ def test_native_paper_risk_and_allocation_require_completed_same_scope_capital(
         assert bound == {"broker_truth_available": False}
 
 
-@pytest.mark.parametrize("change_scope", [False, True])
+@pytest.mark.parametrize("invalidation", [None, "account-generation", "transport-stop"])
 def test_abcd_stop_rechecks_local_scope_under_dispatch_lock(
-    strict_execution_client, monkeypatch, change_scope,
+    strict_execution_client, monkeypatch, invalidation,
 ):
     from datetime import datetime, timezone
     from types import SimpleNamespace
@@ -1205,8 +1205,8 @@ def test_abcd_stop_rechecks_local_scope_under_dispatch_lock(
     sent = []
 
     def wire(order_id, contract, order):
-        assert client._lock._is_owned()
-        sent.append((order_id, contract.conId, order.account, order.parentId, order.auxPrice))
+        sent.append((order_id, contract.conId, order.account, order.parentId, order.auxPrice,
+                     client._lock._is_owned()))
 
     monkeypatch.setattr(client, "placeOrder", wire)
     submit = client.submit_order
@@ -1217,19 +1217,21 @@ def test_abcd_stop_rechecks_local_scope_under_dispatch_lock(
         def prepare(order_id, contract, order):
             if previous is not None:
                 previous(order_id, contract, order)
-            if change_scope:
+            if invalidation == "account-generation":
                 client.managedAccounts("OTHER")
                 client.managedAccounts(account)
+            elif invalidation == "transport-stop":
+                client._stop_event.set()
 
         return submit(contract, order, before_submit=prepare, **kwargs)
 
     monkeypatch.setattr(client, "submit_order", inject_between_prepare_and_send)
     request = dict(symbol="SYNTH", side="SELL", quantity=1, stop_price=10.35,
                    trade_id="entry", parent_order_id="70")
-    if change_scope:
+    if invalidation:
         with pytest.raises(RuntimeError, match="ABCD_INITIAL_STOP_BINDING_CHANGED"):
             engine._submit_qualified_abcd_stop(parent, **request)
         assert sent == []
     else:
         engine._submit_qualified_abcd_stop(parent, **request)
-        assert sent == [(71, 901, account, 70, 10.35)]
+        assert sent == [(71, 901, account, 70, 10.35, True)]
