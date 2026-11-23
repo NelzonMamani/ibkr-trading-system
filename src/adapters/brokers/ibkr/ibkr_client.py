@@ -3202,6 +3202,10 @@ class IbkrClient(EWrapper, EClient):
             if getattr(self, "_volume_calibration_binding", None):
                 self._volume_calibration_invalidated = True
             return None
+        expected = os.environ.get("ROSS_TWS_VOLUME_CALIBRATION_SHA256")
+        if expected is not None and expected != calibration["calibration_id"]:
+            self._volume_calibration_invalidated = True
+            return None
         attested = (self.client_id, self._position_connection_epoch, self.serverVersion(),
                     calibration["calibration_id"])
         if (self._stop_event.is_set() or not self.isConnected()

@@ -4,7 +4,9 @@
 # This is write-enabled controlled PAPER, separate from READ_ONLY.
 # Use the existing authoritative PAPER state, including the database and
 # order journals. Keep the reviewed calendar and exact native volume witness
-# on the laptop. Volume evidence only qualifies the matched contract.
+# on the laptop. The same TWS instance, build and share settings must
+# remain in use from calibration through trading. Volume evidence qualifies
+# the matched contract.
 # Invocation also attests that entry-fee-ceiling.json reflects the applicable
 # written broker confirmation for the complete one-share entry charges.
 $rossPaperCaller = @'
