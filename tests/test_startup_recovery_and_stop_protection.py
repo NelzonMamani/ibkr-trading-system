@@ -2297,6 +2297,19 @@ try:
                     pending_shutdown_history.append((fill_contract,execution))
 
         client.cancelOrder = memory_cancel
+        if case == 'amended_entry_before_cancel':
+            actual_inventory = core.execution_engine._pmh_complete_inventory
+            entry_amended = []
+            def observe_entry_cancel_inventory():
+                inventory = actual_inventory()
+                if inventory and not entry_amended:
+                    working_entry, = orders
+                    amended = copy.deepcopy(working_entry.order)
+                    amended.lmtPrice += 0.01
+                    client.openOrder(working_entry.orderId, working_entry.contract, amended, working_entry.orderState)
+                    entry_amended.append(True)
+                return inventory
+            core.execution_engine._pmh_complete_inventory = observe_entry_cancel_inventory
         if case == 'drain_hook_failure':
             actual_await = core._await_paper_release_shutdown
             shutdown['drain_hook_calls'] = 0
@@ -2365,6 +2378,9 @@ try:
                 if shutdown['cancel_calls']:
                     raise ForbiddenExternalIO('SYNTHETIC_CONTRADICTORY_ENTRY_CANCELLED')
                 client.orderStatus(entry_id,'Submitted',0,1,0.,entry_id,0,0.,client_id,'',0.)
+            if case == 'amended_entry_before_cancel' and hold['gate'] == 'PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY':
+                if shutdown['cancel_calls']:
+                    raise ForbiddenExternalIO('SYNTHETIC_AMENDED_ENTRY_CANCELLED')
             if case == 'callback_inflight_at_disconnect' and hold['gate'] == 'PAPER_RELEASE_SHUTDOWN_CALLBACK_IN_FLIGHT':
                 resume_callback.set()
                 callback_threads[0].join(timeout=5)

@@ -5668,7 +5668,8 @@ class ExecutionEngine:
                 with client._lock:
                     self._validate_native_binding(root_id, entry, facts)
                     if (client.account_capital_scope(entry["account"], request_ids=(native_id,)) != positions.scope_identity
-                            or client.cached_order_status(native_id) != facts or client.cached_native_executions(native_id)):
+                            or client.cached_order_status(native_id) != facts or client.cached_native_executions(native_id)
+                            or self._provider.cached_open_orders(client) != inventory):
                         return False, "PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY"
                     if client.readonly_enabled:
                         return False, "PAPER_RELEASE_SHUTDOWN_CANCEL_WRITE_DISABLED"

@@ -3145,6 +3145,7 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
     'late_fill_at_disconnect', 'wrong_client_cancel',
     'callback_inflight_at_disconnect', 'amended_stop_at_disconnect', 'inactive_before_cancel',
     'drain_hook_failure',
+    'amended_entry_before_cancel',
 ])
 def test_controlled_abcd_timed_shutdown_resolves_only_authoritative_owned_evidence(
         reassessment, monkeypatch, tmp_path, no_external_activity, runtime_schema_template, outcome):
@@ -3221,6 +3222,8 @@ def test_controlled_abcd_timed_shutdown_resolves_only_authoritative_owned_eviden
             assert any(h['receipt']['gate'] == 'PAPER_RELEASE_SHUTDOWN_CALLBACK_SCOPE_CONFLICT' for h in holds)
         if outcome == 'inactive_before_cancel':
             assert holds[0]['receipt']['gate'] == 'PAPER_RELEASE_SHUTDOWN_CANCELLATION_STATUS_CONFLICT'
+        if outcome == 'amended_entry_before_cancel':
+            assert holds[0]['receipt']['gate'] == 'PAPER_RELEASE_SHUTDOWN_LATE_ENTRY_ACTIVITY'
 
 
 @pytest.mark.parametrize("cash, tamper, early_fee_end, reason", [

@@ -4056,8 +4056,8 @@ class IbkrClient(EWrapper, EClient):
         mktCapPrice: float,
     ):  # type: ignore[override]
         with self._lock:
-            self._observe_order_id(int(orderId))
             status_scope = (self._position_connection_epoch, getattr(self, "_managed_accounts_generation", 0))
+        self._observe_order_id(int(orderId))
         if not hasattr(self, "_order_status_count"):
             self._order_status_count = 0
         self._order_status_count += 1
