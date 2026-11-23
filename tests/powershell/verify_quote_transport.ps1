@@ -17,9 +17,13 @@ $defaults = & $binding -ExpectedCommit $pin
 if ($defaults.Selected -cne 'quotes') { throw 'Default quote profile changed.' }
 $order = & $binding -ExpectedCommit $pin -DiagnosticProfile 'final-orders' -ExpectedTree $tree
 if ($order.Selected -cne 'final-orders' -or $order.Tree -cne $tree) { throw 'Explicit profile/tree binding failed.' }
-$rejected = $false
-try { & $binding -ExpectedCommit $pin -DiagnosticProfile 'final-orders' } catch { $rejected = $true }
-if (!$rejected) { throw 'Missing reviewed tree accepted.' }
+$volume = & $binding -ExpectedCommit $pin -DiagnosticProfile 'live-volume' -ExpectedTree $tree
+if ($volume.Selected -cne 'live-volume' -or $volume.Tree -cne $tree) { throw 'Volume profile/tree binding failed.' }
+foreach ($profile in @('final-orders', 'live-volume')) {
+    $rejected = $false
+    try { & $binding -ExpectedCommit $pin -DiagnosticProfile $profile } catch { $rejected = $true }
+    if (!$rejected) { throw "Missing reviewed tree accepted for $profile." }
+}
 $rejected = $false
 try { & $binding -ExpectedCommit $pin -DiagnosticProfile 'invalid' -ExpectedTree $tree } catch { $rejected = $true }
 if (!$rejected) { throw 'Unknown profile accepted.' }
@@ -33,8 +37,7 @@ $assignments = @($ast.FindAll({ param($n)
 }, $true))
 $selection = @($ast.FindAll({ param($n)
     $n -is [Management.Automation.Language.IfStatementAst] -and
-    $n.Extent.Text.StartsWith("if (`$DiagnosticProfile -eq 'final-orders')") -and
-    $n.Extent.Text.Contains('$profileArgs')
+    $n.Extent.Text.Contains('$profileArgs = @($DiagnosticProfile,$ExpectedTree)')
 }, $true))
 if ($assignments.Count -ne 2 -or $selection.Count -ne 1) { throw 'Explicit profile argument array missing.' }
 $commands = @($ast.FindAll({ param($n)
@@ -55,14 +58,24 @@ foreach ($command in $commands) {
         '$values=' + $expression + '; [pscustomobject]@{Values=$values; Count=$values.Count}')
     $quoteArgs = & $onlyArguments -ExpectedCommit $pin
     $orderArgs = & $onlyArguments -ExpectedCommit $pin -DiagnosticProfile 'final-orders' -ExpectedTree $tree
-    if ($quoteArgs.Count -ne 6 -or $orderArgs.Count -ne 8) { throw 'Child argument count/scope changed.' }
+    $volumeArgs = & $onlyArguments -ExpectedCommit $pin -DiagnosticProfile 'live-volume' -ExpectedTree $tree
+    if ($quoteArgs.Count -ne 6 -or $orderArgs.Count -ne 8 -or $volumeArgs.Count -ne 8) { throw 'Child argument count/scope changed.' }
     if (@($quoteArgs.Values | Where-Object { [string]::IsNullOrEmpty($_) }).Count -ne 0) { throw 'Empty quote argument.' }
     if ($orderArgs.Values[-2] -cne 'final-orders' -or $orderArgs.Values[-1] -cne $tree) { throw 'Order scope/tree absent.' }
+    if ($volumeArgs.Values[-2] -cne 'live-volume' -or $volumeArgs.Values[-1] -cne $tree) { throw 'Volume scope/tree absent.' }
+}
+$privateOnly = @($ast.FindAll({ param($n)
+    $n -is [Management.Automation.Language.IfStatementAst] -and
+    $n.Extent.Text.StartsWith("if (`$DiagnosticProfile -eq 'live-volume')")
+}, $true))
+if ($privateOnly.Count -ne 1 -or $privateOnly[0].Extent.EndOffset -ge $commands[1].Extent.StartOffset -or
+    !$privateOnly[0].Extent.Text.Contains('return') -or !$privateOnly[0].Extent.Text.Contains('native-volume.json')) {
+    throw 'Private volume must return before package or seal.'
 }
 $text = [IO.File]::ReadAllText((Resolve-Path $entry).Path)
 foreach ($required in @('-BudgetSeconds 120 -StopSeconds 30', '-BudgetSeconds 90 -StopSeconds 30',
     'Published head differs from reviewed pin.', '$global:LASTEXITCODE',
-    'quote_transport_diagnostic.py', 'Final orders requires explicit reviewed tree.',
+    'quote_transport_diagnostic.py', 'This profile requires the reviewed tree.',
     'Reviewed tree differs.', 'final-orders-diagnostic-upload.zip', "PAPER_READINESS_GATE='FAIL'")) {
     if (!$text.Contains($required)) { throw "Operator protection missing: $required" }
 }
