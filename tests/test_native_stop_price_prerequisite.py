@@ -3000,6 +3000,17 @@ def _pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,*,loss_limit=.2
     return facts
 
 
+def supply_paper_release_volume_comparison(facts):
+    facts['paper_volume_comparison'] = dict(
+        tws_build='10.37.1', con_id=123, watchlist_observed_at=facts['now'],
+        watchlist_shares=2_000_000, historical_bar_date='20261019', historical_bar_shares=80_000,
+        watchlist_shares_setting=True, historical_shares_setting=True,
+    )
+    facts['paper_adv20_wire_bars'] = [
+        dict(date='20261019', open=9.4, high=9.6, low=9.3, close=9.4, volume=80_000),
+    ]
+
+
 @pytest.mark.parametrize('release_profile, stop_observation', [
     (False, 'working'), (True, 'working'), (True, 'missing'),
     (True, 'rejected'), (True, 'wrong-price'),
@@ -3021,6 +3032,7 @@ def test_ordinary_paper_micro_abcd_native_lifecycle(
         MARKET_SESSION_COVERAGE=json.dumps(receipt('2026-10-19', '2026-10-20')))
     monkeypatch.setenv('ROSS_PAPER_RELEASE_ENABLED', '1' if release_profile else '0')
     if release_profile:
+        supply_paper_release_volume_comparison(facts)
         monkeypatch.setenv('ROSS_PAPER_EXPECTED_ACCOUNT', facts['account'])
         monkeypatch.setenv('ROSS_PAPER_EXCLUSIVE_START_ATTESTED', '1')
     facts['observe_pristine_native_scanner'] = True

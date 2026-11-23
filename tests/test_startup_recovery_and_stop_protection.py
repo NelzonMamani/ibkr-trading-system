@@ -1525,6 +1525,8 @@ try:
             scanner_facts.get_top_gainers = native_discovery
             scanner_facts.get_quote = native_provider.get_quote
             scanner_facts.refresh_quote = native_provider.refresh_quote
+            if facts.get('paper_volume_comparison'):
+                scanner_facts.get_intraday_stats = native_provider.get_intraday_stats
         return scanner_facts
     scanner_runner.build_provider = external_provider_factory
     scanner_factory.build_provider = external_provider_factory
@@ -1805,6 +1807,30 @@ try:
             if opcode==str(OUT.CANCEL_MKT_DATA) and int(fields[2]) in owned_quote_reads:
                 report['native_read_requests'].append(dict(opcode=opcode,request_type='OWNED_MARKET_DATA_CANCEL',request_id=int(fields[2])))
                 return  # Read subscription cleanup, never an order cancellation.
+            if (facts.get('paper_volume_comparison') and opcode == str(OUT.REQ_HISTORICAL_DATA)
+                    and len(fields) == 24 and fields[16:23] == ['1 day', '20 D', '1', 'TRADES', '1', '0', '']):
+                from ibapi.common import BarData
+                request_id = int(fields[1])
+                plan = facts['paper_memory_plan']
+                state = client._historical_states.get(request_id)
+                if (fields[2:5] != [str(plan['con_id']), plan['symbol'], 'STK']
+                        or fields[9] != plan['exchange'] or fields[11] != plan['currency']
+                        or fields[15] != '' or state is None or state['status'] != 'PENDING'
+                        or not state['sent'] or request_id in owned_history_reads
+                        or client._request_type_by_req_id.get(request_id) != 'HISTORICAL_DATA'
+                        or client._request_id_conflicted(request_id)):
+                    raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_ADV20_SCOPE')
+                owned_history_reads.add(request_id)
+                for supplied in facts['paper_adv20_wire_bars']:
+                    bar = BarData()
+                    for key, value in supplied.items():
+                        setattr(bar, key, value)
+                    client.historicalData(request_id, bar)
+                client.historicalDataEnd(request_id, '', '')
+                report['native_read_requests'].append(dict(opcode=opcode, request_id=request_id,
+                    symbol=plan['symbol'], request_type='HISTORICAL_DATA', timeframe='1 day',
+                    con_id=plan['con_id'], source_count=len(facts['paper_adv20_wire_bars'])))
+                return
             if facts.get('observe_pristine_paper_cycle') and opcode==str(OUT.REQ_HISTORICAL_DATA):
                 from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
                 from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
@@ -1849,10 +1875,27 @@ try:
         client.account_capital_snapshot = observe_capital_snapshot
         symbol = paper_plan['symbol']
         initial_sample = client.get_market_snapshot(symbol).volume_evidence
-        reference = facts.get('paper_volume_reference_shares', 2_000_000)
-        report['verified_native_volume_source'] = client.verify_us_stock_share_volume(
-            initial_sample, reference_shares=reference, observed_at=Clock.now(timezone.utc),
-            con_id=paper_plan['con_id'], send_us_stock_market_data_in_lots=False)
+        if facts.get('paper_volume_comparison'):
+            from src.ibkr.volume_calibration import prepare_paper_volume_calibration
+            from src.domain.volume_evidence import verified_volume_shares
+            volume_contract = client.resolve_contract(symbol).contract
+            native_history = client.reqHistoricalData(volume_contract, durationStr='20 D')
+            probe = Path.cwd() / 'volume-probe.json'
+            comparison = Path.cwd() / 'volume-comparison.json'
+            witness = Path.cwd() / 'volume-witness.json'
+            probe.write_text(json.dumps({'watchlist': initial_sample,
+                'history': {**native_history.volume_basis,
+                            'bars': [[row['date'], row['volume']] for row in native_history.raw_source_bars]}}))
+            comparison.write_text(json.dumps(facts['paper_volume_comparison']))
+            prepare_paper_volume_calibration(probe, comparison, witness, now=Clock.now(timezone.utc))
+            os.environ['ROSS_TWS_VOLUME_COMPARATOR_PATH'] = str(witness)
+            report['verified_native_volume_source'] = (
+                verified_volume_shares(client.get_market_snapshot(symbol).volume_evidence) is not None)
+        else:
+            reference = facts.get('paper_volume_reference_shares', 2_000_000)
+            report['verified_native_volume_source'] = client.verify_us_stock_share_volume(
+                initial_sample, reference_shares=reference, observed_at=Clock.now(timezone.utc),
+                con_id=paper_plan['con_id'], send_us_stock_market_data_in_lots=False)
         report['synthetic_memory_dispatches'] = []
         report['paper_external_steps'] = []
         delivered_fee_executions = set()
