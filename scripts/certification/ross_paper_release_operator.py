@@ -90,7 +90,12 @@ def run(state, evidence, calendar, calendar_sha256):
     complete = any(row.get("event") == "SHUTDOWN_COMPLETE" and row.get("completed") is True
                    for row in shutdown["events"])
     release = getattr(core, "_paper_release", None)
-    if not complete or release is None:
+    if release is None:
+        return "PAPER_RELEASE_SHUTDOWN_INCOMPLETE", 2
+    if core.execution_engine._native_quarantined or (
+            core.execution_engine._native_orders and not release.attempted):
+        return "PAPER_RELEASE_NATIVE_STATE_REQUIRES_LOCAL_REVIEW", 2
+    if not complete:
         return "PAPER_RELEASE_SHUTDOWN_INCOMPLETE", 2
     if release.attempted:
         return "PAPER_RELEASE_ENTRY_ATTEMPT_REQUIRES_LOCAL_REVIEW", 0

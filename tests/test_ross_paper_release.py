@@ -108,3 +108,24 @@ def test_unexpected_activity_between_prepare_and_wire_blocks_entry(engine):
     with pytest.raises(RuntimeError, match="PAPER_RELEASE_UNEXPECTED_ACTIVITY"):
         consume()
     assert not gate.attempted
+
+
+def test_exclusive_start_does_not_enter_generic_adoption_or_repair(engine):
+    from src.core.active_trade_registry import ActiveTradeRegistry
+    from src.execution.startup_recovery_authority import StartupRecoveryAuthority
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("clean profile called generic startup adoption or repair")
+
+    client = Client()
+    client.rows = (SimpleNamespace(account="DU100", symbol="XYZ", position=0.125),)
+    gate = paper_release.PaperRelease("DU100")
+    authority = StartupRecoveryAuthority(
+        run_mode="PAPER", provider=SimpleNamespace(
+            get_positions=forbidden, get_open_orders=forbidden),
+        post_fill_lifecycle=SimpleNamespace(startup_safe_state=forbidden, reconcile_orders=forbidden),
+        trade_registry=ActiveTradeRegistry(),
+        clean_start_check=lambda: gate.check_start(
+            client, engine, datetime.now(timezone.utc), require_recovery=False))
+    result = authority.run()
+    assert not result.complete and result.reason == "PAPER_RELEASE_START_NOT_FLAT"
