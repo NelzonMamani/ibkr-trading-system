@@ -22372,3 +22372,10 @@ final delta adds the pre-cancel cached-order amendment test and preserves
 a legacy non-reentrant callback test's lock contract. Current-head required
 CI and actual laptop verification are separate. The controlled launcher
 remains unpinned. PAPER_READY=NO.
+
+The final cancel/shutdown and legacy callback slice passed 12 cases on the
+combined source. The first full local run on `ae7d7a87` stopped at a clean-start
+fixture whose unbound native adapter lacked the constructor's snapshot lock.
+Test-only follow-up `01b7430a91385b2b8240e31e82b60f4e888e4f51` supplies
+that lock. The unchanged clean-start and legacy callback assertions passed
+all 31 focused cases. The isolated full rerun passed the affected range.
