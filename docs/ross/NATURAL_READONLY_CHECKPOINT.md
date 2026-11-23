@@ -22258,3 +22258,28 @@ authorized integration. No new strategy, parallel tracker or repeated legacy
 acquisition search. Do not weaken guards, invent policy values, accept stale
 calibration as fresh market data, force an opportunity, reset recovery or
 launch a cloud broker operation. PAPER_READY=NO; all five vetoes remain.
+
+### PR1250 operational hardening first batch (2026-11-23)
+
+PR1249 is accepted at merge `42bf5ba95b5808231ed923d824ad96977882cb68`.
+Its ordered parents and tree `845758c31d76a5a36795ebd05e48ad96e12e3c97` were
+verified against reviewed PR1249 head `ccb8311beec3d4ca888d712bd58db91a1b10cfc3`.
+Automatic main CI 45239388028 passed all five required jobs. PR1250's
+continuation head `d47ee4dcfe6215b634e1069b1e1de7f11f45218f` also passed all
+five required jobs on 45240724035. These receipts apply to those exact heads.
+The five Windows failures on earlier head 484afeb remain part of its history.
+
+B06 initial stop final-admission repair is implemented. The qualified
+standalone ABCD stop now runs account, transport and connection generation,
+retained parent/confirmed quantity, exact stock contract and original stop
+checks under the native dispatch lock. It reuses the SDK write seam already
+used for entry. Existing single-dispatch and uncertain-write handling remain
+authoritative. This is a local callback scope check.
+
+Independent review passed 146 focused cases on `0fc53310712f82aea5eb8d708ac3c58fa9dc05ba`,
+including the native ABCD lifecycle and a change-away-and-back account race.
+The scope-refinement follow-up reuses the native live-scope observation and
+adds a transport-stop negative. Three focused final-seam cases passed on
+`fbd138d6`. B06 timed pending-entry shutdown remains open until its separate
+owner and joined tests land. B01, B02/B03, B04 and the pinned caller's
+integration and broker acceptance remain open. PAPER_READY=NO.
