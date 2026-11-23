@@ -48,7 +48,7 @@ class PaperEntryFeeCeiling:
             return result
 
         try:
-            with Path(path).open(encoding="utf-8") as receipt:
+            with Path(path).open(encoding="utf-8-sig") as receipt:
                 raw = receipt.read(16_385)
             if len(raw) > 16_384:
                 raise ValueError

@@ -53,7 +53,8 @@ def test_release_default_and_attestation(monkeypatch):
         paper_release.PaperRelease.from_environment(RunMode.READ_ONLY, False, ["ross_momentum"])
 
 
-def test_release_fee_ceiling_requires_applicable_private_broker_receipt(tmp_path):
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-8-sig"])
+def test_release_fee_ceiling_requires_applicable_private_broker_receipt(tmp_path, encoding):
     import json
     from decimal import Decimal
 
@@ -69,7 +70,7 @@ def test_release_fee_ceiling_requires_applicable_private_broker_receipt(tmp_path
         "side": "BUY", "quantity": 1, "max_limit_price": "20", "max_fee": "0",
         "valid_until_utc": "2026-11-23T15:00:00Z", "broker_reference": "inert receipt",
     }
-    path.write_text(json.dumps(receipt), encoding="utf-8")
+    path.write_text(json.dumps(receipt), encoding=encoding)
     assert PaperEntryFeeCeiling.load(path, expected_account="DU123", now=stamp).max_fee == Decimal("0")
     with pytest.raises(RuntimeError, match="PAPER_RELEASE_ENTRY_COST_AUTHORITY_WRONG_ACCOUNT"):
         PaperEntryFeeCeiling.load(path, expected_account="DU456", now=stamp)
@@ -77,7 +78,7 @@ def test_release_fee_ceiling_requires_applicable_private_broker_receipt(tmp_path
         PaperEntryFeeCeiling.load(path, expected_account="DU123",
                                   now=datetime.fromisoformat("2026-11-23T15:00:00+00:00"))
     receipt.pop("max_fee")
-    path.write_text(json.dumps(receipt), encoding="utf-8")
+    path.write_text(json.dumps(receipt), encoding=encoding)
     with pytest.raises(RuntimeError, match="PAPER_RELEASE_ENTRY_COST_AUTHORITY_INVALID"):
         PaperEntryFeeCeiling.load(path, expected_account="DU123", now=stamp)
 
