@@ -114,7 +114,9 @@ def acquire(client, put, *, put_private=None, requested_type="DELAYED", volume_s
                     volume_sample = client.snapshot_volume_evidence(t)
                     put_private("native-volume.json", volume_sample)
                     result["native_volume_sample_status"] = (
-                        native_stock_volume_rejection(volume_sample) or "LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED"
+                        native_stock_volume_rejection(volume_sample)
+                        or ("LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED" if available
+                            else "PAPER_RELEASE_VOLUME_NATIVE_PROBE_INCOMPLETE")
                     )
             finally:
                 client.record_quote_completion(req, reason)
