@@ -58,6 +58,7 @@ def run(state, evidence, calendar, calendar_sha256):
         STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED="false",
         MEAN_REVERSION_STRATEGY_ENABLED="false",
         FORCE_CLEAN_START="false", FLATTEN_ON_STARTUP="false",
+        FORCE_EXECUTION_ON_TRADE_READY="false", FORCE_RISK_APPROVAL_FOR_TRADE_READY="false",
         PERSISTENCE_SQLITE_PATH=str(state / "ibkr_system.db"),
         IBKR_ORDER_ID_STATE_PATH=str(state / "order-id.json"),
         IBKR_GUARD_PERSIST_PATH=str(state / "submission-guard.json"),

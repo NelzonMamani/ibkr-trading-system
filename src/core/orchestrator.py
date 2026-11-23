@@ -613,7 +613,12 @@ class CoreOrchestrator:
             persistence_adapter=self.storage_engine, state_namespace=self.run_mode.value,
         )
         self.trade_management_engine.restore_relationship_state()
-        self.trade_management_engine.bind_recovered_protection(self.execution_engine.post_fill_lifecycle)
+        if self._paper_release is None:
+            self.trade_management_engine.bind_recovered_protection(self.execution_engine.post_fill_lifecycle)
+        elif (self.trade_management_engine.snapshot_positions()
+                or self.trade_management_engine._relationship_plans
+                or self.trade_management_engine._pending_exit):
+            self.execution_engine._mark_capital_recovery_failed("PAPER_RELEASE_RETAINED_MANAGEMENT_STATE")
         self.risk_engine.relationship_manager = self.trade_management_engine
         self.execution_engine.relationship_manager = self.trade_management_engine
         for strategy in getattr(self.strategy_runner, "strategies", []):
@@ -3712,6 +3717,10 @@ class CoreOrchestrator:
         forced_session_label: str | None = None,
         forced_session_source: str | None = None,
     ) -> bool:
+        release = getattr(self, "_paper_release", None)
+        if release is not None and not self._startup_recovery_allows_strategy_execution():
+            release.last_gate = self.execution_engine.startup_recovery_block_reason()
+            return False
         self._expire_selected_failure_enrollment(cycle_started_at, str(session_phase))
         self.runtime_mode_manager = RuntimeModeManager.resolve()
         mode_manager = self.runtime_mode_manager
