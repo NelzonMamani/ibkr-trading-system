@@ -22149,3 +22149,27 @@ The attempt to merge PR1249 against expected head
 review because the reviewer requires explicit authorization to merge into
 `main`. The repository was left at its accepted head pending that approval.
 No laptop result or accepted PAPER source pin is asserted.
+
+### Full-suite follow-up and Windows caller parse (2026-11-23)
+
+The isolated Linux full suite on earlier source
+`3163d80e08579fe7dcdb774fd966d9f33b23fc39` reported 8,603 passed,
+36 failed and three skipped. The failures identified compatibility work,
+including optional volume provenance for legacy snapshot readers,
+historical diagnostic volume reuse, a historical Core harness binding, and
+the workflow's expected PowerShell step count. Failed cases remain part of
+that receipt.
+
+At source `f69f2ef4e2582043904badd740802c4f4cd633a6`, tree
+`50ff7b407706e0af52624ef04f94ae49c2e06a75`, legacy readers can expose
+diagnostic volume when native evidence is absent. Explicit unknown native
+evidence remains ineligible. The sanitized laptop result preserves the last
+concrete gate, including insufficient funds. The focused exact-source suite
+passed 149 cases. Independent review passed 157 overlapping compatibility
+cases on that source. The preceding PR1250 head
+`283f4bf08d15c483ee7d35822d1594e92a2dc36d` passed all Windows controlled
+process checks on run 45226468548, including native PowerShell 5.1 parsing
+and the caller's deliberate missing-pin refusal. The caller template is
+unchanged in this delta. Current-head full Linux/Windows CI is still required.
+The authorized operator volume probe and controlled PAPER launch remain
+unexecuted. PAPER_READY=NO.
