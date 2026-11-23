@@ -102,6 +102,7 @@ class PaperRelease:
             self.rejection = "PAPER_RELEASE_CURRENT_CLIENT_ORDERS_PRESENT"
             raise RuntimeError(self.rejection)
         self._check(client, engine, datetime.now(timezone.utc), require_recovery=require_recovery)
+        return positions
 
     def authorize(self, request, client, contract, order, now, engine):
         if (request.setup_family_id != "ABCD" or request.relationship_context

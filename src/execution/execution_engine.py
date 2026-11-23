@@ -1201,8 +1201,16 @@ class ExecutionEngine:
                 self.broker.ensure_connection()
             except Exception:
                 raise RuntimeError("PAPER_RELEASE_NATIVE_CONNECTION_UNAVAILABLE") from None
-            release.check_start(self._native_callback_client(), self, datetime.now(timezone.utc),
-                                require_recovery=False)
+            client = self._native_callback_client()
+            positions = release.check_start(client, self, datetime.now(timezone.utc),
+                                            require_recovery=False)
+            self.bind_native_order_scope(
+                account=positions.account, client=client, as_of=positions.completed_at,
+                scope_identity=positions.scope_identity)
+            evidence = self.collect_paper_entry_capital()
+            rejection = self.paper_entry_capital_rejection(evidence)
+            if rejection:
+                raise RuntimeError(rejection)
 
         authority = StartupRecoveryAuthority(
             run_mode=self.run_mode.value,
