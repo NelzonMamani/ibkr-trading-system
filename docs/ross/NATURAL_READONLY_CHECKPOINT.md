@@ -21790,3 +21790,58 @@ consume time; the outer check does not promise later admission. Run benchmark
 first and wait for complete owned cleanup before any later Ross observation.
 Raw benchmark records stay private; safe terminal/package evidence is reviewed
 separately. All five ownership vetoes remain. PAPER_READY=NO.
+
+
+### November23 first submitted receipt: SPY/QQQ benchmark refusal
+
+This section covers ONLY the operator's first submitted14:55 benchmark attempt,
+not the later ordinary Ross observation, which has not yet been analysed here.
+Archive ross-natural-readonly-upload(20261123-161221).zip:285319bytes,
+SHA256 d95382e64a5e1cbc4d8553abd8ea7085f0e6e4d02e62a2b50b7d698610704626.
+Companion terminal transcript:12366bytes,
+SHA256 fc8f8675daef4360119b54d1762f149261118140fedb54b9343e4c29e81f65ce.
+The archive's runtime profile is BENCHMARK_CAPTURE_V1 despite its generic name.
+
+The transcript identifies fresh root alias ro-4c2901a1 and source
+f53aa41d07ac6143503582d8d2980bd72fe1d90b. Preparation and preflight exited0;
+preflight reports2026-11-23T15:00:29.094433Z. Observation/package/final exits
+are2, diagnostic-only sealing exited0. The capture summary records
+CAPTURE_PAPER_ACCOUNT_SCOPE_UNVERIFIED / account_scope_status ACCOUNT_NOT_PAPER
+after6.7064712seconds, assets[], capture_completedFalse and retention_completeFalse.
+No SPY/QQQ data acquisition/ATR result is established. Scanner/catalyst/
+downstream fields correctly say NOT_RUN_CAPTURE_PROFILE.
+
+Exact pinned source was fetched and inspected. _benchmark_scope at line2211
+accepts only re.fullmatch(r"DU[0-9]+", account). The supervisor's original
+capture-scope loader independently repeats the same restriction. A bounded
+synthetic string control accepts DU000000001 and rejects DUK000000001.
+Thus the existing validators exclude the DUK-digit PAPER account format
+previously shown by the operator. This is a confirmed compatibility problem
+and a likely explanation for this refusal. The shareable receipt omits the
+actual native managed-account string, so it does not independently bind the
+runtime refusal to that specific prefix or establish a LIVE login.
+
+capture_account_scope is null. Source creates its original account commitment
+only AFTER the rejecting gate; the final auditor requires that commitment
+before acquiring its original-account audit scope. The final broker_audit
+callback failed with RuntimeError, and final broker query/disconnect were
+unconfirmed. A matching source path explains the secondary failure, but the
+shareable callback records only the exception type. Do not relabel the final
+audit as passed or infer an empty broker order set.
+
+Both runtime and independent supervisor SDK counters report place/modify/cancel
+zero; independent mutation validation PASS. Child shutdown identity matched,
+all three capture shutdown hooks completed, process exit was verified without
+forced termination, and independent final runtime inventory completed empty.
+All2722 tracked-file commitments in source-before/source-after are identical;
+operator order-state and source-integrity checks report PASS. These scoped
+facts do not turn terminal FAIL into complete operational acceptance.
+
+Keep this receipt separate from the next Ross archive. Do not rerun unchanged.
+The next source repair must address both PAPER-format validators consistently,
+with positive DUK-format and negative LIVE/unknown/multiple/changed-account
+controls, while retaining contemporaneous PAPER attestation, exactclient71,
+read-only/SDK/mutation guards, original scope commitments and independent audit.
+A prefix match alone is not a new account-type certificate. No production
+change, broker connection, recovery clearing or readiness upgrade occurred
+during this evidence review. PAPER_READY=NO.
