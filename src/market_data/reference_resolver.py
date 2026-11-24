@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
-from src.ibkr.market_data_client import HistoricalDataResult, HistoricalVolumeResult, historical_result
+from src.ibkr.market_data_client import HistoricalDataResult, HistoricalVolumeResult, historical_result, average_daily_bar_volume
 from src.core.acquisition import history_enrichment, history_attempt_cache
 
 from src.market_data.candidate_identity import CandidateIdentity, bridge_identity_keys
@@ -471,7 +471,11 @@ class CanonicalReferenceResolver:
         ibkr_change_pct: Optional[float],
         persisted_pct_change: Optional[float],
         intraday_history_end_received: Optional[bool] = None,
+        intraday_average_daily_volume_window_days: Optional[int] = None,
     ) -> CanonicalReferenceResult:
+        if (type(intraday_average_daily_volume_window_days) is not int
+                or not 1 <= intraday_average_daily_volume_window_days <= 20):
+            intraday_avg_volume_20d = None
         if getattr(provider, "source_name", "") == "IBKR" and intraday_history_end_received is not True:
             intraday_avg_volume_20d = None
         guard = self._ownership_guard(provider, identity)
@@ -484,8 +488,10 @@ class CanonicalReferenceResolver:
         cache_keys = self._cache_keys(identity, provider)
         for key in cache_keys:
             hit = self._cycle_cache.get(key)
-            if not history_conflict and hit is not None and (getattr(provider, "source_name", "") != "IBKR"
-                                    or self._history_attempt_by_key.get(key) is history_attempt_cache()):
+            if (not history_conflict and hit is not None
+                    and getattr(hit, "_adv20_completed_before", None) == trading_date
+                    and (getattr(provider, "source_name", "") != "IBKR"
+                                    or self._history_attempt_by_key.get(key) is history_attempt_cache())):
                 self._verify_cache_hit(identity=identity, lookup_key=key, result_identity_key=hit.identity_key, source="cycle")
                 print(f"[REFERENCE][CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} source=cycle lookup_key={key}")
                 return hit
@@ -499,6 +505,11 @@ class CanonicalReferenceResolver:
                     cached_identity_key = str(payload.get("identity_key") or "")
                     self._verify_cache_hit(identity=identity, lookup_key=key, result_identity_key=cached_identity_key, source="persistent")
                     payload = dict(payload)
+                    if payload.get("adv20_completed_before") != trading_date:
+                        # Old cached numbers may include today's developing bar.
+                        # Keep independently usable previous-close provenance.
+                        payload.update(avg_volume_20d=None, average_daily_volume_window_days=None,
+                                       adv20_resolved=False, adv20_end_received=False)
                     if getattr(provider, "source_name", "") == "IBKR":
                         # Older serialized history had no end witness. Independent
                         # quote-close provenance remains usable; old history cannot.
@@ -629,7 +640,8 @@ class CanonicalReferenceResolver:
             reference_failure_reason = "HISTORY_UNAVAILABLE" if qualified_ok else "QUALIFY_FAILED"
         adv_source = "INTRADAY_STATS" if intraday_avg_volume_20d is not None else ("IBKR_DAILY_BARS" if avg_volume is not None else ("PROVIDER_ADV20_FALLBACK" if provider_avg_volume is not None else "UNAVAILABLE"))
         resolved_avg_volume = intraday_avg_volume_20d if intraday_avg_volume_20d is not None else (avg_volume if avg_volume is not None else provider_avg_volume)
-        resolved_window_days = 20 if intraday_avg_volume_20d is not None else (window_days if window_days is not None else provider_window)
+        resolved_window_days = (intraday_average_daily_volume_window_days if intraday_avg_volume_20d is not None
+                                else (window_days if window_days is not None else provider_window))
         rvol_failure_reason = None if resolved_avg_volume is not None else "ADV20_UNAVAILABLE"
         if reference_source == "PERSISTENT_CACHE_PREV_CLOSE":
             reference_semantics = str(reference_semantics or payload.get("reference_semantics") or "DEGRADED_FALLBACK")
@@ -686,6 +698,7 @@ class CanonicalReferenceResolver:
             "average_daily_volume_window_days": resolved_window_days,
             "adv20_source": adv_source,
             "adv20_resolved": resolved_avg_volume is not None,
+            "adv20_completed_before": trading_date,
             "resolved_at_utc": datetime.now(timezone.utc).isoformat(),
             "aliases": [] if identity.con_id not in {None, 0} else list(identity.aliases),
             "history_lookup_key_used": history_identity.key if bars else None,
@@ -903,7 +916,11 @@ class CanonicalReferenceResolver:
             if not isinstance(resolved, (tuple, HistoricalVolumeResult)) or len(resolved) != 2:
                 return None, None
             avg, window = resolved
-            return replace(resolved, average=_to_int(avg), window=_to_int(window)) if isinstance(resolved, HistoricalVolumeResult) else (_to_int(avg), _to_int(window))
+            if isinstance(resolved, HistoricalVolumeResult):
+                avg, window = (average_daily_bar_volume(resolved.history, 20, now=get_us_eastern_now())
+                               if resolved.history.completed else (None, None))
+                return replace(resolved, average=avg, window=window)
+            return _to_int(avg), _to_int(window)
         return None, None
 
     def _scanner_pct_synthetic_fallback(self, *, current_last_price: Optional[float], ibkr_change_pct: Optional[float]) -> Optional[float]:
@@ -918,7 +935,7 @@ class CanonicalReferenceResolver:
         normalized: list[HistoricalDailyBar] = []
         for bar in bars or []:
             dt = getattr(bar, "date", None) or getattr(bar, "trading_date", None) or getattr(bar, "time", None)
-            normalized.append(HistoricalDailyBar(str(dt), _to_float(getattr(bar, "close", None)), _to_int(getattr(bar, "volume", None))))
+            normalized.append(HistoricalDailyBar(str(dt), _to_float(getattr(bar, "close", None)), getattr(bar, "volume", None)))
         return replace(bars, bars=tuple(normalized)) if isinstance(bars, HistoricalDataResult) else normalized
 
     def _last_completed_close(
@@ -964,12 +981,7 @@ class CanonicalReferenceResolver:
         return None, None, False
 
     def _average_volume(self, bars: list[HistoricalDailyBar], preferred_window: int = 20) -> tuple[Optional[int], Optional[int]]:
-        volumes = [bar.volume for bar in bars if bar.volume is not None]
-        if not volumes:
-            return None, None
-        window = min(preferred_window, len(volumes))
-        sample = volumes[-window:]
-        return int(sum(sample) / len(sample)), window
+        return average_daily_bar_volume(bars, preferred_window, now=get_us_eastern_now())
 
     def _result_from_cache(self, identity: CandidateIdentity, payload: dict[str, Any], session_label: str, current_volume: Optional[int], current_last_price: Optional[float], rth_open_price: Optional[float], rth_close_price: Optional[float], ibkr_change_pct: Optional[float], persisted_pct_change: Optional[float]) -> CanonicalReferenceResult:
         pct_payload = compute_session_aligned_pct_change(
@@ -1002,7 +1014,7 @@ class CanonicalReferenceResolver:
         if reference_semantics != "PREVIOUS_COMPLETED_RTH_CLOSE" and normalize_session_label(session_label) in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"}:
             qualification_usable_reference = False
             execution_usable_reference = False
-        return CanonicalReferenceResult(
+        result = CanonicalReferenceResult(
             identity_key=identity.key,
             symbol=identity.symbol,
             qualified_identity=identity,
@@ -1034,6 +1046,8 @@ class CanonicalReferenceResolver:
             historical_end_received=payload.get("historical_end_received"),
             adv20_outcome=payload.get("adv20_outcome"),
         )
+        object.__setattr__(result, "_adv20_completed_before", payload.get("adv20_completed_before"))
+        return result
 
 
 def _to_float(value: Any) -> Optional[float]:

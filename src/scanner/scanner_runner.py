@@ -1236,6 +1236,7 @@ def _resolve_reference_snapshot(
     ibkr_change_pct: Optional[float],
     persisted_pct_change: Optional[float],
     intraday_history_end_received: Optional[bool] = None,
+    intraday_average_daily_volume_window_days: Optional[int] = None,
 ) -> Dict[str, Any]:
     trace_enabled = _should_trace_scanner_symbol(symbol)
     identity = CandidateIdentity.from_mapping({
@@ -1272,6 +1273,7 @@ def _resolve_reference_snapshot(
             ibkr_change_pct=ibkr_change_pct,
             persisted_pct_change=persisted_pct_change,
             intraday_history_end_received=intraday_history_end_received,
+            intraday_average_daily_volume_window_days=intraday_average_daily_volume_window_days,
         )
     finally:
         setattr(provider, "debug_reference_trace", previous_debug_trace)
@@ -1829,6 +1831,7 @@ def _populate_pct_change(
             current_volume=_safe_float(context.get("volume"), None),
             intraday_avg_volume_20d=_safe_float(context.get("avg_volume_20d"), None),
             intraday_history_end_received=context.get("intraday_history_end_received"),
+            intraday_average_daily_volume_window_days=context.get("average_daily_volume_window_days"),
             rth_open_price=_safe_float(context.get("rth_open_price"), None),
             rth_close_price=_safe_float(context.get("rth_close_price"), None),
             ibkr_change_pct=_safe_float(context.get("ibkr_change_pct"), None),
@@ -4559,6 +4562,7 @@ def _build_symbol_context(
         current_volume=volume,
         intraday_avg_volume_20d=avg_volume_20d,
         intraday_history_end_received=intraday_history_end_received,
+        intraday_average_daily_volume_window_days=avg_volume_window_days,
         rth_open_price=session_open,
         rth_close_price=session_close,
         ibkr_change_pct=ibkr_change_pct,

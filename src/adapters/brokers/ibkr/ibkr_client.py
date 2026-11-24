@@ -3481,7 +3481,9 @@ class IbkrClient(EWrapper, EClient):
             scope = (self.client_id, self._position_connection_epoch, self.serverVersion())
             if state.get("volume_scope") != scope or self._request_id_conflicted(request_id):
                 return None
-            historical_average, sample_count = average_daily_bar_volume(state["bars"], 20)
+            historical_average, sample_count = (average_daily_bar_volume(
+                state["bars"], 20, now=state["completed_at_utc"])
+                if state.get("completed_at_utc") is not None else (None, None))
             basis = {"basis": HISTORICAL_BASIS, "con_id": identity.con_id, "client_id": scope[0],
                      "connection_epoch": scope[1], "server_version": scope[2], "request_id": request_id,
                      "completed_at_utc": state.get("completed_at_utc"), "end_received": True,
