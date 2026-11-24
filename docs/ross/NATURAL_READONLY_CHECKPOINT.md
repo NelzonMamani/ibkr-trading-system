@@ -22972,3 +22972,43 @@ Post-change validation must use fresh data and an honestly coordinated unit
 comparison. A standalone repeat of the probe would still leave its units
 unverified; the original capture is retained as pre-change evidence.
 All five legacy ownership vetoes remain. PAPER_READY=NO.
+
+### Applied volume-setting report and merged acquisition repair (2026-11-24)
+
+The operator reporteddone and supplied a new settings screenshot showing
+BOTH lot options unchecked on the already identified TWS10.50.1h. This
+records the corrected visible configuration and operator-reported application;
+effective post-change native units have not yet been sampled/accepted.
+Read-Only API remains required. The earlier successful vp-af44e394 capture
+is retained as pre-change evidence and is not retrospectively relabelled.
+
+PR#1252 merged atccbb382b29357406c30b462f006c0c12a0da7862. The verified
+ordered parents are daa1982ce1050c1f596c65bed64a662d08dbfa99 and reviewed
+head8ed0d2d60ab4ed289540a6db47040971643b688a. Merge tree
+77285078996c97dd6aa8ac27210e79785955b35f exactly matches the tested/reviewed
+tree. All6 exact-head jobs in run45374619485 passed, including8724 Linux
+tests,7224 Windows offline tests,1501 Windows lifecycle tests and native
+PowerShell controlled-process checks. Skips were3Linux/2Windows. Automatic
+main push run45379790778 is in progress; post-merge CI is not yet accepted.
+
+Next implementation work has started on the existing operator/caller:
+automatically emit a safe allowlisted terminal status after live-volume
+capture, including failures, to remove the separate download/run of a status
+reader. Raw private fields, source/process guards and trading admission
+remain unchanged. No new broker probe or configuration read is requested
+while that workflow is being prepared.
+
+The substantive volume task remains a truthful unit-authority route for the
+exact installed SDK/protocol after the settings change. The source-config
+route must explicitly cover both native tick8 and historical TRADES; otherwise
+a genuinely coordinated independent comparison is required. Do not copy API
+values into independent fields, backdate observations, equate filtered history
+with native totals or assert units from an unused SDK constant. Keep unit
+authority separate from fresh per-candidate contract ownership checks.
+
+Me/Codex owns implementation, review, CI/integration and this checklist.
+PyCharm Terminal executes the prepared local caller against laptop TWS and
+returns its output; it is not asked to design or change the strategy. The
+operator need not run another unprepared capture or edit script placeholders.
+All five legacy holding vetoes and other controlled-PAPER prerequisites
+remain open. PAPER_READY=NO.
