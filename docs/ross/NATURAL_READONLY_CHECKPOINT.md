@@ -22759,3 +22759,21 @@ TWS PAPER and Read-Only API enabled and client71 unused.
 The earlier failed root is retained. No successful volume capture, calibration,
 PAPER trading admission or broker action is claimed by this script update.
 All five legacy vetoes remain. PAPER_READY=NO.
+
+### Post-restart PRE probe: fresh run with exit 2
+
+After the operator started IBKR, the bootstrap's passive port7497 listener
+gate passed and it ran the same reviewed diagnostic source b20d6d64 in fresh
+root alias vp-afb69d59. The terminal shows about40seconds of supervised
+progress and effective exit2, not the earlier root's exit1. The new terminal
+does not identify the failed completion condition, and the printed private
+probe pathname does not establish that the file exists or is valid.
+
+Do not reuse the old root846349db status as this attempt's evidence and do
+not count either attempt as successful calibration. The existing filesystem
+status reader now accepts an explicit validated EvidenceRoot argument so
+the caller can target afb69d59 without editing its internals. It also permits
+Decimal metadata values, fixing the previously omitted elapsed-time fields
+under Windows PowerShell5.1. Whitelisted fields still exclude raw messages,
+identifiers, prices and volumes. The reader makes no broker connection and
+does not rerun capture. PAPER_READY=NO; all five ownership vetoes remain.

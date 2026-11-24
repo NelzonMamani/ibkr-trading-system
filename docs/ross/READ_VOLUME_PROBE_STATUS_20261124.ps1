@@ -1,7 +1,13 @@
-# TITLE: Read sanitized status from the failed volume probe
+# TITLE: Read sanitized status from one explicit volume probe root
+param([string]$EvidenceRoot)
 & {
     $ErrorActionPreference = 'Stop'
-    $root = 'C:\tmp\qtransport-846349db'
+    if ([string]::IsNullOrWhiteSpace($EvidenceRoot) -or
+        [IO.Path]::GetDirectoryName($EvidenceRoot) -ine 'C:\tmp' -or
+        [IO.Path]::GetFileName($EvidenceRoot) -cnotmatch '^qtransport-[0-9a-f]{8}\z') {
+        throw 'An explicit C:\tmp\qtransport root is required. Nothing captured.'
+    }
+    $root = $EvidenceRoot
     $evidence = Join-Path $root 'e'
     $readErrors = New-Object 'System.Collections.Generic.List[string]'
 
@@ -20,7 +26,7 @@
                 if ($null -eq $property) { continue }
                 $value = $property.Value
                 if ($null -eq $value -or $value -is [bool] -or
-                    $value -is [int] -or $value -is [long]) {
+                    $value -is [int] -or $value -is [long] -or $value -is [decimal]) {
                     $safe[$name] = $value
                 } elseif ($value -is [double] -and
                           ![double]::IsNaN($value) -and ![double]::IsInfinity($value)) {
