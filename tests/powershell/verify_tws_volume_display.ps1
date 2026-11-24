@@ -89,6 +89,7 @@ public static class InertWindowFixture {
                 timer.Tick += delegate {
                     if (File.Exists(args[0] + ".overlay") && overlay == null) {
                         overlay = new PassiveOverlay(); overlay.TopMost = true; overlay.ShowInTaskbar = false;
+                        overlay.StartPosition = FormStartPosition.Manual;
                         overlay.FormBorderStyle = FormBorderStyle.None;
                         overlay.Bounds = new Rectangle(form.Left+40, form.Top+60, 120, 40);
                         overlay.BackColor = Color.Blue; overlay.Show();
