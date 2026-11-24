@@ -22517,3 +22517,312 @@ Same-New-York-date calibration still requires two independent TWS share
 comparisons and consistent supported TWS build/settings. Automatic capture
 does not itself establish those comparisons or clear any ownership veto.
 All existing B01-B08 laptop gates remain. PAPER_READY=NO.
+
+### Automatic PRE volume probe distribution (2026-11-24)
+
+Reviewed diagnostic source b20d6d641b57e64c65d6712c64f2e948ce2b038d,
+tree 01206b24db969dda7ed5805de0fdd6b9eb41c8e6, is published in PR1251.
+Its 41 focused Python operator cases passed and independent source/bootstrap
+review cleared the bounded change. Run45330232776 Windows controlled-process
+job138229515909 PASSED, including native Windows PowerShell5.1 quote
+diagnostic binding/parser, automatic selection and private-output controls.
+Full Linux and both full Windows offline suites remain in progress at this
+distribution receipt. PR1251 is not merged or a trading release.
+
+The published single-paste bootstrap
+docs/ross/ROSS_READ_ONLY_VOLUME_AUTO_20261124.ps1 pins that exact reviewed
+diagnostic source/tree and verifies helper SHA256
+e9fffdc4429a0ae9b60993f857a8bb1fc823f07bcc5e0c9d2c1aee475933763b.
+It checks native syntax, supplies no ticker argument, and has no typed
+confirmation phrase. Its preliminary NY weekday/hour gate returns without
+capture before PRE or after RTH; the maintained owner independently checks
+the configured actual session and all source/identity/READ_ONLY guards.
+On November24, PRE begins09:00UK. The stock is selected mechanically from
+one completed scanner response and only its validated public ticker is
+printed after successful capture.
+
+This distribution authorizes only the requested bounded READ_ONLY probe.
+The controlled PAPER caller and its RTH opening admission are unchanged;
+main remains f08d46e6f632293ca569819968f9700b7b1c1975 at publication.
+No broker operation occurred here. Real independent TWS comparisons and all
+B01-B08 laptop acceptance gates remain. PAPER_READY=NO; five ownership
+vetoes remain.
+
+### November 24 volume probe failure and duplicate receipt identification
+
+The operator ran the new automatic PRE/RTH volume diagnostic at approximately
+09:19 London on source b20d6d641b57e64c65d6712c64f2e948ce2b038d,
+tree 01206b24db969dda7ed5805de0fdd6b9eb41c8e6. The terminal shows verified
+source preparation and fresh root alias vp-846349db, followed by about
+35 seconds of supervised progress and effective exit 1. The terminal alone
+does not localize the failure or establish that volume-probe.json exists
+or is valid. No successful calibration or new laptop acceptance is claimed.
+
+A separate archive uploaded with a November 24 filename is byte-identical
+to the already-reviewed November 23 ordinary Ross receipt ro-8e455b5b:
+SHA256 744bae80a3a1b9636e48b91765432272263ade52a7d4a1dbc1c48609116487f8.
+Its actual preflight is November 23 15:24:05 UTC on source 7a2070ab.
+It contains no volume-probe.json. The replacement transcript differs only
+in its initial PowerShell banner line. Count neither as a new observation
+or calibration receipt; do not repeat the earlier analysis.
+
+One next action is the filesystem-only local status reader
+docs/ross/READ_VOLUME_PROBE_STATUS_20261124.ps1. It prints whitelisted
+status, exception-type, stage, completion/freshness, resource-count,
+privacy and mutation-count fields. Raw exception messages, account/contract
+IDs, prices and volume values stay private. Include privacy status because
+privacy scanning runs after result.json and can independently produce exit 1.
+The reader neither reruns the probe nor opens a broker connection.
+Actual cause and safety counters remain unverified until its output arrives.
+All five ownership vetoes remain. PAPER_READY=NO.
+
+### Connection-stage localization of the November 24 PRE probe
+
+The operator supplied the whitelisted status for vp-846349db. Actual report:
+FAIL / exit 1 / RuntimeError, with cleanup RuntimeError. The last pre-cleanup
+stage is guards_complete_connect; connected_acquisition_begin is absent.
+scanner_attempted is false, with no scanner/acquisition/quote evidence and
+no volume-probe.json. This bounds the failure to connection setup before
+market-data acquisition; it does not identify a particular startup refusal.
+
+Source/operator state passed, final recognized runtime inventory is empty,
+quote maps are all zero, disconnect is confirmed, privacy passed with zero
+occurrences, and place/modify/cancel mutation counts are all zero.
+broker_audit_completed is false: broker order state is unverified, not empty.
+Transport coverage passed; absence_claims_valid is false because no target
+quote completed. Cleanup RuntimeError is consistent with the already
+unavailable connection, not an established second fault.
+
+The old quotes-profile observer suppresses startup error text and does not
+generally retain numeric broker error callbacks. Do not claim that this
+receipt proves a port failure, client71 conflict or a handshake timeout.
+The next filesystem/passive status reader reads saved transport metadata and
+a current Get-NetTCPConnection snapshot for local port7497. It emits no
+addresses, PIDs, command lines, IDs or raw frames; it makes no connection.
+Current listener state cannot establish the state at the failed attempt,
+and TCP row counts cannot identify client71.
+
+Separately, PR1251 required run45330232776 passed all six jobs on reviewed
+b20d6d641b57e64c65d6712c64f2e948ce2b038d. Coordinator merged under standing
+authorization at daa1982ce1050c1f596c65bed64a662d08dbfa99, with ordered parents
+f08d46e6f632293ca569819968f9700b7b1c1975 and b20d6d641b57e64c65d6712c64f2e948ce2b038d.
+Its tree01206b24db969dda7ed5805de0fdd6b9eb41c8e6 matches the reviewed source.
+Post-merge CI is not yet an acceptance receipt here. No new probe or broker
+connection was run by the coordinator. All five vetoes remain. PAPER_READY=NO.
+
+### Current missing API listener and handshake-send evidence
+
+The operator's passive snapshot completed and found no listener on local
+port 7497, no IPv4 loopback/wildcard listener row and no established server
+rows. This proves the endpoint is unavailable at check time; it does not
+prove its state during the earlier probe or identify why it is absent.
+
+The retained observer reports one 17-byte startup send attempt, no returned
+bytes, one TimeoutError at about 3.117 seconds, and no recv/frame/queue/decoder
+activity. No bytes were successfully reported as sent; this is not proof
+that no bytes reached a peer. No client71 conflict, firewall fault or market
+data entitlement failure is established. Hooks were fully installed/restored
+and the reader stopped. Prior zero mutation/cleanup facts remain accepted.
+
+Next local action: open the TWS desktop application, complete PAPER login,
+and check Global Configuration -> API -> Settings: enable ActiveX and Socket
+Clients, use socket port7497, retain Read-Only API, then Apply/OK.
+IBKR's primary setup documentation confirms the required socket listener
+and matching port; Read-Only is appropriate for this diagnostic.
+https://www.interactivebrokers.com/campus/trading-lessons/installing-configuring-tws-for-the-api/
+
+Repeat only the passive listener check below first. A subsequent capture
+is justified after the missing listener/precondition has actually changed.
+No new scanner, connection attempt, order mutation, account disposition or
+recovery clearing was performed here. PAPER_READY=NO.
+
+```powershell
+# TITLE: Check the local PAPER API listener
+& {
+    $ErrorActionPreference = 'Stop'
+    try {
+        $listeners = @(Get-NetTCPConnection -ErrorAction Stop |
+            Where-Object { $_.LocalPort -eq 7497 -and $_.State -eq 'Listen' })
+        [pscustomobject]@{
+            query_status = 'COMPLETE'
+            listener_present = ($listeners.Count -gt 0)
+            ipv4_listener_present = (@($listeners | Where-Object {
+                $_.LocalAddress -in @('127.0.0.1','0.0.0.0')
+            }).Count -gt 0)
+        } | ConvertTo-Json
+    } catch {
+        Write-Host 'LISTENER_CHECK_UNAVAILABLE'
+    }
+}
+# END
+```
+
+### Repeated absent listener: inspect the running app before more retries
+
+The second passive check again completed with listener_present=false and
+ipv4_listener_present=false for port7497. It provides no new evidence that
+TWS PAPER login or API settings were actually applied. Do not infer either
+an account mode or the specific cause of the absent endpoint.
+
+The next and final passive discriminator is the process/common-port map
+below. Only LISTEN rows are counted. It emits heuristic app categories,
+aliases, visible-window flags and common API port numbers, never raw window
+titles, paths, PIDs, addresses, credentials or command lines. It makes no
+connection and does not retarget the probe. TWS-like/Java-like classification
+does not prove PAPER login or API readiness.
+
+Use that result for a concrete next step: full TWS PAPER if the wrong product
+is open; inspect the actual instance's API settings if it uses another port
+or has no listener. Avoid repeating the same7497 check without a changed
+precondition. IBKR confirms PAPER and LIVE TWS settings are saved separately:
+https://www.interactivebrokers.com/support/faq/content/29950139
+
+PAPER_READY=NO. No capture, broker mutation or state/ownership change occurred.
+
+```powershell
+# TITLE: Identify broker apps and API listeners without connecting
+& {
+    $ErrorActionPreference = 'Stop'
+    $ports = @(4001,4002,7496,7497)
+    $tcpStatus = 'UNAVAILABLE'
+    $listeners = @()
+    try {
+        $listeners = @(Get-NetTCPConnection -ErrorAction Stop |
+            Where-Object { $_.State -eq 'Listen' -and $_.LocalPort -in $ports })
+        $tcpStatus = 'COMPLETE'
+    } catch {}
+
+    $index = 0
+    $apps = @(
+        foreach ($app in @(Get-Process -ErrorAction SilentlyContinue)) {
+            try {
+                $name = [string]$app.ProcessName
+                $title = [string]$app.MainWindowTitle
+                if ($name -notmatch '^(tws|ibgateway|java|javaw|ibkr.*)$' -and
+                    $title -notmatch 'Trader Workstation|IB Gateway|IBKR Desktop') {
+                    continue
+                }
+                $index++
+                $kind = 'JAVA_OR_IBKR_PROCESS_UNCLASSIFIED'
+                if ($name -match '^ibgateway$' -or $title -match 'IB Gateway') {
+                    $kind = 'IB_GATEWAY_LIKE'
+                } elseif ($name -match '^tws$' -or $title -match 'Trader Workstation|^TWS\b') {
+                    $kind = 'TWS_LIKE'
+                } elseif ($name -match '^ibkr.*desktop' -or $title -match 'IBKR Desktop') {
+                    $kind = 'IBKR_DESKTOP_LIKE'
+                }
+                [pscustomobject]@{
+                    alias = ('A{0:D2}' -f $index)
+                    detected_kind = $kind
+                    visible_window = ($app.MainWindowHandle -ne [IntPtr]::Zero)
+                    common_api_listener_ports = @($listeners |
+                        Where-Object { $_.OwningProcess -eq $app.Id } |
+                        Select-Object -ExpandProperty LocalPort -Unique)
+                }
+            } catch {}
+        }
+    )
+
+    [pscustomobject]@{
+        tcp_query_status = $tcpStatus
+        apps = $apps
+        common_api_ports = @(
+            foreach ($port in $ports) {
+                $present = $null
+                if ($tcpStatus -eq 'COMPLETE') {
+                    $present = @($listeners | Where-Object { $_.LocalPort -eq $port }).Count -gt 0
+                }
+                [pscustomobject]@{ port=$port; listening=$present }
+            }
+        )
+    } | ConvertTo-Json -Depth 5
+}
+# END
+```
+
+### Operator confirmed the missing application and restarted IBKR
+
+The operator explicitly reported that IBKR was not running during the failed
+local checks and has now started it again. This explains the observed absent
+listener. A completed PAPER login, enabled socket listener and successful API
+handshake are still verified by their respective checks; starting an app alone
+is not claimed as that proof.
+
+A new capture attempt is justified after this changed local precondition.
+The existing automatic READ_ONLY bootstrap now checks for a LISTEN row on
+local port7497 before downloading or invoking its pinned diagnostic helper.
+If absent, it stops without capture. The reviewed source/tree/helper hash,
+actual PRE/RTH check, no-ticker automatic selection, original privacy/source/
+mutation controls and fresh-root handling are unchanged. The operator keeps
+TWS PAPER and Read-Only API enabled and client71 unused.
+
+The earlier failed root is retained. No successful volume capture, calibration,
+PAPER trading admission or broker action is claimed by this script update.
+All five legacy vetoes remain. PAPER_READY=NO.
+
+### Post-restart PRE probe: fresh run with exit 2
+
+After the operator started IBKR, the bootstrap's passive port7497 listener
+gate passed and it ran the same reviewed diagnostic source b20d6d64 in fresh
+root alias vp-afb69d59. The terminal shows about40seconds of supervised
+progress and effective exit2, not the earlier root's exit1. The new terminal
+does not identify the failed completion condition, and the printed private
+probe pathname does not establish that the file exists or is valid.
+
+Do not reuse the old root846349db status as this attempt's evidence and do
+not count either attempt as successful calibration. The existing filesystem
+status reader now accepts an explicit validated EvidenceRoot argument so
+the caller can target afb69d59 without editing its internals. It also permits
+Decimal metadata values, fixing the previously omitted elapsed-time fields
+under Windows PowerShell5.1. Whitelisted fields still exclude raw messages,
+identifiers, prices and volumes. The reader makes no broker connection and
+does not rerun capture. PAPER_READY=NO; all five ownership vetoes remain.
+
+### Completed PRE transport and scanner; automatic volume contract repair (2026-11-24)
+
+The operator's sanitized status for retained root alias vp-afb69d59 confirms
+DIAGNOSTIC_ONLY exit2 with ROSS_VOLUME_SOURCE_UNSUPPORTED. Connection completed;
+the TOP_PERC_GAIN scanner received native End with50rows and no scanner error.
+One requested LIVE quote returned LIVE, received snapshot End, and contained
+bid, ask, last, close and volume. The reported quote age was12.546245seconds.
+No private volume-probe file was written. Source/operator checks and broker
+audit passed; the client disconnected; the final request maps were empty.
+Transport coverage and absence-claim checks passed for the instrumented
+diagnostic scope. Privacy findings and place/modify/cancel counts were all0.
+This is progress beyond the earlier missing-listener failure, not calibration
+or PAPER trading acceptance.
+
+Offline reproduction using the installed ibapi9.81.1.post1 scanner decoder
+shows that its scanner contract omits primaryExchange. Passing that abbreviated
+contract directly into native volume acquisition reproduces
+ROSS_VOLUME_SOURCE_UNSUPPORTED. The former fake fixture supplied NASDAQ
+independently of the actual contract and masked this defect. This is a proven
+automatic-probe defect and a causal explanation consistent with the laptop
+receipt; the sanitized receipt alone does not expose which private source
+field failed.
+
+The existing automatic live-volume diagnostic now resolves only its chosen
+scanner identity before requesting a quote. It requires the same integer
+conId, symbol, security type and currency, preserves any listing/local-symbol/
+trading-class metadata already supplied, and requires a supported US primary
+exchange. It copies the resolved contract and applies SMART routing without
+changing listing identity. A mismatch, unsupported listing or lookup failure
+refuses before quote acquisition; it does not select a replacement scanner
+row. Existing acquisition deadlines, actual PRE/RTH guard, source/privacy/
+mutation controls, volume-unit rules and all trading admission gates remain
+in force. Ordinary quote profiles and explicit-symbol selection are unchanged.
+
+The real SDK decoder fixture failed before the repair and passed after it.
+All55 focused operator tests passed, including identity contradictions,
+unsupported/missing listings, lookup failure, acquisition expiry, paired
+private history and ordinary-profile isolation. git diff --check passed.
+Two independent source reviews found no scoped blocker in the frozen diff
+SHA256 84848a7cfca47ffcddfd7c1edb096465fa9f576a2b4bc7bbd0760e8725f942ed.
+This receipt records local/offline validation only; exact published-head CI
+and a new laptop capture are still pending. No cloud broker session ran.
+
+The next useful capture must use the repaired source, not repeat b20d6d64.
+A complete externally distributed bootstrap will pin that reviewed source
+and tree while retaining its helper hash check and passive7497 listener gate.
+Raw native records remain on the laptop. All five legacy ownership vetoes
+remain; inventory preservation remains closed; PAPER_READY=NO.

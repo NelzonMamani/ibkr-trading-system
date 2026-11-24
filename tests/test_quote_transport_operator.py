@@ -13,6 +13,12 @@ class Fake:
         self.mode=mode; self.scans=0; self.requests=[]; self.cancelled=[]
         self._market_events={}; self._lock=threading.Lock(); self.completions=[]
     def is_connected(self):return True
+    def resolve_contract(self, symbol):
+        assert symbol.startswith('NATURAL_')
+        c = Contract()
+        c.symbol, c.conId, c.secType, c.currency = symbol, 101 + int(symbol.rsplit('_', 1)[1]), 'STK', 'USD'
+        c.primaryExchange = 'NASDAQ'
+        return NS(contract=c)
     def reqScannerData(self, sub):
         self.scans+=1
         assert (sub.instrument,sub.locationCode,sub.scanCode,sub.numberOfRows,sub.abovePrice,sub.belowPrice)==('STK','STK.US.MAJOR','TOP_PERC_GAIN',50,1,20)
@@ -30,7 +36,7 @@ class Fake:
         assert flags==dict(genericTickList='',snapshot=True,regulatorySnapshot=False)
         self.requests.append((c.symbol,c.conId));req=len(self.requests)
         self._market_events[req]=threading.Event()
-        return NS(reqId=req,snapshotEnd=self.mode!='missing',brokerErrors=[],
+        return NS(reqId=req,contract=c,snapshotEnd=self.mode!='missing',brokerErrors=[],
             bid=4.,ask=4.1,last=4.05,close=3.9,volume=100.,
             marketDataType=1,marketDataTypeConfirmed=True,lastTime=datetime.now(timezone.utc))
     def _raise_if_request_id_conflicted(self,req): pass
@@ -233,7 +239,7 @@ def test_live_volume_probe_keeps_raw_callback_outside_general_artifacts(monkeypa
         'source': 'IBKR_NATIVE_TICK_SIZE', 'sdk_distribution': '9.81.1.post1',
         'session_basis': 'IBKR_CURRENT_TRADING_DAY_CUMULATIVE',
         'security_type': 'STK', 'currency': 'USD', 'primary_exchange': 'NASDAQ',
-        'market_data_status': 'LIVE', 'tick_type': 8, 'con_id': 123, 'client_id': 71,
+        'market_data_status': 'LIVE', 'tick_type': 8, 'con_id': 101, 'client_id': 71,
         'server_version': 157, 'connection_epoch': 0, 'request_id': 1,
         'market_timestamp_utc': now, 'received_at_utc': now, 'raw_value': 39018,
         'unit': 'UNKNOWN',
@@ -262,7 +268,13 @@ def test_live_volume_probe_uses_exact_contract_and_keeps_paired_sources_private(
     symbol = 'SYNTH'
     contract = Contract()
     contract.symbol, contract.conId, contract.secType, contract.currency = symbol, 123, 'STK', 'USD'
-    f.resolve_contract = lambda requested: NS(contract=contract) if requested == symbol else pytest.fail(requested)
+    def resolve(requested):
+        assert requested == symbol
+        from copy import copy
+        resolved = copy(contract)
+        resolved.primaryExchange = 'NASDAQ'
+        return NS(contract=resolved)
+    f.resolve_contract = resolve
     scan = f.reqScannerData
     def completed_scan(subscription):
         scan(subscription)  # Retain the existing bounded query contract assertion.
@@ -385,3 +397,154 @@ def test_live_volume_profile_accepts_automatic_selection_without_symbol_before_p
     monkeypatch.setattr(sys, 'argv', ['operator', 'package', str(tmp_path), 'a' * 40, 'live-volume', 'b' * 40])
     with pytest.raises(RuntimeError, match='laptop-private'):
         payload.main()
+
+
+def _sdk_scanner_row():
+    """Decode the scanner schema installed on the laptop, without a socket."""
+    from ibapi.decoder import Decoder
+    from importlib.metadata import version
+    assert version('ibapi') == '9.81.1.post1'
+    rows, ends = [], []
+    wrapper = NS(
+        scannerData=lambda req, rank, details, *rest: rows.append(NS(rank=rank, contractDetails=details)),
+        scannerDataEnd=ends.append,
+    )
+    fields = ['20', '3', '71', '1',  # Message, version, request and row count.
+              '0', '123', 'SYNTH', 'STK', '', '0', '', 'NASDAQ', 'USD',
+              'SYNTH', 'NASDAQ', 'NMS', '', '', '', '']
+    Decoder(wrapper, 157).processScannerDataMsg(iter(item.encode() for item in fields))
+    assert ends == [71] and len(rows) == 1
+    assert rows[0].contractDetails.contract.primaryExchange == ''
+    return rows[0]
+
+
+def test_auto_volume_qualifies_real_sdk_scanner_contract_before_live_quote(monkeypatch):
+    from copy import copy
+    f = Fake()
+    row = _sdk_scanner_row()
+    source = row.contractDetails.contract
+    original_scan = f.reqScannerData
+    def scan(subscription):
+        original_scan(subscription)
+        f.last_scanner_request['row_count'] = 1
+        return [row]
+    f.reqScannerData = scan
+    calls = []
+    def resolve(symbol):
+        assert symbol == source.symbol
+        calls.append('qualify')
+        resolved = copy(source)
+        resolved.primaryExchange = 'NASDAQ'
+        return NS(contract=resolved)
+    f.resolve_contract = resolve
+    request = f.reqMktData
+    def quote(contract, **flags):
+        calls.append('quote')
+        assert contract.conId == source.conId and contract.symbol == source.symbol
+        return request(contract, **flags)
+    f.reqMktData = quote
+    def evidence(ticker):
+        now = datetime.now(timezone.utc).isoformat()
+        return {
+            'source': 'IBKR_NATIVE_TICK_SIZE', 'sdk_distribution': '9.81.1.post1',
+            'session_basis': 'IBKR_CURRENT_TRADING_DAY_CUMULATIVE',
+            'security_type': ticker.contract.secType, 'currency': ticker.contract.currency,
+            'primary_exchange': ticker.contract.primaryExchange, 'symbol': ticker.contract.symbol,
+            'market_data_status': 'LIVE', 'tick_type': 8, 'con_id': ticker.contract.conId,
+            'client_id': 71, 'server_version': 157, 'connection_epoch': 0, 'request_id': 1,
+            'market_timestamp_utc': now, 'received_at_utc': now, 'raw_value': 39018, 'unit': 'UNKNOWN',
+        }
+    f.snapshot_volume_evidence = evidence
+    def history(contract, **parameters):
+        calls.append('history')
+        assert contract.conId == source.conId and contract.primaryExchange == 'NASDAQ'
+        return NS(volume_basis={'unit': 'UNKNOWN'}, raw_source_bars=({'date': '20261019', 'volume': 81234},))
+    f.reqHistoricalData = history
+    monkeypatch.setattr(acquisition, 'wait_event', lambda *args: True)
+    regular, private = {}, {}
+    result = payload.acquire(f, regular.__setitem__, put_private=private.__setitem__, requested_type='LIVE')
+    assert result['native_volume_sample_status'] == 'LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED'
+    assert calls == ['qualify', 'quote', 'history'] and f.scans == 1 and f.cancelled == [1]
+    assert private['volume-probe.json']['watchlist']['primary_exchange'] == 'NASDAQ'
+    assert source.primaryExchange == '' and source.exchange == 'NASDAQ'
+
+
+@pytest.mark.parametrize('field,value', [
+    ('conId', 124), ('conId', 123.0), ('symbol', 'OTHER'), ('secType', 'OPT'),
+    ('currency', 'CAD'), ('primaryExchange', 'NYSE'), ('localSymbol', 'OTHER'),
+    ('tradingClass', 'OTHER'),
+])
+def test_auto_volume_rejects_qualification_identity_changes_without_trying_another_row(monkeypatch, field, value):
+    from copy import copy
+    f = Fake()
+    row = _sdk_scanner_row()
+    source = row.contractDetails.contract
+    if field == 'primaryExchange':
+        source.primaryExchange = 'NASDAQ'  # Preserve listing identity when a scanner supplies it.
+    original_scan = f.reqScannerData
+    def scan(subscription):
+        fallback_rows = original_scan(subscription)
+        f.last_scanner_request['row_count'] = 2
+        # A second valid candidate must never replace a failed first selection.
+        return [row, fallback_rows[-1]]
+    f.reqScannerData = scan
+    resolved_symbols = []
+    def resolve(symbol):
+        resolved_symbols.append(symbol)
+        resolved = copy(source)
+        resolved.primaryExchange = 'NASDAQ'
+        setattr(resolved, field, value)
+        return NS(contract=resolved)
+    f.resolve_contract = resolve
+    f.reqHistoricalData = lambda *a, **k: pytest.fail('No history after mismatched qualification')
+    private = {}
+    with pytest.raises(RuntimeError, match='CONTRACT_MISMATCH'):
+        payload.acquire(f, lambda *a: None, put_private=private.__setitem__, requested_type='LIVE')
+    assert f.scans == 1 and resolved_symbols == ['SYNTH']
+    assert not f.requests and not f.cancelled and not private
+
+
+@pytest.mark.parametrize('primary_exchange', ['', 'LSE'])
+def test_auto_volume_requires_supported_qualified_primary_exchange_before_quote(primary_exchange):
+    from copy import copy
+    f = Fake()
+    resolve = f.resolve_contract
+    symbols = []
+    def qualify(symbol):
+        symbols.append(symbol)
+        resolved = copy(resolve(symbol).contract)
+        resolved.primaryExchange = primary_exchange
+        return NS(contract=resolved)
+    f.resolve_contract = qualify
+    with pytest.raises(RuntimeError, match='CONTRACT_UNSUPPORTED'):
+        payload.acquire(f, lambda *a: None, put_private=lambda *a: None, requested_type='LIVE')
+    assert f.scans == 1 and symbols == ['NATURAL_0'] and not f.requests
+
+
+@pytest.mark.parametrize('expired', [False, True])
+def test_auto_volume_qualification_failure_or_deadline_starts_no_quote(monkeypatch, expired):
+    f = Fake()
+    clock = [0.0]
+    monkeypatch.setattr(acquisition.time, 'monotonic', lambda: clock[0])
+    resolve = f.resolve_contract
+    calls = []
+    def qualify(symbol):
+        calls.append(symbol)
+        if not expired:
+            raise RuntimeError('Synthetic contract lookup failure')
+        result = resolve(symbol)
+        clock[0] = 26.0
+        return result
+    f.resolve_contract = qualify
+    expected = acquisition.AcquisitionDeadlineExceeded if expired else RuntimeError
+    with pytest.raises(expected):
+        payload.acquire(f, lambda *a: None, put_private=lambda *a: None, requested_type='LIVE')
+    assert f.scans == 1 and calls == ['NATURAL_0'] and not f.requests and not f._market_events
+
+
+def test_regular_quote_profile_does_not_add_volume_contract_resolution(monkeypatch):
+    f = Fake()
+    f.resolve_contract = lambda *a: pytest.fail('Qualification is limited to the private volume profile')
+    monkeypatch.setattr(acquisition, 'wait_event', lambda *args: True)
+    result = payload.acquire(f, lambda *a: None)
+    assert f.scans == 1 and len(f.requests) == 1 and result['quotes'][0]['diagnostic_fields_available']
