@@ -22575,3 +22575,37 @@ privacy scanning runs after result.json and can independently produce exit 1.
 The reader neither reruns the probe nor opens a broker connection.
 Actual cause and safety counters remain unverified until its output arrives.
 All five ownership vetoes remain. PAPER_READY=NO.
+
+### Connection-stage localization of the November 24 PRE probe
+
+The operator supplied the whitelisted status for vp-846349db. Actual report:
+FAIL / exit 1 / RuntimeError, with cleanup RuntimeError. The last pre-cleanup
+stage is guards_complete_connect; connected_acquisition_begin is absent.
+scanner_attempted is false, with no scanner/acquisition/quote evidence and
+no volume-probe.json. This bounds the failure to connection setup before
+market-data acquisition; it does not identify a particular startup refusal.
+
+Source/operator state passed, final recognized runtime inventory is empty,
+quote maps are all zero, disconnect is confirmed, privacy passed with zero
+occurrences, and place/modify/cancel mutation counts are all zero.
+broker_audit_completed is false: broker order state is unverified, not empty.
+Transport coverage passed; absence_claims_valid is false because no target
+quote completed. Cleanup RuntimeError is consistent with the already
+unavailable connection, not an established second fault.
+
+The old quotes-profile observer suppresses startup error text and does not
+generally retain numeric broker error callbacks. Do not claim that this
+receipt proves a port failure, client71 conflict or a handshake timeout.
+The next filesystem/passive status reader reads saved transport metadata and
+a current Get-NetTCPConnection snapshot for local port7497. It emits no
+addresses, PIDs, command lines, IDs or raw frames; it makes no connection.
+Current listener state cannot establish the state at the failed attempt,
+and TCP row counts cannot identify client71.
+
+Separately, PR1251 required run45330232776 passed all six jobs on reviewed
+b20d6d641b57e64c65d6712c64f2e948ce2b038d. Coordinator merged under standing
+authorization at daa1982ce1050c1f596c65bed64a662d08dbfa99, with ordered parents
+f08d46e6f632293ca569819968f9700b7b1c1975 and b20d6d641b57e64c65d6712c64f2e948ce2b038d.
+Its tree01206b24db969dda7ed5805de0fdd6b9eb41c8e6 matches the reviewed source.
+Post-merge CI is not yet an acceptance receipt here. No new probe or broker
+connection was run by the coordinator. All five vetoes remain. PAPER_READY=NO.
