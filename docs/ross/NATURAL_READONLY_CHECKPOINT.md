@@ -22913,3 +22913,40 @@ At the latest checked exact-head PR#1252 run45374619485, verification-scope
 and Windows controlled-process passed; Linux and both Windows offline suites
 were still running. Integration is not recorded as complete.
 All five legacy ownership vetoes remain. PAPER_READY=NO.
+
+### Observed TWS build and visible API settings; automatic readback limits (2026-11-24)
+
+The operator supplied laptop UI screenshots. About Trader Workstation
+identifies Build10.50.1h (2026-11-16). The API Settings screenshot confirms
+Simulated Trading, enabled ActiveX/socket clients, checked Read-Only API,
+port7497, and checked download-open-orders-on-connection. The required
+volume/lot controls are below the visible viewport; neither state is inferred
+from this image. The requested next UI action is only to scroll the existing
+right-hand Settings pane and retain its lower options, without changing them.
+No account identifier, balance, screenshot or private contract record is
+copied into this checkpoint.
+
+To avoid another incomplete laptop diagnostic, an independent review inspected
+the official1050.01 Mac/Linux SDK archive (11,413,089bytes,
+SHA256aa065722ca732a41aab202c7bb72932e179b86e7ec51cefa063eb1983fe9f597).
+Its read-only reqConfigProtoBuf requires server219 and returns api.settings.
+The actual36-field ApiSettingsConfig schema exposes optional
+sendMarketDataInLotsForUsStocks(tag24), but no separate all-sources volume
+flag, build or native/calculated/abbreviated display choices. Schema SHA256
+ba10176048372c5e2bb42d63fe969ec5a241525846f06648779822599df2d18c.
+An absent optional bool cannot be interpreted as false. No partial config
+reader, trading SDK upgrade or broker connection was introduced.
+
+The unit admission code still requires independent same-feed comparisons.
+Its contemporaneous watchlist observation cannot be reconstructed from a
+later count. Source-wide unit authority must also remain separate from fresh
+per-candidate contract identity if that contract is redesigned; no speculative
+source-wide SHARES witness or100x conversion was added. Native tick8 and
+historical/calculated volume remain distinct series, so unequal totals do
+not establish a unit mismatch.
+
+The existing capture repair remains reviewed at8ed0d2d60. Exact-head
+Linux CI passed8724tests with3skips; Windows controlled-process passed.
+Both Windows offline suites were still running at the latest check. The
+successful retained volume capture needs no repetition merely for status.
+All five legacy ownership vetoes remain. PAPER_READY=NO.
