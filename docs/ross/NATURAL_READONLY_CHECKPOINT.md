@@ -22517,3 +22517,33 @@ Same-New-York-date calibration still requires two independent TWS share
 comparisons and consistent supported TWS build/settings. Automatic capture
 does not itself establish those comparisons or clear any ownership veto.
 All existing B01-B08 laptop gates remain. PAPER_READY=NO.
+
+### Automatic PRE volume probe distribution (2026-11-24)
+
+Reviewed diagnostic source b20d6d641b57e64c65d6712c64f2e948ce2b038d,
+tree 01206b24db969dda7ed5805de0fdd6b9eb41c8e6, is published in PR1251.
+Its 41 focused Python operator cases passed and independent source/bootstrap
+review cleared the bounded change. Run45330232776 Windows controlled-process
+job138229515909 PASSED, including native Windows PowerShell5.1 quote
+diagnostic binding/parser, automatic selection and private-output controls.
+Full Linux and both full Windows offline suites remain in progress at this
+distribution receipt. PR1251 is not merged or a trading release.
+
+The published single-paste bootstrap
+docs/ross/ROSS_READ_ONLY_VOLUME_AUTO_20261124.ps1 pins that exact reviewed
+diagnostic source/tree and verifies helper SHA256
+e9fffdc4429a0ae9b60993f857a8bb1fc823f07bcc5e0c9d2c1aee475933763b.
+It checks native syntax, supplies no ticker argument, and has no typed
+confirmation phrase. Its preliminary NY weekday/hour gate returns without
+capture before PRE or after RTH; the maintained owner independently checks
+the configured actual session and all source/identity/READ_ONLY guards.
+On November24, PRE begins09:00UK. The stock is selected mechanically from
+one completed scanner response and only its validated public ticker is
+printed after successful capture.
+
+This distribution authorizes only the requested bounded READ_ONLY probe.
+The controlled PAPER caller and its RTH opening admission are unchanged;
+main remains f08d46e6f632293ca569819968f9700b7b1c1975 at publication.
+No broker operation occurred here. Real independent TWS comparisons and all
+B01-B08 laptop acceptance gates remain. PAPER_READY=NO; five ownership
+vetoes remain.
