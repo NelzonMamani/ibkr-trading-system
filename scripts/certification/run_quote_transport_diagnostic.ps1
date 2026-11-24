@@ -2,7 +2,8 @@
 param([Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedCommit,
       [ValidateSet('quotes','final-orders','live-volume')][string]$DiagnosticProfile = 'quotes',
       [ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedTree,
-      [ValidatePattern('^[A-Z][A-Z0-9. -]{0,14}$')][string]$VolumeSymbol)
+      [ValidatePattern('^[A-Z][A-Z0-9. -]{0,14}$')][string]$VolumeSymbol,
+      [string]$PythonExecutable)
 if ($DiagnosticProfile -ne 'quotes' -and !$ExpectedTree) { throw 'This profile requires the reviewed tree.' }
 if ($DiagnosticProfile -ne 'live-volume' -and $VolumeSymbol) {
     throw 'An exact US stock symbol applies only to the live-volume profile.'
@@ -12,6 +13,7 @@ if ($DiagnosticProfile -ne 'live-volume' -and $VolumeSymbol) {
     $pin = $ExpectedCommit
     $source = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
     $python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    if ($PythonExecutable) { $python = $PythonExecutable }
     $base = 'C:\tmp'
     if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5) {
         throw 'Use Windows PowerShell5.1.'

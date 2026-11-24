@@ -19,11 +19,13 @@ def snapshot():
 
 
 def _category(client, method, args):
-    if method in {"cancelOrder", "reqGlobalCancel"}:
+    if method in {"cancelOrder", "reqGlobalCancel", "cancelOrderProtoBuf", "reqGlobalCancelProtoBuf"}:
         return "cancel"
     if method == "submit_order":
         return "place"
     order_id = args[0] if args else None
+    if method == "placeOrderProtoBuf":
+        order_id = getattr(order_id, "orderId", None)
     with _lock:
         seen = _seen.setdefault(client, set())
         known = order_id in seen or order_id in getattr(client, "_open_orders_snapshot", {})
@@ -113,6 +115,8 @@ def instrument_mutation(cls, method):
         try:
             from src.ibkr.read_only_guard import assert_read_only_allows
             assert_read_only_allows({"place": "PLACE_ORDER", "modify": "MODIFY_ORDER", "cancel": "CANCEL_ORDER"}[category] if outer else "PLACE_ORDER")
+            from src.ibkr.sdk_profile import require_sdk_execution_profile
+            require_sdk_execution_profile()
             if getattr(self, "readonly_enabled", False):
                 raise RuntimeError("IBKR instance read-only: blocking mutation")
             return original(self, *args, **kwargs)
@@ -146,7 +150,8 @@ def instrument_accounts(cls):
 
 
 def install_sdk(client_class, wrapper_class):
-    for method in ("placeOrder", "cancelOrder", "reqGlobalCancel"):
+    for method in ("placeOrder", "cancelOrder", "reqGlobalCancel",
+                   "placeOrderProtoBuf", "cancelOrderProtoBuf", "reqGlobalCancelProtoBuf"):
         instrument_mutation(client_class, method)
     instrument_accounts(wrapper_class)
 

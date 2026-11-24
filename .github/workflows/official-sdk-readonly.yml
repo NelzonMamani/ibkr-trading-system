@@ -1,0 +1,51 @@
+name: Official SDK READ_ONLY compatibility
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/official-sdk-readonly.yml'
+      - 'src/ibkr/**'
+      - 'src/adapters/brokers/ibkr/ibkr_client.py'
+      - 'src/domain/volume_evidence.py'
+      - 'scripts/certification/*official_sdk*'
+      - 'scripts/certification/*quote_transport*'
+      - 'scripts/certification/capture_tws_volume_display.ps1'
+      - 'tests/test_official_sdk*'
+
+jobs:
+  official-sdk-readonly-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.3'
+          cache: pip
+      - name: Install the unchanged legacy requirements in the base environment
+        run: python -m pip install -q -r requirements.txt
+      - name: Prepare the pinned isolated SDK and verify READ_ONLY compatibility
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = (Get-Command python.exe).Source
+          $before = (& $base -I -m pip freeze --all | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw 'Base environment inventory failed.' }
+          $null = New-Item -ItemType Directory -Path 'C:\tmp' -Force
+          $sdkRoot = Join-Path 'C:\tmp' ('official-sdk-ci-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+          $lines = @(& $base -I -B scripts\certification\prepare_official_sdk_environment.py `
+              --base-python $base --new-root $sdkRoot --requirements (Join-Path $PWD 'requirements.txt'))
+          if ($LASTEXITCODE -ne 0) { throw 'Official SDK preparation failed.' }
+          $receipt = ($lines -join "`n") | ConvertFrom-Json
+          if ($receipt.status -cne 'SDK_ENVIRONMENT_PREPARED' -or !$receipt.sdk_profile_verified -or
+              $receipt.sdk_version -cne '10.50.2' -or $receipt.protobuf_version -cne '5.29.5') {
+              throw 'Official SDK profile was not verified.'
+          }
+          $after = (& $base -I -m pip freeze --all | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $before -cne $after) { throw 'Base environment changed during preparation.' }
+          $env:PYTHONPATH = (Join-Path $PWD 'tests\offline') + ';' + $PWD
+          & $receipt.python -m pytest -q tests\test_official_sdk_environment.py `
+              tests\test_official_sdk_profile_and_guards.py tests\test_official_sdk_native_compat.py `
+              tests\test_official_sdk_transport_compat.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'OFFICIAL_SDK_READONLY_CONTROLS_PASSED: verified source/protobuf, unchanged base environment, exact Decimal decoding, callback ownership, transport completion and blocked public mutations.'

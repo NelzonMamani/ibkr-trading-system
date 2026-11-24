@@ -11,6 +11,7 @@ from contextlib import nullcontext, contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from collections.abc import Sequence
 from datetime import datetime, timezone
+from decimal import Decimal
 import math
 import os
 import json
@@ -185,17 +186,52 @@ def historical_binding_result(result, contract, expected_spec):
 
 
 def average_daily_bar_volume(bars, window):
-    volumes = [_clean(getattr(bar, "volume", None)) for bar in bars]
-    volumes = [int(value) for value in volumes if value is not None]
+    raw = [getattr(bar, "volume", None) for bar in bars]
+    exact_decimal = any(isinstance(value, Decimal) for value in raw)
+    # A preserved decimal string is unverified input, not a numeric authority.
+    # In particular, do not floor fractional modern SDK data through float.
+    if any(isinstance(value, str) for value in raw):
+        return None, None
+    if any(isinstance(value, Decimal) and
+           (not value.is_finite() or value != value.to_integral_value()) for value in raw):
+        return None, None
+    volumes = []
+    for value in raw:
+        if isinstance(value, Decimal):
+            volumes.append(int(value))
+        else:
+            cleaned = _clean(value)
+            if cleaned is not None:
+                volumes.append(int(cleaned))
     if not volumes:
         return None, None
     sample = volumes[-min(window, len(volumes)):]
+    if exact_decimal:
+        total = sum(sample)
+        average = abs(total) // len(sample)
+        return -average if total < 0 else average, len(sample)
     return int(sum(sample) / len(sample)), len(sample)
+
+
+def exact_raw_volume(value):
+    """Preserve SDK Decimal evidence without silently rounding share counts.
+
+    Integral decimals have an exact JSON integer representation. Fractional or
+    nonfinite decimals remain explicit text, which native volume and calibration
+    consumers reject rather than treating a rounded float as share authority.
+    Legacy int/float inputs retain their existing representation.
+    """
+    if isinstance(value, Decimal):
+        if value.is_finite() and value == value.to_integral_value():
+            return int(value)
+        return str(value)
+    return value
 
 
 def historical_bar_facts(bars):
     """Detached callback input values; mutable SDK bar objects are not a fence."""
-    return tuple({key: copy.deepcopy(getattr(bar, key, None)) for key in
+    return tuple({key: copy.deepcopy(exact_raw_volume(getattr(bar, key, None))
+                  if key == "volume" else getattr(bar, key, None)) for key in
                   ("date", "open", "high", "low", "close", "volume")} for bar in bars)
 
 

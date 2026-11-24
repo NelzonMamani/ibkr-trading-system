@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedCommit,
     [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedTree,
-    [ValidatePattern('^[A-Z][A-Z0-9. -]{0,14}$')][string]$VolumeSymbol = 'LGHL'
+    [ValidatePattern('^[A-Z][A-Z0-9. -]{0,14}$')][string]$VolumeSymbol = 'LGHL',
+    [string]$PythonExecutable
 )
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or
@@ -120,6 +121,8 @@ $probeFailureMessage = $null
 $screenFailure = $null
 $screenFailureCode = $null
 $screenFailureAt = $null
+$runtimeArguments = @{}
+if ($PythonExecutable) { $runtimeArguments.PythonExecutable = $PythonExecutable }
 try {
     if (!$recorder.Start(10000)) { throw 'DISPLAY_RECORDER_NOT_READY_NO_PROBE_STARTED' }
     $currentOwners = @(Get-VolumeListenerOwners)
@@ -127,7 +130,7 @@ try {
     # Retain partial output too if the existing bounded probe refuses.
     & (Join-Path $PSScriptRoot 'run_quote_transport_diagnostic.ps1') `
         -ExpectedCommit $ExpectedCommit -ExpectedTree $ExpectedTree `
-        -DiagnosticProfile live-volume -VolumeSymbol $VolumeSymbol 6>&1 |
+        -DiagnosticProfile live-volume -VolumeSymbol $VolumeSymbol @runtimeArguments 6>&1 |
         ForEach-Object { $output.Add([string]$_); Write-Host ([string]$_) }
     $currentOwners = @(Get-VolumeListenerOwners)
     if ($currentOwners.Count -ne 1 -or [uint32]$currentOwners[0] -ne $listenerOwner) { throw 'PAPER_API_LISTENER_CHANGED_DURING_CAPTURE' }

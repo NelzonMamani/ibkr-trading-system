@@ -35,7 +35,12 @@ from ibapi.wrapper import EWrapper
 from ibapi.decoder import Decoder as _SDKDecoder
 from ibapi.message import IN as _SDK_IN
 from ibapi.utils import decode as _SDKDecode
-from ibapi.commission_report import CommissionReport as _SDKCommissionReport
+try:
+    from ibapi.commission_report import CommissionReport as _SDKCommissionReport
+except ModuleNotFoundError as _commission_import_error:
+    if _commission_import_error.name != "ibapi.commission_report":
+        raise
+    from ibapi.commission_and_fees_report import CommissionAndFeesReport as _SDKCommissionReport
 
 from src.ibkr.quote_diagnostics import QuoteDiagnostics
 from src.ibkr.position_snapshot import BrokerPositionResult
@@ -51,6 +56,7 @@ from src.ibkr.market_data_client import (
     _snapshot_authority_metadata,
     _copy_snapshot_ticker,
     average_daily_bar_volume,
+    exact_raw_volume,
 )
 from src.ibkr.read_only_guard import assert_read_only_allows
 from src.ibkr.evidence_safety import register_account, sanitize
@@ -1045,6 +1051,14 @@ class IbkrClient(EWrapper, EClient):
         market_data_type: str,
         readonly_enabled: bool,
     ):
+        # Modern SDK support is deliberately acquisition-only until its order,
+        # cancellation and commission-presence profiles are separately certified.
+        # Legacy execution behavior and the old exact decoder witness stay intact.
+        if _sdk_distribution_version("ibapi") == "10.50.2":
+            from src.ibkr.sdk_profile import require_supported_sdk
+            require_supported_sdk()
+            if readonly_enabled is not True:
+                raise RuntimeError("IBKR_OFFICIAL_SDK_EXECUTION_NOT_CERTIFIED")
         lifetime = self._initialize_local_source_lifetime()
         EWrapper.__init__(self)
         EClient.__init__(self, wrapper=self)
@@ -3625,7 +3639,8 @@ class IbkrClient(EWrapper, EClient):
                 previous = ticker.volumeTickType
                 ticker.mixedVolumeTickTypes |= previous is not None and previous != tickType
                 ticker.volumeTickType = tickType
-                ticker.volumeRawValue = size if type(size) is int else _clean(size)
+                ticker.volumeRawValue = (exact_raw_volume(size) if isinstance(size, Decimal)
+                                         else size if type(size) is int else _clean(size))
             _record_field_receipt(ticker, [{"bidSize": "bid_size", "askSize": "ask_size", "lastSize": "last_size"}.get(field, field)])
         self._market_update_event.set()
 
@@ -3876,7 +3891,15 @@ class IbkrClient(EWrapper, EClient):
             getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 
     # --- Error handling ---
-    def error(self, reqId: int, errorCode: int, errorString: str):  # type: ignore[override]
+    def error(self, reqId: int, errorCode: int, errorString: str, *sdk_callback_tail):  # type: ignore[override]
+        # The official SDK inserts errorTime before code and optionally appends
+        # rejection JSON. Preserve the existing owner/code handling, but never
+        # publish that JSON or accidentally interpret the time as an error code.
+        if sdk_callback_tail:
+            if (len(sdk_callback_tail) not in (1, 2) or type(errorString) is not int
+                    or type(sdk_callback_tail[0]) is not str):
+                raise RuntimeError("IBKR_ERROR_CALLBACK_SCHEMA_UNSUPPORTED")
+            errorCode, errorString = errorString, sdk_callback_tail[0]
         with self._lock:
             # This protocol has no per-attempt error token. Never guess ownership.
             for rule_id, query in getattr(self, "_price_rule_requests", {}).items():
@@ -4256,6 +4279,18 @@ class IbkrClient(EWrapper, EClient):
                 "orderState": orderState,
             }
         )
+
+    def commissionAndFeesReport(self, report):  # type: ignore[override]
+        # The official SDK renamed both the report and its amount. Reuse the
+        # existing receipt owner without borrowing the old eight-field proof.
+        # In particular an absent/default zero remains UNKNOWN, not a free trade.
+        self._commission_zero_disabled = True
+        projected = SimpleNamespace(
+            execId=getattr(report, "execId", None),
+            commission=getattr(report, "commissionAndFees", None),
+            currency=getattr(report, "currency", None),
+        )
+        return self.commissionReport(projected)
 
     def commissionReport(self, commissionReport):  # type: ignore[override]
         wire_witness = self._consume_commission_witness(commissionReport)

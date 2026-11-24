@@ -23001,3 +23001,70 @@ Actual successful paired TWS/API evidence and share/daily-RTH unit comparisons
 remain unproved. PR1253 remains unmerged until applicable full checks pass;
 accepted mainccbb382b and all five legacy ownership vetoes remain.
 PAPER_READY=NO.
+
+### November 24: identify code2176 and stage the official SDK READ_ONLY profile
+
+The next actual run on802278c180508ccb282859a61facd8e96ceeffe8 retained41frames
+in C:\tmp\tws-volume-ef0e0e24 with no screen failure. API root is
+C:\tmp\qtransport-be1c3bf0, source worktree C:\tmp\tws-volume-source-fd6fdd97.
+SnapshotEnd arrived; requested/returned typeLIVE; all five fields present;
+age0.366537seconds. The one retained broker code is2176, which keeps
+qualification false and effectiveexit2. The automated safe report/clipboard
+worked. This run resolves the current screen-acquisition failure; it does
+not prove the cause of the earlier37frame screen interruption or establish
+volume/history/calibration/PAPER readiness.
+
+Official IBKR error documentation identifies2176 as unsupported fractional
+size rules with a size trimmed and recommends an API upgrade:
+https://www.interactivebrokers.com/docs/tws-api/doc/error/codes
+The current diagnostic correctly refuses potentially altered data. Which
+size field was trimmed is not proved. Do not clear brokerErrors, ignore2176,
+rewrite old receipts, claim it is a subscription failure or merely raise the
+old SDK protocol ceiling. History remained gated, so the retained files
+cannot establish a completed20-day unit comparison.
+
+Downloaded official stable API1050.02 to match TWS10.50 family from
+https://interactivebrokers.github.io/downloads/twsapi_macunix.1050.02.zip
+Verified archive11412955bytes/SHA256
+673129e5cba58c4d77bc40647265f84ea42f605eccf88fa4c1221d62d12454f3.
+Its Python distribution is10.50.2, requiresprotobuf5.29.5 and contains235
+Python source files; sorted relative-path/NUL/content-SHA/newline tree digest
+72dccfacba1295b3e4c45d5c97cf160cdb2e86d95b92de2ff408610f570b208b.
+Official10.52.01 was also inspected and has the same relevant migration
+surfaces. The selected stable SDK changes errorTime callbacks, commission
+names, Decimal sizes, send/decoder signatures and protobuf framing; it is
+not a drop-in replacement for9.81.1.post1.
+
+The staged profile adds backward-compatible data/observer support and attests
+the exact modern package sources/dependency. Decimal quantities retain exact
+integral JSON integers; fractional/nonfinite raw values remain explicit
+unverified text and cannot mint share/ADV20 authority through float rounding.
+The actual modern decoder forwards to the existing owned callbacks. Numeric
+errorCode is normalized without exporting errorTime as code or rejectionJSON.
+The commission callback bridge does not borrow the old eight-field zero-fee
+witness. Modern native clients require explicitREAD_ONLY; every six public
+legacy/protobuf order mutation entry is audited and independently refused
+for the modern profile even if execution flags are enabled. Legacy execution
+and its existing source/commission proof remain intact; modern order/fee
+certification is still a separate required task, not silently inherited.
+
+The preparer verifies the official archive and extraction paths, creates a
+wholly new venv in a fresh immediate C:\tmp child and validates its installed
+profile. It preserves the old interpreter/environment/project and runs no
+samples or broker acquisition. The existing display/probe owners gain one
+optional explicitPythonExecutable argument; default legacy behavior stays.
+The new native Windows CI job performs actual isolated preparation, checks
+base pip inventory unchanged and runs the modern compatibility controls.
+
+Local verification:48 modern-profile focused tests passed (actual protobuf/
+legacy decoder and transport fixtures, exact Decimal/history, profile/source
+attestation, safe preparer, and all mutation entrypoint refusals). Legacy
+focused sets passed, including159passes/13modernskips from the native review,
+143passes/1modernskip and4READ_ONLY guard checks from coordinator checks.
+Two author-independent reviews are being finalized; changed-head native
+Windows preparation/controls and full required CI remain pending. No local
+broker call, user environment update or new laptop capture occurred here.
+Preserve all earlier roots. The old802278 capture caller is now superseded;
+do not ask for another run until the new SDK candidate's applicable checks
+pass. PAPER_READY=NO; five legacy ownership vetoes and operational readiness
+requirements remain unchanged.
