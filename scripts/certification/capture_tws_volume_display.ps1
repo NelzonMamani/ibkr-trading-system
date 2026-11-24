@@ -16,11 +16,10 @@ $dirty = @(& git -C $source status --porcelain=v1 --untracked-files=all)
 if ($LASTEXITCODE -ne 0 -or $dirty.Count) { throw 'CLEAN_SOURCE_REQUIRED' }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-if (!('RossDiagnostics.VolumeDisplayRecorder' -as [type])) {
-    Add-Type -Path (Join-Path $PSScriptRoot 'TwsVolumeDisplayCapture.cs') -ReferencedAssemblies @(
-        'System.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll'
-    )
-}
+if ('RossDiagnostics.VolumeDisplayRecorder' -as [type]) { throw 'FRESH_POWERSHELL_PROCESS_REQUIRED' }
+Add-Type -Path (Join-Path $PSScriptRoot 'TwsVolumeDisplayCapture.cs') -ReferencedAssemblies @(
+    'System.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll'
+)
 [RossDiagnostics.Native]::DpiAware()
 $window = [RossDiagnostics.Native]::FindTws()
 if ($window -eq [IntPtr]::Zero) { throw 'VISIBLE_MAIN_TWS_WINDOW_REQUIRED_NO_CAPTURE_STARTED' }
@@ -86,7 +85,8 @@ if ($rootLines.Count -eq 1 -and !$probeFailure -and !$screenFailure) {
         $row = $_ | ConvertFrom-Json
         $began = [datetimeoffset]::Parse($row.started_utc)
         $ended = [datetimeoffset]::Parse($row.finished_utc)
-        if ($began -gt $ended -or $ended -lt $received.AddSeconds(-15) -or $began -gt $received.AddSeconds(15)) { return }
+        if ($began -gt $ended -or ($ended - $began).TotalMilliseconds -gt 1000 -or
+            $began -lt $received.AddSeconds(-15) -or $ended -gt $received.AddSeconds(15)) { return }
         [pscustomobject]@{ row=$row; distance=[Math]::Abs(($began - $received).TotalMilliseconds) }
     } | Sort-Object distance | Select-Object -First 5)
     if (!$rows.Count) { throw 'NO_SCREEN_FRAME_NEAR_API_SAMPLE' }

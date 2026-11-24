@@ -100,7 +100,7 @@ namespace RossDiagnostics {
     public static class Native {
         [StructLayout(LayoutKind.Sequential)] public struct RECT {
             public int Left, Top, Right, Bottom;
-            public Rectangle Rectangle { get { return Rectangle.FromLTRB(Left, Top, Right, Bottom); } }
+            public Rectangle Rectangle { get { return System.Drawing.Rectangle.FromLTRB(Left, Top, Right, Bottom); } }
         }
         public delegate bool Enumerate(IntPtr window, IntPtr ignored);
         [DllImport("user32.dll")] static extern bool EnumWindows(Enumerate callback, IntPtr ignored);
