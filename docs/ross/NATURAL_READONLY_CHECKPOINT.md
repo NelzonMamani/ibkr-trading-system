@@ -22950,3 +22950,25 @@ Linux CI passed8724tests with3skips; Windows controlled-process passed.
 Both Windows offline suites were still running at the latest check. The
 successful retained volume capture needs no repetition merely for status.
 All five legacy ownership vetoes remain. PAPER_READY=NO.
+
+### Observed all-sources volume-in-lots configuration mismatch (2026-11-24)
+
+The operator's lower API Settings screenshot for the running TWS10.50.1h
+shows the dual-mode market-data-in-lots checkbox UNCHECKED and the distinct
+'Send volumes in lots from all market data sources for US stocks' checkbox
+CHECKED. Read-Only API and port7497 were separately observed in the same
+settings dialog's upper section. This identifies a concrete configuration
+mismatch with the existing direct-share Ross volume path, not a failed
+native acquisition. The successful vp-af44e394 capture predates correction.
+
+The instructed correction is to uncheck only the all-sources volume-in-lots
+box, then Apply/OK, preserving Read-Only API and the other settings. Application
+of that change has not yet been reported or observed. No100x conversion,
+raw-value assumption, retroactive SHARES witness or admission override is
+introduced. The official sources reviewed do not establish whether this
+specific change needs a TWS restart; no restart requirement is invented.
+
+Post-change validation must use fresh data and an honestly coordinated unit
+comparison. A standalone repeat of the probe would still leave its units
+unverified; the original capture is retained as pre-change evidence.
+All five legacy ownership vetoes remain. PAPER_READY=NO.
