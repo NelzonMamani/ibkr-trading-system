@@ -22883,3 +22883,33 @@ diagnostic without a coordinated comparison.
 All raw probe, contract, volume and financial records remain on the laptop.
 No broker order action was requested by this update. All five legacy ownership
 vetoes remain, inventory preservation remains closed, and PAPER_READY=NO.
+
+### Sanitized native volume capture acceptance and remaining unit evidence (2026-11-24)
+
+The operator supplied the maintained reader's sanitized status for vp-af44e394.
+It confirms DIAGNOSTIC_COMPLETE exit0, LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED,
+no outer timeout, one completed50row scanner request, and a requested/returned
+LIVE quote with snapshot End, all bid/ask/last/close/volume fields present,
+and age12.6116seconds. The private volume-probe file exists. Source/operator
+checks and broker audit passed; the client disconnected; request maps were
+all0; transport coverage/absence checks passed for their instrumented scope;
+privacy findings and place/modify/cancel counts were all0. No status file
+was unreadable. Total reported probe time was33.13585059996694seconds.
+
+Native volume acquisition is accepted as complete for this retained capture.
+The inventory/source completion fields do not establish a flat broker account
+or ownership of any legacy holding. Raw quote/history/contract data remains
+laptop-private and was not requested for publication.
+
+Volume unit calibration is still open. The running TWS build and effective
+volume/lot setting states have been requested from its UI, without changing
+settings. No contemporaneous independent watchlist count has been provided;
+current volume cannot be backdated and the API sample cannot be its own
+independent comparison. The prior completed RTH daily bar comparison is also
+unprovided. Existing prepare-volume validation remains unchanged. Do not
+repeat the diagnostic alone as a substitute for those observations.
+
+At the latest checked exact-head PR#1252 run45374619485, verification-scope
+and Windows controlled-process passed; Linux and both Windows offline suites
+were still running. Integration is not recorded as complete.
+All five legacy ownership vetoes remain. PAPER_READY=NO.
