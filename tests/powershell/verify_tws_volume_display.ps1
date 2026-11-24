@@ -140,8 +140,22 @@ try {
     $deadline = [datetime]::UtcNow.AddSeconds(3)
     while (!(Test-Path -LiteralPath ($readyPath + '.overlay-ready')) -and [datetime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
     if (!(Test-Path -LiteralPath ($readyPath + '.overlay-ready'))) { throw 'PASSIVE_OVERLAY_DID_NOT_START' }
-    if ([RossDiagnostics.Native]::GetForegroundWindow() -ne $found) { throw 'PASSIVE_OVERLAY_CHANGED_FOREGROUND' }
+    # Establish the review's actual capture-time condition: the owner is
+    # foreground while an unowned topmost window still covers its selected area.
+    # Form.Show can transiently change activation even with NOACTIVATE requested.
+    $deadline = [datetime]::UtcNow.AddSeconds(3)
+    while ([RossDiagnostics.Native]::GetForegroundWindow() -ne $found -and [datetime]::UtcNow -lt $deadline) {
+        $null = [RossDiagnostics.Native]::SetForegroundWindow($found)
+        Start-Sleep -Milliseconds 100
+    }
+    if ([RossDiagnostics.Native]::GetForegroundWindow() -ne $found) { throw 'OCCLUDED_OWNER_NOT_FOREGROUND' }
     if ([RossDiagnostics.Native]::Unobscured($found, $area)) { throw 'NON_ACTIVATING_OVERLAY_WAS_ACCEPTED' }
+    $occluded = [RossDiagnostics.VolumeDisplayRecorder]::FromScreen((Join-Path $root 'occluded'), $found, $area)
+    try {
+        if ($occluded.Start(3000) -or $occluded.Count -ne 0) { throw 'OCCLUDED_FRAME_WRITTEN' }
+        $occluded.Stop()
+        if ($occluded.Failure -cne 'InvalidOperationException') { throw 'OCCLUSION_REFUSAL_NOT_RETAINED' }
+    } finally { $occluded.Dispose() }
 } finally {
     [IO.File]::WriteAllText($readyPath + '.stop', 'STOP')
     if (!$fixtureProcess.WaitForExit(3000)) { $fixtureProcess.Kill(); $fixtureProcess.WaitForExit() }
