@@ -66,20 +66,36 @@ $null = New-Item -ItemType Directory -Path $root
 $fixtureExe = Join-Path $root 'tws.exe'
 $windowFixture = @'
 using System;
+using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
+public sealed class PassiveOverlay : Form {
+    protected override bool ShowWithoutActivation { get { return true; } }
+}
 public static class InertWindowFixture {
     [STAThread] public static void Main(string[] args) {
         using (Form form = new Form()) {
             form.Text = "dynamic offline fixture";
+            form.StartPosition = FormStartPosition.Manual; form.Left = 150; form.Top = 150;
             form.Width = 600; form.Height = 200; form.WindowState = FormWindowState.Minimized;
             form.Shown += delegate { File.WriteAllText(args[0], "READY"); };
             DateTime started = DateTime.UtcNow;
+            PassiveOverlay overlay = null;
             using (Timer timer = new Timer()) {
                 timer.Interval = 100;
-                timer.Tick += delegate { if (File.Exists(args[0] + ".stop") || (DateTime.UtcNow-started).TotalSeconds > 20) form.Close(); };
+                timer.Tick += delegate {
+                    if (File.Exists(args[0] + ".overlay") && overlay == null) {
+                        overlay = new PassiveOverlay(); overlay.TopMost = true; overlay.ShowInTaskbar = false;
+                        overlay.FormBorderStyle = FormBorderStyle.None;
+                        overlay.Bounds = new Rectangle(form.Left+40, form.Top+60, 120, 40);
+                        overlay.BackColor = Color.Blue; overlay.Show();
+                        File.WriteAllText(args[0] + ".overlay-ready", "READY");
+                    }
+                    if (File.Exists(args[0] + ".stop") || (DateTime.UtcNow-started).TotalSeconds > 20) form.Close();
+                };
                 timer.Start(); Application.Run(form);
             }
+            if (overlay != null) overlay.Dispose();
         }
     }
 }
@@ -104,6 +120,17 @@ try {
     $deadline = [datetime]::UtcNow.AddSeconds(3)
     while ([RossDiagnostics.Native]::IsIconic($found) -and [datetime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
     if ([RossDiagnostics.Native]::IsIconic($found) -or ![RossDiagnostics.Native]::TwsWindow($found)) { throw 'DISCOVERED_TWS_RESTORE_FAILED' }
+    $bounds = New-Object 'RossDiagnostics.Native+RECT'
+    if (![RossDiagnostics.Native]::GetWindowRect($found, [ref]$bounds)) { throw 'INERT_WINDOW_GEOMETRY_UNAVAILABLE' }
+    $area = [Drawing.Rectangle]::FromLTRB($bounds.Left+50, $bounds.Top+70, $bounds.Left+130, $bounds.Top+90)
+    if (![RossDiagnostics.Native]::Unobscured($found, $area)) { throw 'CLEAR_INERT_WINDOW_WAS_OBSCURED' }
+    $foreground = [RossDiagnostics.Native]::GetForegroundWindow()
+    [IO.File]::WriteAllText($readyPath + '.overlay', 'SHOW')
+    $deadline = [datetime]::UtcNow.AddSeconds(3)
+    while (!(Test-Path -LiteralPath ($readyPath + '.overlay-ready')) -and [datetime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
+    if (!(Test-Path -LiteralPath ($readyPath + '.overlay-ready'))) { throw 'PASSIVE_OVERLAY_DID_NOT_START' }
+    if ([RossDiagnostics.Native]::GetForegroundWindow() -ne $foreground) { throw 'PASSIVE_OVERLAY_CHANGED_FOREGROUND' }
+    if ([RossDiagnostics.Native]::Unobscured($found, $area)) { throw 'NON_ACTIVATING_OVERLAY_WAS_ACCEPTED' }
 } finally {
     [IO.File]::WriteAllText($readyPath + '.stop', 'STOP')
     if (!$fixtureProcess.WaitForExit(3000)) { $fixtureProcess.Kill(); $fixtureProcess.WaitForExit() }
@@ -138,4 +165,4 @@ try {
     Start-Sleep -Milliseconds 600
     if ($slow.Count -ne $before) { throw 'TIMED_OUT_OWNER_WROTE_AFTER_JOIN' }
 } finally { $slow.Dispose() }
-Write-Host 'TWS_DISPLAY_CONTROLS_PASSED: native parse/compile, minimized dynamic-title discovery and restore, unrelated-window refusals, private discovery counts, pixels, clocks, failed and slow startup, joined stop.'
+Write-Host 'TWS_DISPLAY_CONTROLS_PASSED: native parse/compile, minimized dynamic-title discovery/restore, passive overlay refusal, identity negatives, private discovery counts, pixels, clocks, failed/slow startup, joined stop.'

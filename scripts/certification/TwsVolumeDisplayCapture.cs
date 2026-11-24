@@ -42,7 +42,8 @@ namespace RossDiagnostics {
                 Native.RECT current;
                 if (!Native.TwsWindow(owner) || Native.IsIconic(owner)
                     || !Native.GetWindowRect(owner, out current) || current.Rectangle != original.Rectangle
-                    || Native.GetAncestor(Native.GetForegroundWindow(), 2) != owner)
+                    || Native.GetAncestor(Native.GetForegroundWindow(), 2) != owner
+                    || !Native.Unobscured(owner, region))
                     throw new InvalidOperationException("TWS_DISPLAY_MOVED_OR_OBSCURED");
                 Bitmap image = new Bitmap(region.Width, region.Height, PixelFormat.Format24bppRgb);
                 try {
@@ -51,7 +52,8 @@ namespace RossDiagnostics {
                     }
                     // A focus or geometry change during acquisition invalidates it.
                     if (!Native.GetWindowRect(owner, out current) || current.Rectangle != original.Rectangle
-                        || Native.GetAncestor(Native.GetForegroundWindow(), 2) != owner)
+                        || Native.GetAncestor(Native.GetForegroundWindow(), 2) != owner
+                        || !Native.Unobscured(owner, region))
                         throw new InvalidOperationException("TWS_DISPLAY_CHANGED_DURING_CAPTURE");
                     return image;
                 } catch { image.Dispose(); throw; }
@@ -110,6 +112,8 @@ namespace RossDiagnostics {
         [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
         [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(Point point);
         [DllImport("user32.dll")] static extern bool ShowWindowAsync(IntPtr window, int command);
+        [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr window, uint command);
+        [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
         [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out RECT rectangle);
         [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
         [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
@@ -119,6 +123,24 @@ namespace RossDiagnostics {
         [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
         public static void DpiAware() { SetProcessDPIAware(); }
         public static uint WindowProcessId(IntPtr window) { uint id; GetWindowThreadProcessId(window, out id); return id; }
+        public static bool Unobscured(IntPtr owner, Rectangle region) {
+            // Walk windows above this exact owner in Z order, not just the
+            // foreground window. Non-activating topmost notifications matter too.
+            System.Collections.Generic.Dictionary<IntPtr, bool> seen = new System.Collections.Generic.Dictionary<IntPtr, bool>();
+            IntPtr above = GetWindow(owner, 3); // GW_HWNDPREV
+            while (above != IntPtr.Zero) {
+                if (seen.ContainsKey(above) || seen.Count >= 4096) return false;
+                seen.Add(above, true);
+                RECT rect;
+                int cloaked = 0;
+                bool hiddenByDwm = DwmGetWindowAttribute(above, 14, out cloaked, sizeof(int)) == 0 && cloaked != 0;
+                if (IsWindowVisible(above) && !IsIconic(above) && !hiddenByDwm) {
+                    if (!GetWindowRect(above, out rect) || rect.Rectangle.IntersectsWith(region)) return false;
+                }
+                above = GetWindow(above, 3);
+            }
+            return true;
+        }
         public static bool TwsIdentity(string title, string className, string processName, string imagePath) {
             title = title ?? ""; className = className ?? "";
             processName = (processName ?? "").ToLowerInvariant(); imagePath = imagePath ?? "";
