@@ -31,6 +31,29 @@ def require_diagnostic_session(profile, session):
         raise RuntimeError(f'Normal configured {required} required; no override')
 
 
+def qualify_scanner_volume_contract(client, contract):
+    """Enrich the chosen scanner identity, never substitute another result."""
+    from src.core.acquisition import checkpoint
+    from src.domain.volume_evidence import US_PRIMARY_EXCHANGES
+
+    fields = ('conId', 'symbol', 'secType', 'currency', 'primaryExchange', 'localSymbol', 'tradingClass')
+    expected = {name: getattr(contract, name, None) for name in fields}
+    checkpoint()
+    resolved = getattr(client.resolve_contract(expected['symbol']), 'contract', None)
+    checkpoint()
+    if (resolved is None or type(getattr(resolved, 'conId', None)) is not int
+            or any(getattr(resolved, name, None) != expected[name]
+                   for name in ('conId', 'symbol', 'secType', 'currency'))
+            or any(expected[name] and getattr(resolved, name, None) != expected[name]
+                   for name in ('primaryExchange', 'localSymbol', 'tradingClass'))):
+        raise RuntimeError('PAPER_RELEASE_VOLUME_CALIBRATION_CONTRACT_MISMATCH')
+    if getattr(resolved, 'primaryExchange', None) not in US_PRIMARY_EXCHANGES:
+        raise RuntimeError('PAPER_RELEASE_VOLUME_CALIBRATION_CONTRACT_UNSUPPORTED')
+    qualified = copy.copy(resolved)
+    qualified.exchange = 'SMART'
+    return qualified
+
+
 def acquire(client, put, *, put_private=None, requested_type="DELAYED", volume_symbol=None):
     from ibapi.scanner import ScannerSubscription
     from src.core.acquisition import acquisition_deadline, checkpoint, wait_event
@@ -77,6 +100,10 @@ def acquire(client, put, *, put_private=None, requested_type="DELAYED", volume_s
                 seen.add(c.conId)
                 c = copy.copy(c)
                 c.exchange = 'SMART'  # Normal routing instruction, not issuer identity.
+                if put_private is not None:
+                    # The pinned SDK scanner schema omits primaryExchange.
+                    # Resolve only this selected identity, before any live quote.
+                    c = qualify_scanner_volume_contract(client, c)
                 selected.append(c)
                 result['selected'].append({'rank': row.rank, 'symbol': c.symbol, 'con_id': c.conId,
                                            'primary_exchange': c.primaryExchange, 'route': c.exchange})
