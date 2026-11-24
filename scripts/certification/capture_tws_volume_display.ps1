@@ -32,6 +32,73 @@ function Get-VolumeListenerOwners {
             Select-Object -ExpandProperty OwningProcess -Unique)
     } catch { throw 'PAPER_API_LISTENER_QUERY_UNAVAILABLE_NO_NEW_REQUEST' }
 }
+function Get-VolumeProbeFailureCode {
+    param([string]$FailureMessage, [object]$Receipt, [object]$Outer, [string]$Commit)
+    # An exception message is input to an exact allowlist only; it is never
+    # retained or printed. Completed child receipts are the authority for exits.
+    switch -CaseSensitive ($FailureMessage) {
+        'DISPLAY_RECORDER_NOT_READY_NO_PROBE_STARTED' { return 'DISPLAY_RECORDER_NOT_READY_NO_PROBE_STARTED' }
+        'PAPER_API_LISTENER_QUERY_UNAVAILABLE_NO_NEW_REQUEST' { return 'PAPER_API_LISTENER_QUERY_UNAVAILABLE_NO_NEW_REQUEST' }
+        'PAPER_API_LISTENER_CHANGED_NO_PROBE_STARTED' { return 'PAPER_API_LISTENER_CHANGED_NO_PROBE_STARTED' }
+        'PAPER_API_LISTENER_CHANGED_DURING_CAPTURE' { return 'PAPER_API_LISTENER_CHANGED_DURING_CAPTURE' }
+    }
+    if ($Receipt.accepted -ceq $Commit -and $Receipt.scope -ceq 'LIVE_VOLUME_DIAGNOSTIC_ONLY' -and
+        $Outer.scope -ceq 'LIVE_VOLUME_DIAGNOSTIC_ONLY') {
+        if ($Outer.probe_timed_out -eq $true) { return 'PROBE_TIMED_OUT' }
+        if ($Outer.final_exit -eq 2 -and $Receipt.exit_code -eq 2) { return 'PROBE_DIAGNOSTIC_INCOMPLETE' }
+        if ($Outer.final_exit -is [int] -and $Outer.final_exit -ne 0) { return 'PROBE_DIAGNOSTIC_FAILED' }
+    }
+    return 'PROBE_COMMAND_FAILED'
+}
+function Get-VolumeQuoteDiagnostics {
+    param([object]$Acquisition)
+    $quotes = @($Acquisition.quotes)
+    if (!$quotes.Count -or $null -eq $quotes[0]) { return }
+    $quote = $quotes[0]
+    $safe = [ordered]@{
+        extraction_read_state='READ'; requested_type=$null; returned_type=$null; completion_reason=$null
+        snapshot_complete=$null; diagnostic_fields_available=$null; age_seconds=$null
+        field_presence=[ordered]@{}; broker_error_count=$null; broker_error_codes=@()
+        broker_error_codes_truncated=$null; broker_error_codes_unavailable=$null
+    }
+    foreach ($name in @('requested_type','returned_type')) {
+        if ($quote.$name -cin @('LIVE','FROZEN','DELAYED','DELAYED_FROZEN','UNKNOWN')) { $safe[$name] = $quote.$name }
+        elseif ($null -ne $quote.$name) { $safe.extraction_read_state = 'INVALID' }
+    }
+    if ($quote.completion_reason -cin @('snapshot_end','broker_error','timeout','interrupted')) {
+        $safe.completion_reason = $quote.completion_reason
+    } elseif ($null -ne $quote.completion_reason) { $safe.extraction_read_state = 'INVALID' }
+    foreach ($name in @('snapshot_complete','diagnostic_fields_available',
+        'broker_error_codes_truncated','broker_error_codes_unavailable')) {
+        if ($quote.$name -is [bool]) { $safe[$name] = $quote.$name }
+        elseif ($null -ne $quote.$name) { $safe.extraction_read_state = 'INVALID' }
+    }
+    $age = $quote.age_seconds
+    if (($age -is [int] -or $age -is [long] -or $age -is [double] -or $age -is [decimal]) -and
+        ![double]::IsNaN([double]$age) -and ![double]::IsInfinity([double]$age) -and
+        $age -ge -315360000 -and $age -le 315360000) { $safe.age_seconds = $age }
+    elseif ($null -ne $age) { $safe.extraction_read_state = 'INVALID' }
+    foreach ($name in @('bid','ask','last','close','volume')) {
+        $value = $quote.field_presence.$name
+        $safe.field_presence[$name] = $null
+        if ($value -is [bool]) { $safe.field_presence[$name] = $value }
+        elseif ($null -ne $value) { $safe.extraction_read_state = 'INVALID' }
+    }
+    $errorCount = $quote.broker_error_count
+    if (($errorCount -is [int] -or $errorCount -is [long]) -and $errorCount -ge 0 -and $errorCount -le 2147483647) {
+        $safe.broker_error_count = $errorCount
+    } elseif ($null -ne $errorCount) { $safe.extraction_read_state = 'INVALID' }
+    $codes = @()
+    foreach ($code in @($quote.broker_error_codes)) {
+        if ($null -eq $code) { continue }
+        if (($code -is [int] -or $code -is [long]) -and $code -ge -2147483648 -and $code -le 2147483647) {
+            if ($codes.Count -lt 32) { $codes += [int]$code }
+            else { $safe.broker_error_codes_truncated = $true }
+        } else { $safe.extraction_read_state = 'INVALID' }
+    }
+    $safe.broker_error_codes = @($codes | Select-Object -Unique)
+    [pscustomobject]$safe
+}
 # Passive OS binding only. No socket is opened to choose the displayed instance.
 $owners = @(Get-VolumeListenerOwners)
 $discovery = Get-Content -LiteralPath (Join-Path $root 'window-discovery.json') -Raw | ConvertFrom-Json
@@ -49,7 +116,10 @@ Write-Host 'Capturing the TWS client area automatically. Keep it visible and sta
 Write-Host 'Images stay local and may contain account information. Review them before sharing.'
 $output = New-Object 'System.Collections.Generic.List[string]'
 $probeFailure = $null
+$probeFailureMessage = $null
 $screenFailure = $null
+$screenFailureCode = $null
+$screenFailureAt = $null
 try {
     if (!$recorder.Start(10000)) { throw 'DISPLAY_RECORDER_NOT_READY_NO_PROBE_STARTED' }
     $currentOwners = @(Get-VolumeListenerOwners)
@@ -61,16 +131,60 @@ try {
         ForEach-Object { $output.Add([string]$_); Write-Host ([string]$_) }
     $currentOwners = @(Get-VolumeListenerOwners)
     if ($currentOwners.Count -ne 1 -or [uint32]$currentOwners[0] -ne $listenerOwner) { throw 'PAPER_API_LISTENER_CHANGED_DURING_CAPTURE' }
-} catch { $probeFailure = $_.Exception.GetType().Name }
+} catch {
+    $probeFailure = $_.Exception.GetType().Name
+    $probeFailureMessage = $_.Exception.Message
+}
 finally {
-    try { $recorder.Stop(); $screenFailure = $recorder.Failure }
+    try {
+        $recorder.Stop()
+        $screenFailure = $recorder.Failure
+        $screenFailureCode = $recorder.FailureCode
+        $screenFailureAt = $recorder.UTCFailureAt
+    }
     finally { $count = $recorder.Count; $recorder.Dispose() }
 }
 $rootLines = @($output | Where-Object { $_ -cmatch '^live-volume diagnostic only\. Fresh root: C:\\tmp\\qtransport-[0-9a-f]{8}$' })
+$probeReceipt = $null
+$probeOuter = $null
+$quoteDiagnostics = @()
+$quoteReadState = 'MISSING'
+if ($rootLines.Count -eq 1) {
+    $candidateRoot = $rootLines[0].Substring('live-volume diagnostic only. Fresh root: '.Length)
+    # The root is emitted by our unchanged producer and must also carry its
+    # matching commit/scope receipt. Failed runs keep local linkage as evidence,
+    # without creating a review package or granting calibration.
+    try { $probeReceipt = Get-Content -LiteralPath (Join-Path $candidateRoot 'e\result.json') -Raw | ConvertFrom-Json }
+    catch { $probeReceipt = $null }
+    if ($probeReceipt.accepted -ceq $ExpectedCommit -and $probeReceipt.scope -ceq 'LIVE_VOLUME_DIAGNOSTIC_ONLY') {
+        try { $probeOuter = Get-Content -LiteralPath (Join-Path $candidateRoot 'e\outer-status.json') -Raw | ConvertFrom-Json }
+        catch { $probeOuter = $null }
+        $privateProbePath = Join-Path $candidateRoot 'volume-probe.json'
+        if (!(Test-Path -LiteralPath $privateProbePath -PathType Leaf)) { $privateProbePath = $null }
+        @{ schema='ROSS_TWS_VOLUME_PRIVATE_LINKAGE_V1'; source=$ExpectedCommit;
+           probe_root=$candidateRoot; probe_path=$privateProbePath; frames_path=$frames } | ConvertTo-Json |
+            Set-Content -LiteralPath (Join-Path $root 'private-linkage.json') -Encoding UTF8
+        $acquisitionPath = Join-Path $candidateRoot 'e\acquisition.json'
+        if (Test-Path -LiteralPath $acquisitionPath -PathType Leaf) {
+            try {
+                $acquisition = Get-Content -LiteralPath $acquisitionPath -Raw | ConvertFrom-Json
+                $quoteDiagnostics = @(Get-VolumeQuoteDiagnostics -Acquisition $acquisition)
+                $quoteReadState = if ($quoteDiagnostics.Count) { $quoteDiagnostics[0].extraction_read_state } else { 'READ' }
+            } catch { $quoteReadState = 'INVALID'; $quoteDiagnostics = @() }
+        }
+    }
+}
+$probeFailureCode = if ($probeFailure) {
+    Get-VolumeProbeFailureCode -FailureMessage $probeFailureMessage -Receipt $probeReceipt -Outer $probeOuter -Commit $ExpectedCommit
+} else { $null }
+$probeFailureMessage = $null
 $status = [ordered]@{
     schema='ROSS_TWS_VOLUME_DISPLAY_CAPTURE_V1'; status='COMPARISON_NOT_VERIFIED'
     source=$ExpectedCommit; frame_count=$count; probe_failure_type=$probeFailure
-    screen_failure_type=$screenFailure; capture_scope='TWS_CLIENT_AREA_NO_REDACTION'; PAPER_READY=$false
+    probe_failure_code=$probeFailureCode; screen_failure_type=$screenFailure
+    screen_failure_code=$screenFailureCode; screen_failure_at_utc=$screenFailureAt
+    quote_diagnostics_read_state=$quoteReadState; quote_diagnostics=$quoteDiagnostics
+    capture_scope='TWS_CLIENT_AREA_NO_REDACTION'; PAPER_READY=$false
 }
 if ($rootLines.Count -eq 1 -and !$probeFailure -and !$screenFailure) {
     $probeRoot = $rootLines[0].Substring('live-volume diagnostic only. Fresh root: '.Length)
@@ -109,13 +223,10 @@ if ($rootLines.Count -eq 1 -and !$probeFailure -and !$screenFailure) {
     }
     @{ schema='ROSS_TWS_VOLUME_REVIEW_V1'; symbol=$VolumeSymbol; capture_scope='TWS_CLIENT_AREA_NO_REDACTION'; api_received_at_utc=$received.ToString('o'); frames=$selected } |
         ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $review 'review-times.json') -Encoding UTF8
-    # Paths and raw API numbers remain in the private local linkage, not the review images.
-    @{ probe_path=$probePath; frames_path=$frames } | ConvertTo-Json |
-        Set-Content -LiteralPath (Join-Path $root 'private-linkage.json') -Encoding UTF8
     $status.status = 'DISPLAY_CAPTURE_COMPLETE_UNITS_UNVERIFIED'
     Write-Host ('Review these private TWS client images locally before sharing: ' + $review)
 }
-$status | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'capture-status.json') -Encoding UTF8
+$status | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $root 'capture-status.json') -Encoding UTF8
 Write-Host ('Private automatic capture: ' + $root)
-Write-Host ($status | ConvertTo-Json -Compress)
+Write-Host ($status | ConvertTo-Json -Depth 6 -Compress)
 if ($status.status -cne 'DISPLAY_CAPTURE_COMPLETE_UNITS_UNVERIFIED') { throw 'DISPLAY_CAPTURE_INCOMPLETE_NO_CALIBRATION_GRANTED' }

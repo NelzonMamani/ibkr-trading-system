@@ -22,9 +22,39 @@ namespace RossDiagnostics {
         readonly ManualResetEvent stop = new ManualResetEvent(false);
         Thread worker;
         volatile string failure;
+        volatile string failureCode;
+        volatile string utcFailureAt;
         int count;
         public string Failure { get { return failure; } }
+        public string FailureCode { get { return failureCode; } }
+        public string UTCFailureAt { get { return utcFailureAt; } }
         public int Count { get { return count; } }
+
+        static string SafeFailureCode(Exception error) {
+            // Only constants owned by this helper may become evidence. Native,
+            // filesystem or third-party exception messages can contain private data.
+            if (error is InvalidOperationException) {
+                switch (error.Message) {
+                    case "TWS_DISPLAY_IDENTITY_UNAVAILABLE":
+                    case "TWS_DISPLAY_MINIMIZED":
+                    case "TWS_DISPLAY_WINDOW_BOUNDS_UNAVAILABLE":
+                    case "TWS_DISPLAY_WINDOW_MOVED_OR_RESIZED":
+                    case "TWS_DISPLAY_CLIENT_MOVED_OR_RESIZED":
+                    case "TWS_DISPLAY_FOREGROUND_CHANGED":
+                    case "TWS_DISPLAY_OBSCURED":
+                    case "TWS_CLIENT_AREA_UNAVAILABLE":
+                    case "TWS_CLIENT_AREA_OUT_OF_BOUNDS":
+                    case "DISPLAY_IMAGE_UNAVAILABLE":
+                        return error.Message;
+                }
+            }
+            return "DISPLAY_CAPTURE_FAILED";
+        }
+        void RecordFailure(string type, string code) {
+            failureCode = code;
+            utcFailureAt = DateTimeOffset.UtcNow.ToString("o");
+            failure = type;
+        }
 
         // A synthetic reader is for native offline verification only. The operator
         // uses FromWindow, which binds the supported TWS client's visible area.
@@ -47,23 +77,26 @@ namespace RossDiagnostics {
                 throw new InvalidOperationException("TWS_DISPLAY_SCOPE_REQUIRED");
             return new VolumeDisplayRecorder(directory, delegate {
                 Native.RECT current;
-                if (!Native.TwsWindow(owner) || Native.IsIconic(owner)
-                    || !Native.GetWindowRect(owner, out current) || current.Rectangle != original.Rectangle
-                    || (clientArea && Native.ClientRegion(owner) != region)
-                    || Native.GetAncestor(Native.GetForegroundWindow(), 2) != owner
-                    || !Native.Unobscured(owner, region))
-                    throw new InvalidOperationException("TWS_DISPLAY_MOVED_OR_OBSCURED");
+                // Preserve the original short-circuit order and refusal policy,
+                // while retaining which predicate invalidated this acquisition.
+                if (!Native.TwsWindow(owner)) throw new InvalidOperationException("TWS_DISPLAY_IDENTITY_UNAVAILABLE");
+                if (Native.IsIconic(owner)) throw new InvalidOperationException("TWS_DISPLAY_MINIMIZED");
+                if (!Native.GetWindowRect(owner, out current)) throw new InvalidOperationException("TWS_DISPLAY_WINDOW_BOUNDS_UNAVAILABLE");
+                if (current.Rectangle != original.Rectangle) throw new InvalidOperationException("TWS_DISPLAY_WINDOW_MOVED_OR_RESIZED");
+                if (clientArea && Native.ClientRegion(owner) != region) throw new InvalidOperationException("TWS_DISPLAY_CLIENT_MOVED_OR_RESIZED");
+                if (Native.GetAncestor(Native.GetForegroundWindow(), 2) != owner) throw new InvalidOperationException("TWS_DISPLAY_FOREGROUND_CHANGED");
+                if (!Native.Unobscured(owner, region)) throw new InvalidOperationException("TWS_DISPLAY_OBSCURED");
                 Bitmap image = new Bitmap(region.Width, region.Height, PixelFormat.Format24bppRgb);
                 try {
                     using (Graphics g = Graphics.FromImage(image)) {
                         g.CopyFromScreen(region.Location, Point.Empty, region.Size, CopyPixelOperation.SourceCopy);
                     }
                     // A focus or geometry change during acquisition invalidates it.
-                    if (!Native.GetWindowRect(owner, out current) || current.Rectangle != original.Rectangle
-                        || (clientArea && Native.ClientRegion(owner) != region)
-                        || Native.GetAncestor(Native.GetForegroundWindow(), 2) != owner
-                        || !Native.Unobscured(owner, region))
-                        throw new InvalidOperationException("TWS_DISPLAY_CHANGED_DURING_CAPTURE");
+                    if (!Native.GetWindowRect(owner, out current)) throw new InvalidOperationException("TWS_DISPLAY_WINDOW_BOUNDS_UNAVAILABLE");
+                    if (current.Rectangle != original.Rectangle) throw new InvalidOperationException("TWS_DISPLAY_WINDOW_MOVED_OR_RESIZED");
+                    if (clientArea && Native.ClientRegion(owner) != region) throw new InvalidOperationException("TWS_DISPLAY_CLIENT_MOVED_OR_RESIZED");
+                    if (Native.GetAncestor(Native.GetForegroundWindow(), 2) != owner) throw new InvalidOperationException("TWS_DISPLAY_FOREGROUND_CHANGED");
+                    if (!Native.Unobscured(owner, region)) throw new InvalidOperationException("TWS_DISPLAY_OBSCURED");
                     return image;
                 } catch { image.Dispose(); throw; }
             });
@@ -90,7 +123,9 @@ namespace RossDiagnostics {
                             string name = "frame-" + count.ToString("D4") + ".png";
                             using (MemoryStream encoded = new MemoryStream()) {
                                 image.Save(encoded, ImageFormat.Png);
-                                if (encoded.Length > 67108864 - bytes) { failure = "CAPTURE_BYTE_LIMIT"; break; }
+                                if (encoded.Length > 67108864 - bytes) {
+                                    RecordFailure("CAPTURE_BYTE_LIMIT", "CAPTURE_BYTE_LIMIT"); break;
+                                }
                                 encoded.Position = 0;
                                 using (FileStream saved = new FileStream(Path.Combine(directory, name), FileMode.CreateNew, FileAccess.Write)) {
                                     encoded.CopyTo(saved);
@@ -104,9 +139,9 @@ namespace RossDiagnostics {
                         }
                         if (stop.WaitOne(500)) break;
                     }
-                    if (count >= 600 && !stop.WaitOne(0)) failure = "CAPTURE_FRAME_LIMIT";
+                    if (count >= 600 && !stop.WaitOne(0)) RecordFailure("CAPTURE_FRAME_LIMIT", "CAPTURE_FRAME_LIMIT");
                 }
-            } catch (Exception ex) { failure = ex.GetType().Name; ready.Set(); }
+            } catch (Exception ex) { RecordFailure(ex.GetType().Name, SafeFailureCode(ex)); ready.Set(); }
         }
         public void Stop() {
             stop.Set();

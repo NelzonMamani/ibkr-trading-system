@@ -22951,3 +22951,53 @@ remain pending. This is not actual TWS display/volume acceptance.
 PAPER_READY=NO; all five ownership vetoes and remaining operational acceptance
 gates remain. Do not ask the operator to film, manage a clock, select a rectangle
 or retranscribe changing live volume for the replacement default path.
+
+### November 24: preserve actionable failure facts from the actual automatic run
+
+Reviewed cc5821283a25779ab90f329d35ed0b760448f751 (tree37097cc051a4e002dedca4b1378fd5478a051c86)
+ran on the laptop without dialogs or manual selection. It found/restored the
+unique listener-bound TWS and saved37frames in C:\tmp\tws-volume-687a91a6;
+its bounded API run is C:\tmp\qtransport-b23bbd94. The retained-file inspector
+completed, opened only the last existing PNG and did not repeat acquisition.
+
+The receipt is DIAGNOSTIC_ONLY/exit2, LIVE_VOLUME_DIAGNOSTIC_ONLY, with a
+broker_error completion, snapshot_complete=false, LIVE return type, last
+present but bid/ask/close/volume absent and age_seconds=-0.45162. Native sample
+status ROSS_VOLUME_EVIDENCE_MISSING means no native volume sample was retained;
+the existing producer returns null when no native volume tick was captured.
+No historical pair, calibration or completed comparison was established.
+Source/operator checks, broker audit, disconnect, final empty runtime inventory
+and transport coverage passed; place/modify/cancel counts are all0.
+All37manifest rows are valid. Last good screen ended16:10:03.346637UTC;
+API acquisition began16:10:14.853278UTC, about11.5seconds later. Those screens
+cannot independently establish the later API observation.
+
+The empty extracted broker_error_codes array was an observability gap, not
+absence of a broker error: native QuoteDiagnostics stores callback kinds/counts
+and this live-volume transport profile does not install the final-order numeric
+error hook. The copied ticker contains numeric broker error codes, but the
+operator omitted them. The screen worker similarly retained only exception
+type, discarding the exact owned guard token. Neither an entitlement failure
+nor a particular focus/occlusion/geometry change is proved. Do not make the
+operator extract the same generic receipts again or relax quote freshness.
+
+This narrow follow-up retains at most32unique signed-int32 broker error codes,
+their event count and explicit truncation/unavailable flags from the copied
+ticker. Arbitrary text, accounts, error payloads and prices remain omitted.
+Request flags/counts, waits, qualification, historical gating and cleanup are
+unchanged. Broker-error regression proves one quote, one cancel, no historical
+request, null native sample, continued rejection and private-message exclusion;
+numeric boundary/malformed-input checks are included.
+
+The recorder now reports an allowlisted owned failure code and UTC failure
+time alongside its existing failure type, preserving guard behavior. Failure
+paths retain only validated private local linkage, and print a bounded safe
+quote summary automatically so another extraction command is unnecessary.
+No new image upload/redaction, setting change, automatic focus retry, broker
+connection, strategy owner or trading permission is introduced. Changed-head
+native Windows, focused Python/PowerShell verification and exact-head review
+must be checked separately; prior receipts remain specific to their old head.
+Actual successful paired TWS/API evidence and share/daily-RTH unit comparisons
+remain unproved. PR1253 remains unmerged until applicable full checks pass;
+accepted mainccbb382b and all five legacy ownership vetoes remain.
+PAPER_READY=NO.

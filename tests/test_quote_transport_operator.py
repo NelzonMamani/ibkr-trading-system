@@ -548,3 +548,47 @@ def test_regular_quote_profile_does_not_add_volume_contract_resolution(monkeypat
     monkeypatch.setattr(acquisition, 'wait_event', lambda *args: True)
     result = payload.acquire(f, lambda *a: None)
     assert f.scans == 1 and len(f.requests) == 1 and result['quotes'][0]['diagnostic_fields_available']
+
+
+def test_broker_error_facts_are_numeric_bounded_and_exclude_private_payloads():
+    errors = [{"code": code, "message": "PRIVATE_BROKER_ACCOUNT_ORDER_TEXT"} for code in range(40)]
+    errors += [{"code": 3}, {"code": True}, {"code": "354"}, {"code": 2**31},
+               {"code": -(2**31)-1}, {"message": "PRIVATE_MALFORMED_TEXT"}, "PRIVATE_UNSTRUCTURED"]
+    facts = payload.broker_error_facts(errors)
+    assert facts == {
+        "broker_error_count": 47, "broker_error_codes": list(range(32)),
+        "broker_error_codes_truncated": True, "broker_error_codes_unavailable": False,
+    }
+    assert "PRIVATE" not in repr(facts) and "message" not in facts
+    assert payload.broker_error_facts([]) == {
+        "broker_error_count": 0, "broker_error_codes": [],
+        "broker_error_codes_truncated": False, "broker_error_codes_unavailable": False,
+    }
+    assert payload.broker_error_facts([{"message": "PRIVATE"}])["broker_error_codes_unavailable"]
+
+
+def test_live_volume_broker_failure_exports_codes_without_qualifying_or_starting_history(monkeypatch):
+    f = Fake()
+    request = f.reqMktData
+    def rejected(*args, **kwargs):
+        ticker = request(*args, **kwargs)
+        ticker.snapshotEnd = False
+        ticker.bid = ticker.ask = ticker.close = ticker.volume = None
+        ticker.brokerErrors = [{"code": 354, "message": "PRIVATE_ENTITLEMENT_TEXT", "account": "PRIVATE_ACCOUNT"}]
+        return ticker
+    f.reqMktData = rejected
+    f.snapshot_volume_evidence = lambda ticker: None
+    f.reqHistoricalData = lambda *args, **kwargs: pytest.fail("No history after broker error")
+    monkeypatch.setattr(acquisition, "wait_event", lambda *args: True)
+    regular, private = {}, {}
+    result = payload.acquire(f, regular.__setitem__, requested_type="LIVE", put_private=private.__setitem__)
+    quote = result["quotes"][0]
+    assert quote["broker_error_codes"] == [354] and quote["broker_error_count"] == 1
+    assert quote["completion_reason"] == "broker_error" and not quote["snapshot_complete"]
+    assert not quote["diagnostic_fields_available"]
+    assert result["native_volume_sample_status"] == "ROSS_VOLUME_EVIDENCE_MISSING"
+    assert private == {"native-volume.json": None}
+    assert "PRIVATE" not in repr(regular) + repr(private)
+    assert f.scans == 1 and len(f.requests) == 1 and f.cancelled == [1]
+    assert f.completions == ["broker_error"] and not f._market_events
+

@@ -54,6 +54,17 @@ def qualify_scanner_volume_contract(client, contract):
     return qualified
 
 
+def broker_error_facts(errors):
+    """Retain bounded numeric diagnostics, never broker error text or payloads."""
+    events = errors if isinstance(errors, (list, tuple)) else ()
+    codes = sorted({event["code"] for event in events
+                    if isinstance(event, dict) and type(event.get("code")) is int
+                    and -(2**31) <= event["code"] < 2**31})
+    return {"broker_error_count": len(events), "broker_error_codes": codes[:32],
+            "broker_error_codes_truncated": len(codes) > 32,
+            "broker_error_codes_unavailable": bool(events and not codes)}
+
+
 def acquire(client, put, *, put_private=None, requested_type="DELAYED", volume_symbol=None):
     from ibapi.scanner import ScannerSubscription
     from src.core.acquisition import acquisition_deadline, checkpoint, wait_event
@@ -142,7 +153,7 @@ def acquire(client, put, *, put_private=None, requested_type="DELAYED", volume_s
                     'market_timestamp_utc': stamp.isoformat() if stamp else None, 'age_seconds': age,
                     'field_presence': {k: v is not None for k, v in fields.items()}, 'diagnostic_fields_available': available,
                     'canonical_qualification': 'NOT_PERFORMED',
-                    'completion_reason': reason})
+                    'completion_reason': reason, **broker_error_facts(t.brokerErrors)})
                 if put_private is not None:
                     from src.domain.volume_evidence import native_stock_volume_rejection
                     volume_sample = client.snapshot_volume_evidence(t)
@@ -484,3 +495,4 @@ def main():
 
 if __name__ == '__main__':
     raise SystemExit(main())
+

@@ -77,6 +77,95 @@ $listenerResult = & $listenerHarness -Rows @() -QueryFails $true
 if ($listenerResult.Calls -ne 1 -or $listenerResult.Failure -cne 'PAPER_API_LISTENER_QUERY_UNAVAILABLE_NO_NEW_REQUEST') {
     throw 'LISTENER_QUERY_FAILURE_NOT_SANITIZED'
 }
+# Exercise the exact probe-code classifier without running the operator or
+# acquiring data. Free-form messages must never become exported evidence.
+$probeCodeDefinitions = @($ast.FindAll({ param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -ceq 'Get-VolumeProbeFailureCode'
+}, $true))
+if ($probeCodeDefinitions.Count -ne 1) { throw 'ACTUAL_PROBE_FAILURE_CLASSIFIER_NOT_FOUND' }
+$probeCodeHarness = [ScriptBlock]::Create(@'
+param([string]$FailureMessage, [object]$Receipt, [object]$Outer, [string]$Commit)
+'@ + "`n" + $probeCodeDefinitions[0].Extent.Text + @'
+
+Get-VolumeProbeFailureCode -FailureMessage $FailureMessage -Receipt $Receipt -Outer $Outer -Commit $Commit
+'@)
+$commit = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+$receipt = [pscustomobject]@{ accepted=$commit; scope='LIVE_VOLUME_DIAGNOSTIC_ONLY'; exit_code=2 }
+$outer = [pscustomobject]@{ scope='LIVE_VOLUME_DIAGNOSTIC_ONLY'; final_exit=2; probe_timed_out=$false }
+$privateMessage = 'Synthetic private error DU_SYNTHETIC C:\private\local-file.json'
+if ((& $probeCodeHarness -FailureMessage $privateMessage -Receipt $receipt -Outer $outer -Commit $commit) -cne 'PROBE_DIAGNOSTIC_INCOMPLETE') {
+    throw 'INCOMPLETE_PROBE_RECEIPT_NOT_CLASSIFIED'
+}
+$outer.probe_timed_out = $true
+if ((& $probeCodeHarness -FailureMessage $privateMessage -Receipt $receipt -Outer $outer -Commit $commit) -cne 'PROBE_TIMED_OUT') {
+    throw 'PROBE_TIMEOUT_NOT_CLASSIFIED'
+}
+$outer.probe_timed_out = $false; $outer.final_exit = 1
+if ((& $probeCodeHarness -FailureMessage $privateMessage -Receipt $receipt -Outer $outer -Commit $commit) -cne 'PROBE_DIAGNOSTIC_FAILED') {
+    throw 'FAILED_PROBE_RECEIPT_NOT_CLASSIFIED'
+}
+$receipt.accepted = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+if ((& $probeCodeHarness -FailureMessage $privateMessage -Receipt $receipt -Outer $outer -Commit $commit) -cne 'PROBE_COMMAND_FAILED') {
+    throw 'FOREIGN_PROBE_RECEIPT_WAS_TRUSTED'
+}
+if ((& $probeCodeHarness -FailureMessage $privateMessage -Receipt $null -Outer $null -Commit $commit) -cne 'PROBE_COMMAND_FAILED') {
+    throw 'PRIVATE_PROBE_FAILURE_MESSAGE_EXPOSED'
+}
+foreach ($code in @('DISPLAY_RECORDER_NOT_READY_NO_PROBE_STARTED',
+    'PAPER_API_LISTENER_QUERY_UNAVAILABLE_NO_NEW_REQUEST', 'PAPER_API_LISTENER_CHANGED_NO_PROBE_STARTED',
+    'PAPER_API_LISTENER_CHANGED_DURING_CAPTURE')) {
+    if ((& $probeCodeHarness -FailureMessage $code -Receipt $null -Outer $null -Commit $commit) -cne $code) {
+        throw 'KNOWN_OPERATOR_REFUSAL_CODE_LOST'
+    }
+}
+$quoteDefinitions = @($ast.FindAll({ param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -ceq 'Get-VolumeQuoteDiagnostics'
+}, $true))
+if ($quoteDefinitions.Count -ne 1) { throw 'ACTUAL_QUOTE_DIAGNOSTIC_EXTRACTOR_NOT_FOUND' }
+$quoteHarness = [ScriptBlock]::Create(@'
+param([object]$Acquisition)
+'@ + "`n" + $quoteDefinitions[0].Extent.Text + @'
+
+Get-VolumeQuoteDiagnostics -Acquisition $Acquisition
+'@)
+$quoteFixture = @'
+{"quotes":[{"symbol":"DU_SYNTHETIC_PRIVATE","con_id":123,"requested_type":"LIVE","returned_type":"LIVE",
+"completion_reason":"broker_error","snapshot_complete":false,"diagnostic_fields_available":false,"age_seconds":-0.1,
+"field_presence":{"bid":true,"ask":false,"last":true,"close":true,"volume":false},
+"broker_error_count":4,"broker_error_codes":[-1,354,10167],"broker_error_codes_truncated":false,
+"broker_error_codes_unavailable":false,"message":"Synthetic private error C:\\private\\local-file.json"},
+{"symbol":"SECOND_PRIVATE_QUOTE","message":"Do not export a second record"}]}
+'@ | ConvertFrom-Json
+$safeQuotes = @(& $quoteHarness -Acquisition $quoteFixture)
+if ($safeQuotes.Count -ne 1 -or $safeQuotes[0].extraction_read_state -cne 'READ' -or
+    $safeQuotes[0].requested_type -cne 'LIVE' -or $safeQuotes[0].completion_reason -cne 'broker_error' -or
+    $safeQuotes[0].snapshot_complete -ne $false -or $safeQuotes[0].diagnostic_fields_available -ne $false -or
+    $safeQuotes[0].age_seconds -ne -0.1 -or $safeQuotes[0].field_presence.ask -ne $false -or
+    $safeQuotes[0].field_presence.bid -ne $true -or $safeQuotes[0].broker_error_count -ne 4 -or
+    ($safeQuotes[0].broker_error_codes -join ',') -cne '-1,354,10167') { throw 'QUOTE_METADATA_WAS_NOT_EXTRACTED' }
+$serializedQuotes = $safeQuotes | ConvertTo-Json -Depth 6 -Compress
+if ($serializedQuotes -match 'DU_SYNTHETIC_PRIVATE|SECOND_PRIVATE_QUOTE|Synthetic private|con_id|local-file|message') {
+    throw 'PRIVATE_QUOTE_PAYLOAD_EXPOSED'
+}
+$badQuote = $quoteFixture.quotes[0]
+$badQuote.requested_type = 'Synthetic private requested type'
+$badQuote.broker_error_codes = @($true, '354', -2147483649L, 2147483648L, 354)
+$badQuote.age_seconds = [double]::NaN
+$badQuote.field_presence.ask = 'private'
+$safeQuotes = @(& $quoteHarness -Acquisition $quoteFixture)
+if ($safeQuotes.Count -ne 1 -or $safeQuotes[0].extraction_read_state -cne 'INVALID' -or
+    $null -ne $safeQuotes[0].requested_type -or $null -ne $safeQuotes[0].age_seconds -or
+    $null -ne $safeQuotes[0].field_presence.ask -or ($safeQuotes[0].broker_error_codes -join ',') -cne '354') {
+    throw 'INVALID_QUOTE_METADATA_WAS_EXPORTED'
+}
+$badQuote.broker_error_codes = @(1..40)
+$safeQuotes = @(& $quoteHarness -Acquisition $quoteFixture)
+if ($safeQuotes[0].broker_error_codes.Count -ne 32 -or !$safeQuotes[0].broker_error_codes_truncated) {
+    throw 'QUOTE_BROKER_CODE_BOUND_NOT_ENFORCED'
+}
+if (@(& $quoteHarness -Acquisition ([pscustomobject]@{ quotes=@() })).Count -ne 0) { throw 'MISSING_QUOTE_RECORD_WAS_INVENTED' }
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -Path (Join-Path $repo 'scripts\certification\TwsVolumeDisplayCapture.cs') -ReferencedAssemblies @(
@@ -151,6 +240,12 @@ public static class SyntheticVolumeFrames {
     }
     public static VolumeDisplayRecorder Failed(string path) {
         return new VolumeDisplayRecorder(path, delegate { throw new InvalidOperationException("Synthetic private error"); });
+    }
+    public static VolumeDisplayRecorder KnownFailure(string path, string code) {
+        return new VolumeDisplayRecorder(path, delegate { throw new InvalidOperationException(code); });
+    }
+    public static VolumeDisplayRecorder MissingImage(string path) {
+        return new VolumeDisplayRecorder(path, delegate { return null; });
     }
     public static VolumeDisplayRecorder Slow(string path) {
         return new VolumeDisplayRecorder(path, delegate { Thread.Sleep(500); return new Bitmap(120, 50); });
@@ -310,7 +405,11 @@ try {
     try {
         if ($occluded.Start(3000) -or $occluded.Count -ne 0) { throw 'OCCLUDED_FRAME_WRITTEN' }
         $occluded.Stop()
-        if ($occluded.Failure -cne 'InvalidOperationException') { throw 'OCCLUSION_REFUSAL_NOT_RETAINED' }
+        if ($occluded.Failure -cne 'InvalidOperationException' -or
+            $occluded.FailureCode -cne 'TWS_DISPLAY_OBSCURED' -or
+            [datetimeoffset]::Parse($occluded.UTCFailureAt).Offset -ne [timespan]::Zero) {
+            throw 'OCCLUSION_REFUSAL_CODE_OR_TIME_NOT_RETAINED'
+        }
     } finally { $occluded.Dispose() }
 } finally {
     [IO.File]::WriteAllText($readyPath + '.stop', 'STOP')
@@ -322,7 +421,10 @@ try {
     if (!$good.Start(3000)) { throw 'FIRST_FRAME_NOT_READY' }
     $good.Stop(); $before = $good.Count
     Start-Sleep -Milliseconds 600
-    if ($good.Count -ne $before -or $good.Count -lt 1 -or $good.Failure) { throw 'STOP_DID_NOT_JOIN_FRAME_OWNER' }
+    $good.Stop()
+    if ($good.Count -ne $before -or $good.Count -lt 1 -or $good.Failure -or $good.FailureCode -or $good.UTCFailureAt) {
+        throw 'STOP_DID_NOT_JOIN_FRAME_OWNER'
+    }
     $rows = @(Get-Content -LiteralPath (Join-Path $goodPath 'frames.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
     if ($rows.Count -ne $before) { throw 'FRAME_MANIFEST_COUNT_MISMATCH' }
     foreach ($row in $rows) {
@@ -335,10 +437,42 @@ try {
 $failedPath = Join-Path $root 'failed'
 $failed = [SyntheticVolumeFrames]::Failed($failedPath)
 try {
+    $failureBegan = [datetimeoffset]::UtcNow
     if ($failed.Start(3000) -or $failed.Count -ne 0 -or $failed.Failure -cne 'InvalidOperationException') { throw 'FIRST_CAPTURE_FAILURE_WAS_READY' }
     $failed.Stop()
+    $failureEnded = [datetimeoffset]::UtcNow
+    $failedAt = [datetimeoffset]::Parse($failed.UTCFailureAt)
+    if ($failed.FailureCode -cne 'DISPLAY_CAPTURE_FAILED' -or $failedAt -lt $failureBegan -or
+        $failedAt -gt $failureEnded -or $failedAt.Offset -ne [timespan]::Zero) { throw 'UNKNOWN_CAPTURE_ERROR_NOT_SANITIZED_OR_TIMED' }
+    $savedFailureAt = $failed.UTCFailureAt
+    $failed.Stop()
+    if ($failed.UTCFailureAt -cne $savedFailureAt -or $failed.Count -ne 0) { throw 'REPEATED_JOIN_CHANGED_FAILURE_EVIDENCE' }
     if (@(Get-ChildItem -LiteralPath $failedPath -Filter '*.png').Count) { throw 'FAILED_ACQUISITION_SAVED_IMAGE' }
 } finally { $failed.Dispose() }
+foreach ($code in @('TWS_DISPLAY_IDENTITY_UNAVAILABLE', 'TWS_DISPLAY_MINIMIZED', 'TWS_DISPLAY_WINDOW_BOUNDS_UNAVAILABLE',
+    'TWS_DISPLAY_WINDOW_MOVED_OR_RESIZED', 'TWS_DISPLAY_CLIENT_MOVED_OR_RESIZED',
+    'TWS_DISPLAY_FOREGROUND_CHANGED', 'TWS_DISPLAY_OBSCURED',
+    'TWS_CLIENT_AREA_UNAVAILABLE', 'TWS_CLIENT_AREA_OUT_OF_BOUNDS', 'DISPLAY_IMAGE_UNAVAILABLE')) {
+    $known = [SyntheticVolumeFrames]::KnownFailure((Join-Path $root $code), $code)
+    try {
+        $failureBegan = [datetimeoffset]::UtcNow
+        if ($known.Start(3000) -or $known.Count -ne 0) { throw 'KNOWN_CAPTURE_FAILURE_WAS_READY' }
+        $known.Stop()
+        $failureEnded = [datetimeoffset]::UtcNow
+        $knownAt = [datetimeoffset]::Parse($known.UTCFailureAt)
+        if ($known.Failure -cne 'InvalidOperationException' -or $known.FailureCode -cne $code -or
+            $knownAt -lt $failureBegan -or $knownAt -gt $failureEnded -or $knownAt.Offset -ne [timespan]::Zero) {
+            throw 'KNOWN_CAPTURE_FAILURE_CODE_OR_TIME_LOST'
+        }
+        $known.Stop()
+    } finally { $known.Dispose() }
+}
+$missing = [SyntheticVolumeFrames]::MissingImage((Join-Path $root 'missing-image'))
+try {
+    if ($missing.Start(3000) -or $missing.Count -ne 0 -or
+        $missing.FailureCode -cne 'DISPLAY_IMAGE_UNAVAILABLE') { throw 'MISSING_IMAGE_REFUSAL_CODE_LOST' }
+    $missing.Stop()
+} finally { $missing.Dispose() }
 $slow = [SyntheticVolumeFrames]::Slow((Join-Path $root 'slow'))
 try {
     if ($slow.Start(1)) { throw 'EARLY_STARTUP_WAS_READY' }
@@ -346,4 +480,4 @@ try {
     Start-Sleep -Milliseconds 600
     if ($slow.Count -ne $before) { throw 'TIMED_OUT_OWNER_WROTE_AFTER_JOIN' }
 } finally { $slow.Dispose() }
-Write-Host 'TWS_DISPLAY_CONTROLS_PASSED: no manual-selection entry, listener-PID binding, minimized dynamic-title discovery/restore, full client geometry/pixels/times and caps, passive overlay refusal, private discovery counts, failed/slow startup, joined stop.'
+Write-Host 'TWS_DISPLAY_CONTROLS_PASSED: no manual-selection entry, listener-PID binding, minimized dynamic-title discovery/restore, full client geometry/pixels/times and caps, passive overlay refusal, private discovery counts, safe probe/capture failure codes and UTC clocks, failed/slow startup, repeated joined stop.'
