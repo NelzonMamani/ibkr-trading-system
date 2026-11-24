@@ -18,6 +18,12 @@
         return
     }
 
+    $listeners = @(Get-NetTCPConnection -ErrorAction Stop |
+        Where-Object { $_.LocalPort -eq 7497 -and $_.State -eq 'Listen' })
+    if ($listeners.Count -eq 0) {
+        throw 'No API listener on 7497. Complete TWS PAPER login and check API Settings. No capture started.'
+    }
+
     $commit = 'b20d6d641b57e64c65d6712c64f2e948ce2b038d'
     $tree = '01206b24db969dda7ed5805de0fdd6b9eb41c8e6'
     $expected = 'e9fffdc4429a0ae9b60993f857a8bb1fc823f07bcc5e0c9d2c1aee475933763b'

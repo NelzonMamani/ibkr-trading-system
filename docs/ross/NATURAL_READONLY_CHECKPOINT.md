@@ -22739,3 +22739,23 @@ PAPER_READY=NO. No capture, broker mutation or state/ownership change occurred.
 }
 # END
 ```
+
+### Operator confirmed the missing application and restarted IBKR
+
+The operator explicitly reported that IBKR was not running during the failed
+local checks and has now started it again. This explains the observed absent
+listener. A completed PAPER login, enabled socket listener and successful API
+handshake are still verified by their respective checks; starting an app alone
+is not claimed as that proof.
+
+A new capture attempt is justified after this changed local precondition.
+The existing automatic READ_ONLY bootstrap now checks for a LISTEN row on
+local port7497 before downloading or invoking its pinned diagnostic helper.
+If absent, it stops without capture. The reviewed source/tree/helper hash,
+actual PRE/RTH check, no-ticker automatic selection, original privacy/source/
+mutation controls and fresh-root handling are unchanged. The operator keeps
+TWS PAPER and Read-Only API enabled and client71 unused.
+
+The earlier failed root is retained. No successful volume capture, calibration,
+PAPER trading admission or broker action is claimed by this script update.
+All five legacy vetoes remain. PAPER_READY=NO.
