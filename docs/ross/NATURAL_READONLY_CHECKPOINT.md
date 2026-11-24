@@ -22547,3 +22547,31 @@ main remains f08d46e6f632293ca569819968f9700b7b1c1975 at publication.
 No broker operation occurred here. Real independent TWS comparisons and all
 B01-B08 laptop acceptance gates remain. PAPER_READY=NO; five ownership
 vetoes remain.
+
+### November 24 volume probe failure and duplicate receipt identification
+
+The operator ran the new automatic PRE/RTH volume diagnostic at approximately
+09:19 London on source b20d6d641b57e64c65d6712c64f2e948ce2b038d,
+tree 01206b24db969dda7ed5805de0fdd6b9eb41c8e6. The terminal shows verified
+source preparation and fresh root alias vp-846349db, followed by about
+35 seconds of supervised progress and effective exit 1. The terminal alone
+does not localize the failure or establish that volume-probe.json exists
+or is valid. No successful calibration or new laptop acceptance is claimed.
+
+A separate archive uploaded with a November 24 filename is byte-identical
+to the already-reviewed November 23 ordinary Ross receipt ro-8e455b5b:
+SHA256 744bae80a3a1b9636e48b91765432272263ade52a7d4a1dbc1c48609116487f8.
+Its actual preflight is November 23 15:24:05 UTC on source 7a2070ab.
+It contains no volume-probe.json. The replacement transcript differs only
+in its initial PowerShell banner line. Count neither as a new observation
+or calibration receipt; do not repeat the earlier analysis.
+
+One next action is the filesystem-only local status reader
+docs/ross/READ_VOLUME_PROBE_STATUS_20261124.ps1. It prints whitelisted
+status, exception-type, stage, completion/freshness, resource-count,
+privacy and mutation-count fields. Raw exception messages, account/contract
+IDs, prices and volume values stay private. Include privacy status because
+privacy scanning runs after result.json and can independently produce exit 1.
+The reader neither reruns the probe nor opens a broker connection.
+Actual cause and safety counters remain unverified until its output arrives.
+All five ownership vetoes remain. PAPER_READY=NO.
