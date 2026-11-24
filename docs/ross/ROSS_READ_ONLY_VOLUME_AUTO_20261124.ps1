@@ -24,8 +24,8 @@
         throw 'No API listener on 7497. Complete TWS PAPER login and check API Settings. No capture started.'
     }
 
-    $commit = 'b20d6d641b57e64c65d6712c64f2e948ce2b038d'
-    $tree = '01206b24db969dda7ed5805de0fdd6b9eb41c8e6'
+    $commit = '8ed0d2d60ab4ed289540a6db47040971643b688a'
+    $tree = '77285078996c97dd6aa8ac27210e79785955b35f'
     $expected = 'e9fffdc4429a0ae9b60993f857a8bb1fc823f07bcc5e0c9d2c1aee475933763b'
     $probe = Join-Path $env:TEMP ('ross-volume-' + [guid]::NewGuid().ToString('N') + '.ps1')
     $url = "https://raw.githubusercontent.com/NelzonMamani/ibkr-trading-system/$commit/scripts/certification/run_quote_transport_diagnostic.ps1"

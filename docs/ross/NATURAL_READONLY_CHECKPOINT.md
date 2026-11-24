@@ -22777,3 +22777,72 @@ Decimal metadata values, fixing the previously omitted elapsed-time fields
 under Windows PowerShell5.1. Whitelisted fields still exclude raw messages,
 identifiers, prices and volumes. The reader makes no broker connection and
 does not rerun capture. PAPER_READY=NO; all five ownership vetoes remain.
+
+### Completed PRE transport and scanner; automatic volume contract repair (2026-11-24)
+
+The operator's sanitized status for retained root alias vp-afb69d59 confirms
+DIAGNOSTIC_ONLY exit2 with ROSS_VOLUME_SOURCE_UNSUPPORTED. Connection completed;
+the TOP_PERC_GAIN scanner received native End with50rows and no scanner error.
+One requested LIVE quote returned LIVE, received snapshot End, and contained
+bid, ask, last, close and volume. The reported quote age was12.546245seconds.
+No private volume-probe file was written. Source/operator checks and broker
+audit passed; the client disconnected; the final request maps were empty.
+Transport coverage and absence-claim checks passed for the instrumented
+diagnostic scope. Privacy findings and place/modify/cancel counts were all0.
+This is progress beyond the earlier missing-listener failure, not calibration
+or PAPER trading acceptance.
+
+Offline reproduction using the installed ibapi9.81.1.post1 scanner decoder
+shows that its scanner contract omits primaryExchange. Passing that abbreviated
+contract directly into native volume acquisition reproduces
+ROSS_VOLUME_SOURCE_UNSUPPORTED. The former fake fixture supplied NASDAQ
+independently of the actual contract and masked this defect. This is a proven
+automatic-probe defect and a causal explanation consistent with the laptop
+receipt; the sanitized receipt alone does not expose which private source
+field failed.
+
+The existing automatic live-volume diagnostic now resolves only its chosen
+scanner identity before requesting a quote. It requires the same integer
+conId, symbol, security type and currency, preserves any listing/local-symbol/
+trading-class metadata already supplied, and requires a supported US primary
+exchange. It copies the resolved contract and applies SMART routing without
+changing listing identity. A mismatch, unsupported listing or lookup failure
+refuses before quote acquisition; it does not select a replacement scanner
+row. Existing acquisition deadlines, actual PRE/RTH guard, source/privacy/
+mutation controls, volume-unit rules and all trading admission gates remain
+in force. Ordinary quote profiles and explicit-symbol selection are unchanged.
+
+The real SDK decoder fixture failed before the repair and passed after it.
+All55 focused operator tests passed, including identity contradictions,
+unsupported/missing listings, lookup failure, acquisition expiry, paired
+private history and ordinary-profile isolation. git diff --check passed.
+Two independent source reviews found no scoped blocker in the frozen diff
+SHA256 84848a7cfca47ffcddfd7c1edb096465fa9f576a2b4bc7bbd0760e8725f942ed.
+This receipt records local/offline validation only; exact published-head CI
+and a new laptop capture are still pending. No cloud broker session ran.
+
+The next useful capture must use the repaired source, not repeat b20d6d64.
+A complete externally distributed bootstrap will pin that reviewed source
+and tree while retaining its helper hash check and passive7497 listener gate.
+Raw native records remain on the laptop. All five legacy ownership vetoes
+remain; inventory preservation remains closed; PAPER_READY=NO.
+
+### Repaired automatic volume diagnostic candidate published
+
+PR#1252 publishes reviewed source head8ed0d2d60ab4ed289540a6db47040971643b688a,
+tree77285078996c97dd6aa8ac27210e79785955b35f. The source and test Git blobs
+exactly match the independently reviewed local files. Exact-head CI run45374619485
+is in progress; no post-merge or main-integration acceptance is claimed.
+
+The complete external bootstrap now pins this repaired diagnostic source/tree.
+Its unchanged helper SHA256 is
+e9fffdc4429a0ae9b60993f857a8bb1fc823f07bcc5e0c9d2c1aee475933763b.
+It still requires Windows PowerShell5.1, an actual PRE/RTH window, the passive
+local7497 listener check, syntax/hash verification, PAPER TWS Read-Only API
+and unused client71. It selects a current scanner candidate automatically;
+no ticker placeholder or confirmation phrase is introduced. A new capture
+uses a fresh evidence root, preserving the earlier receipt and private files.
+
+A successful native volume capture or unit calibration has not yet been
+observed. This external diagnostic distribution does not enable PAPER trading.
+All five legacy ownership vetoes remain. PAPER_READY=NO.
