@@ -249,6 +249,20 @@ jobs:
             ${{ runner.temp }}/ps-observation-*/
           if-no-files-found: error
 
+
+  windows-display-capture:
+    # Native visual controls do not import Python or connect to TWS/providers.
+    # Keep their feedback independent of full-suite dependency setup.
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Native Windows display discovery and capture controls
+        shell: powershell
+        run: .\tests\powershell\verify_tws_volume_display.ps1
+
   windows-offline:
     # Retain the existing required check; failure/cancellation/skips cannot hide
     # any Windows owner. Only authoritative harness-only scope skips the suites.
@@ -275,3 +289,4 @@ jobs:
           if needs['windows-controlled-process'].get('result') != 'success':
               raise SystemExit('Required Windows controlled-process gates did not complete.')
           print('All required Windows gates completed for verified harness_only=' + harness_only)
+

@@ -22826,3 +22826,178 @@ A complete externally distributed bootstrap will pin that reviewed source
 and tree while retaining its helper hash check and passive7497 listener gate.
 Raw native records remain on the laptop. All five legacy ownership vetoes
 remain; inventory preservation remains closed; PAPER_READY=NO.
+
+
+### November 24 continuity and automatic TWS display preparation
+
+PR1252 is merged at ccbb382b29357406c30b462f006c0c12a0da7862, tree
+77285078996c97dd6aa8ac27210e79785955b35f. Reviewed-head run45374619485
+completed all six jobs successfully. Post-merge CI has not been re-audited here.
+The recovered local LGHL receipt at C:\tmp\qtransport-af44e394 is reported
+DIAGNOSTIC_COMPLETE/exit0 with complete LIVE quote/tick8, completed audit and
+disconnect and zero order mutations. The subsequent laptop transcript passed
+source, retained completion and mutation checks before its repeated settings
+prompt refused an empty response. Those checks did not perform a new capture.
+Corrected TWS build10.50.1h and both unchecked US-stock lot settings are operator
+confirmed. Prefer Native Volume and full-digit display were subsequently shown.
+
+The operator has no contemporaneous independent TWS observation for the old
+LGHL sample. Its successful diagnostic is retained; no independent share witness
+can be reconstructed from later volume. The manual recording wrapper then
+refused before acquisition on an immediate process-window-handle check, despite
+its clock appearing afterward. That wrapper failure is not a broker failure.
+
+The operator explicitly requests automatic collection and authorizes the
+coordinator to implement and verify it without further instruction relays.
+The new optional standalone capture entry invokes the unchanged bounded live-volume
+READ_ONLY owner. A single cropped region selection is followed by an automatically
+owned image recorder, UTC capture intervals, manifest, readiness from the first
+saved frame, bounded storage and joined shutdown. It retains the five images
+nearest the native API receive timestamp for independent visual comparison.
+Unready, failed, moved or obscured captures cannot grant comparison completion.
+No clock window, phone recording, live-volume transcription, automatic upload,
+OCR assertion or new trading engine is added. Cropped images and the raw probe
+linkage remain local. The existing calibration consumer and all trading gates
+are unchanged. An image is evidence to inspect, not automatic share authority.
+
+This is implementation under verification, not a laptop acceptance receipt.
+Required native Windows checks compile the actual C# helper, parse the PowerShell
+entry and exercise synthetic frame readiness, PNG pixels, timestamps, slow/failed
+startup and no late writes after joined stop. They do not acquire desktop or
+broker evidence. Actual exact-contract visual comparison and completed RTH-chart
+comparison, capital/fee/calendar/state/ownership prerequisites and supervised
+PAPER lifecycle remain open. All five legacy-holding vetoes remain. PAPER_READY=NO.
+
+
+### Automatic display collector: native window discovery refusal
+
+The operator ran reviewed head6787ab76ce70a89eb176c2514bc721926a07aff9 in
+C:\tmp\tws-volume-source-0bb0af37. Fetch, pinned worktree preparation and source
+checks completed. The operator then refused at
+VISIBLE_MAIN_TWS_WINDOW_REQUIRED_NO_CAPTURE_STARTED. No new API probe, visual
+frame, unit comparison or review ZIP was produced by that attempt. There is
+no printed private evidence root because the old operator created it only
+after selection. The refusal alone does not distinguish a minimized/closed
+TWS instance from an unmatched window title. Do not claim broker failure or
+that all repairs are complete.
+
+Source inspection identifies a title-only discovery predicate and exclusion
+of minimized windows. The follow-up recognizes supported TWS executable and
+Java/TWS-installation identities independently of the account-changing title,
+restores an identified minimized TWS, and binds the actual selected supported
+window after the overlay closes. A unique underlying TWS can be restored if
+selection closure returned focus to the terminal. Generic Java apps,
+configuration dialogs, IB Gateway and ambiguous unsupported selections refuse.
+When no initial match exists, setup remains available before any API request;
+selection must still identify a supported TWS window. No blind keyboard
+input, account/settings change or runtime gate weakening is added.
+
+A private root and counts-only window-discovery.json are emitted before
+selection. Discovery never serializes account-bearing titles, handles,
+process IDs or executable paths. Native Windows controls now cover the
+title-independent identity routes and unrelated-window refusals, actual
+EnumWindows discovery of an inert minimized dynamic-title tws.exe fixture
+and its restoration. Existing frame/readiness/cleanup controls remain.
+New-head verification is pending; older 6787ab7 Windows/bot successes remain
+specific to that earlier head and are not laptop acceptance. Actual display
+capture, volume comparisons and PAPER readiness remain unproved. PAPER_READY=NO.
+
+
+### November 24: retire the remaining manual display-selection interaction
+
+Run45397983663 on reviewed2ef2d0a9d0715eb8002348953898a92f08e01322 completed
+all seven jobs successfully at13:19:30UTC. Direct log receipts: Linux8724passed/
+3skipped; Windows remaining7224passed/2skipped plus lifecycle1501passed
+(complementary Windows8725passed). Exact-head bot review had no findings or
+unresolved findings. These are accepted software receipts for that old source;
+the PR remained unmerged on mainccbb382b. Earlier failed fixture receipts stay
+historical, not substituted for this full success.
+
+The later laptop attempt prepared source in
+C:\tmp\tws-volume-source-31507424 and created private root
+C:\tmp\tws-volume-7930aff7. The introductory OK was accepted, followed by
+DISPLAY_SELECTION_CANCELLED in the separate RegionSelector dialog.
+Discovery counted21visible windows,1supported TWS,1initially minimized TWS,
+2Java frames,0title-rule matches,1native TWS process window and1installation
+path match. This proves repaired native discovery works on the laptop and
+found an initially minimized instance; it does not prove intentional user
+cancellation or a new selector defect. No recorder/API probe began and no
+unit comparison or ZIP completed.
+
+The operator requests automatic collection repeatedly. The default path now
+contains no MessageBox, ShowDialog, RegionSelector or Read-Host. It passively
+binds the supported window to the unique local7497 listener owner, restores
+it and automatically captures its client area. There is no arbitrary fallback
+to another TWS process. Listener identity is checked again immediately before
+and after the existing bounded READ_ONLY probe, with no extra broker connection.
+The client excludes native titlebar/borders but may contain balances/positions.
+All images remain local and require local review before any sharing; no
+automatic redaction or guaranteed visible LGHL row is claimed.
+
+Client coordinates use GetClientRect/ClientToScreen, positive fixed bounds,
+virtual-screen containment,8192per-dimension/8388608pixel caps, and the existing
+before/after geometry, foreground and Z-order checks. The old small-region
+factory remains only for compatible control coverage. The obsolete selector
+class/binding path is removed. PNG byte limits are now enforced on encoded
+bytes before writing, rather than after a larger full-window file is saved.
+
+Native controls add actual full-client pixels/dimensions/times from a restored
+600x600 inert red test window after a paint/compositor barrier, endpoint/PID
+filtering and ambiguity refusals, wrong/missing PID cases, pure client caps and
+containment, and an AST no-interaction check. Existing occluded-recorder
+zero-frame and worker cleanup controls remain. Two independent local reviews
+found no scoped source blocker; changed-head native/required CI and bot review
+remain pending. This is not actual TWS display/volume acceptance.
+PAPER_READY=NO; all five ownership vetoes and remaining operational acceptance
+gates remain. Do not ask the operator to film, manage a clock, select a rectangle
+or retranscribe changing live volume for the replacement default path.
+
+### November 24: preserve actionable failure facts from the actual automatic run
+
+Reviewed cc5821283a25779ab90f329d35ed0b760448f751 (tree37097cc051a4e002dedca4b1378fd5478a051c86)
+ran on the laptop without dialogs or manual selection. It found/restored the
+unique listener-bound TWS and saved37frames in C:\tmp\tws-volume-687a91a6;
+its bounded API run is C:\tmp\qtransport-b23bbd94. The retained-file inspector
+completed, opened only the last existing PNG and did not repeat acquisition.
+
+The receipt is DIAGNOSTIC_ONLY/exit2, LIVE_VOLUME_DIAGNOSTIC_ONLY, with a
+broker_error completion, snapshot_complete=false, LIVE return type, last
+present but bid/ask/close/volume absent and age_seconds=-0.45162. Native sample
+status ROSS_VOLUME_EVIDENCE_MISSING means no native volume sample was retained;
+the existing producer returns null when no native volume tick was captured.
+No historical pair, calibration or completed comparison was established.
+Source/operator checks, broker audit, disconnect, final empty runtime inventory
+and transport coverage passed; place/modify/cancel counts are all0.
+All37manifest rows are valid. Last good screen ended16:10:03.346637UTC;
+API acquisition began16:10:14.853278UTC, about11.5seconds later. Those screens
+cannot independently establish the later API observation.
+
+The empty extracted broker_error_codes array was an observability gap, not
+absence of a broker error: native QuoteDiagnostics stores callback kinds/counts
+and this live-volume transport profile does not install the final-order numeric
+error hook. The copied ticker contains numeric broker error codes, but the
+operator omitted them. The screen worker similarly retained only exception
+type, discarding the exact owned guard token. Neither an entitlement failure
+nor a particular focus/occlusion/geometry change is proved. Do not make the
+operator extract the same generic receipts again or relax quote freshness.
+
+This narrow follow-up retains at most32unique signed-int32 broker error codes,
+their event count and explicit truncation/unavailable flags from the copied
+ticker. Arbitrary text, accounts, error payloads and prices remain omitted.
+Request flags/counts, waits, qualification, historical gating and cleanup are
+unchanged. Broker-error regression proves one quote, one cancel, no historical
+request, null native sample, continued rejection and private-message exclusion;
+numeric boundary/malformed-input checks are included.
+
+The recorder now reports an allowlisted owned failure code and UTC failure
+time alongside its existing failure type, preserving guard behavior. Failure
+paths retain only validated private local linkage, and print a bounded safe
+quote summary automatically so another extraction command is unnecessary.
+No new image upload/redaction, setting change, automatic focus retry, broker
+connection, strategy owner or trading permission is introduced. Changed-head
+native Windows, focused Python/PowerShell verification and exact-head review
+must be checked separately; prior receipts remain specific to their old head.
+Actual successful paired TWS/API evidence and share/daily-RTH unit comparisons
+remain unproved. PR1253 remains unmerged until applicable full checks pass;
+accepted mainccbb382b and all five legacy ownership vetoes remain.
+PAPER_READY=NO.

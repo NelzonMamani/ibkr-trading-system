@@ -160,3 +160,7 @@ foreach ($required in @('-BudgetSeconds 120 -StopSeconds 30', '-BudgetSeconds 90
     if (!$text.Contains($required)) { throw "Operator protection missing: $required" }
 }
 Write-Host 'QUOTE_TRANSPORT_OPERATOR_PARSE=PASS; no child or broker launched.'
+
+
+& (Join-Path $PSScriptRoot 'verify_tws_volume_display.ps1')
+
