@@ -22846,3 +22846,40 @@ uses a fresh evidence root, preserving the earlier receipt and private files.
 A successful native volume capture or unit calibration has not yet been
 observed. This external diagnostic distribution does not enable PAPER trading.
 All five legacy ownership vetoes remain. PAPER_READY=NO.
+
+### Repaired automatic PRE volume probe: native exit0 receipt (2026-11-24)
+
+The operator ran the complete corrected bootstrap pinned to reviewed source
+8ed0d2d60ab4ed289540a6db47040971643b688a and tree
+77285078996c97dd6aa8ac27210e79785955b35f. A new retained laptop root alias
+vp-af44e394 was created. The terminal showed about30seconds of supervised
+progress, effective exit0, PAPER_READY=NO, the private volume-probe.json
+pathname, and automatically selected public ticker LGHL. This is the first
+reported successful native automatic volume capture after the scanner-contract
+qualification repair. The earlier SOURCE_UNSUPPORTED root remains retained.
+
+This receipt is based on the pasted terminal outcome. Its sanitized saved
+status, private-file presence and raw comparator records have not been supplied
+or inspected here. The next action reads existing whitelisted status from
+vp-af44e394 with the maintained local-only reader; it makes no broker connection
+and does not repeat capture.
+
+Exact-head PR#1252 CI run45374619485 has passed verification-scope and the
+Windows controlled-process job138377507294. The latter log includes native
+PowerShell5.1 harness controls and QUOTE_TRANSPORT_OPERATOR_PARSE=PASS. Linux
+and both Windows offline suites are still in progress at this receipt; no
+full-CI or main-integration acceptance is claimed.
+
+Successful acquisition does not establish the volume unit. The existing
+offline prepare-volume helper requires a private independent TWS comparison
+for this exact contract and capture: actual build, both shares settings,
+contemporaneous watchlist share count and timestamp, plus an independent
+completed RTH daily TRADES volume and date. No such comparator has been
+reported. An API count cannot populate its own independent comparison; a
+later current count cannot be backdated to the saved capture. A missing
+contemporaneous comparator remains a gap, not a reason to rerun the same
+diagnostic without a coordinated comparison.
+
+All raw probe, contract, volume and financial records remain on the laptop.
+No broker order action was requested by this update. All five legacy ownership
+vetoes remain, inventory preservation remains closed, and PAPER_READY=NO.
