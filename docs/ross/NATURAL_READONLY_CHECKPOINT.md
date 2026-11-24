@@ -22901,3 +22901,53 @@ and its restoration. Existing frame/readiness/cleanup controls remain.
 New-head verification is pending; older 6787ab7 Windows/bot successes remain
 specific to that earlier head and are not laptop acceptance. Actual display
 capture, volume comparisons and PAPER readiness remain unproved. PAPER_READY=NO.
+
+
+### November 24: retire the remaining manual display-selection interaction
+
+Run45397983663 on reviewed2ef2d0a9d0715eb8002348953898a92f08e01322 completed
+all seven jobs successfully at13:19:30UTC. Direct log receipts: Linux8724passed/
+3skipped; Windows remaining7224passed/2skipped plus lifecycle1501passed
+(complementary Windows8725passed). Exact-head bot review had no findings or
+unresolved findings. These are accepted software receipts for that old source;
+the PR remained unmerged on mainccbb382b. Earlier failed fixture receipts stay
+historical, not substituted for this full success.
+
+The later laptop attempt prepared source in
+C:\tmp\tws-volume-source-31507424 and created private root
+C:\tmp\tws-volume-7930aff7. The introductory OK was accepted, followed by
+DISPLAY_SELECTION_CANCELLED in the separate RegionSelector dialog.
+Discovery counted21visible windows,1supported TWS,1initially minimized TWS,
+2Java frames,0title-rule matches,1native TWS process window and1installation
+path match. This proves repaired native discovery works on the laptop and
+found an initially minimized instance; it does not prove intentional user
+cancellation or a new selector defect. No recorder/API probe began and no
+unit comparison or ZIP completed.
+
+The operator requests automatic collection repeatedly. The default path now
+contains no MessageBox, ShowDialog, RegionSelector or Read-Host. It passively
+binds the supported window to the unique local7497 listener owner, restores
+it and automatically captures its client area. There is no arbitrary fallback
+to another TWS process. Listener identity is checked again immediately before
+and after the existing bounded READ_ONLY probe, with no extra broker connection.
+The client excludes native titlebar/borders but may contain balances/positions.
+All images remain local and require local review before any sharing; no
+automatic redaction or guaranteed visible LGHL row is claimed.
+
+Client coordinates use GetClientRect/ClientToScreen, positive fixed bounds,
+virtual-screen containment,8192per-dimension/8388608pixel caps, and the existing
+before/after geometry, foreground and Z-order checks. The old small-region
+factory remains only for compatible control coverage. The obsolete selector
+class/binding path is removed. PNG byte limits are now enforced on encoded
+bytes before writing, rather than after a larger full-window file is saved.
+
+Native controls add actual full-client pixels/dimensions/times from a restored
+600x600 inert red test window after a paint/compositor barrier, endpoint/PID
+filtering and ambiguity refusals, wrong/missing PID cases, pure client caps and
+containment, and an AST no-interaction check. Existing occluded-recorder
+zero-frame and worker cleanup controls remain. Two independent local reviews
+found no scoped source blocker; changed-head native/required CI and bot review
+remain pending. This is not actual TWS display/volume acceptance.
+PAPER_READY=NO; all five ownership vetoes and remaining operational acceptance
+gates remain. Do not ask the operator to film, manage a clock, select a rectangle
+or retranscribe changing live volume for the replacement default path.

@@ -27,21 +27,29 @@ namespace RossDiagnostics {
         public int Count { get { return count; } }
 
         // A synthetic reader is for native offline verification only. The operator
-        // uses FromScreen, which binds a visible TWS window and selected rectangle.
+        // uses FromWindow, which binds the supported TWS client's visible area.
         public VolumeDisplayRecorder(string directory, Func<Bitmap> read) {
             this.directory = directory;
             this.read = read;
         }
         public static VolumeDisplayRecorder FromScreen(string directory, IntPtr owner, Rectangle region) {
+            if (region.Width > 2400 || region.Height > 400)
+                throw new InvalidOperationException("TWS_DISPLAY_SCOPE_REQUIRED");
+            return FromRegion(directory, owner, region, false);
+        }
+        public static VolumeDisplayRecorder FromWindow(string directory, IntPtr owner) {
+            return FromRegion(directory, owner, Native.ClientRegion(owner), true);
+        }
+        static VolumeDisplayRecorder FromRegion(string directory, IntPtr owner, Rectangle region, bool clientArea) {
             Native.RECT original;
             if (!Native.GetWindowRect(owner, out original) || !Native.TwsWindow(owner)
-                || !original.Rectangle.Contains(region) || region.Width < 60 || region.Height < 20
-                || region.Width > 2400 || region.Height > 400)
+                || !original.Rectangle.Contains(region) || !Native.ValidClientRegion(region, SystemInformation.VirtualScreen))
                 throw new InvalidOperationException("TWS_DISPLAY_SCOPE_REQUIRED");
             return new VolumeDisplayRecorder(directory, delegate {
                 Native.RECT current;
                 if (!Native.TwsWindow(owner) || Native.IsIconic(owner)
                     || !Native.GetWindowRect(owner, out current) || current.Rectangle != original.Rectangle
+                    || (clientArea && Native.ClientRegion(owner) != region)
                     || Native.GetAncestor(Native.GetForegroundWindow(), 2) != owner
                     || !Native.Unobscured(owner, region))
                     throw new InvalidOperationException("TWS_DISPLAY_MOVED_OR_OBSCURED");
@@ -52,6 +60,7 @@ namespace RossDiagnostics {
                     }
                     // A focus or geometry change during acquisition invalidates it.
                     if (!Native.GetWindowRect(owner, out current) || current.Rectangle != original.Rectangle
+                        || (clientArea && Native.ClientRegion(owner) != region)
                         || Native.GetAncestor(Native.GetForegroundWindow(), 2) != owner
                         || !Native.Unobscured(owner, region))
                         throw new InvalidOperationException("TWS_DISPLAY_CHANGED_DURING_CAPTURE");
@@ -79,13 +88,19 @@ namespace RossDiagnostics {
                             if (image == null) throw new InvalidOperationException("DISPLAY_IMAGE_UNAVAILABLE");
                             string ended = DateTimeOffset.UtcNow.ToString("o");
                             string name = "frame-" + count.ToString("D4") + ".png";
-                            image.Save(Path.Combine(directory, name), ImageFormat.Png);
-                            bytes += new FileInfo(Path.Combine(directory, name)).Length;
+                            using (MemoryStream encoded = new MemoryStream()) {
+                                image.Save(encoded, ImageFormat.Png);
+                                if (encoded.Length > 67108864 - bytes) { failure = "CAPTURE_BYTE_LIMIT"; break; }
+                                encoded.Position = 0;
+                                using (FileStream saved = new FileStream(Path.Combine(directory, name), FileMode.CreateNew, FileAccess.Write)) {
+                                    encoded.CopyTo(saved);
+                                }
+                                bytes += encoded.Length;
+                            }
                             log.WriteLine("{\"started_utc\":\"" + began + "\",\"finished_utc\":\"" + ended
                                 + "\",\"file\":\"" + name + "\"}");
                             Interlocked.Increment(ref count);
                             ready.Set();
-                            if (bytes > 67108864) { failure = "CAPTURE_BYTE_LIMIT"; break; }
                         }
                         if (stop.WaitOne(500)) break;
                     }
@@ -110,11 +125,12 @@ namespace RossDiagnostics {
         [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr window, StringBuilder title, int length);
         [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder name, int length);
         [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
-        [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(Point point);
         [DllImport("user32.dll")] static extern bool ShowWindowAsync(IntPtr window, int command);
         [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr window, uint command);
         [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
         [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out RECT rectangle);
+        [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr window, out RECT rectangle);
+        [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr window, ref Point point);
         [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
         [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
         [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
@@ -123,6 +139,21 @@ namespace RossDiagnostics {
         [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
         public static void DpiAware() { SetProcessDPIAware(); }
         public static uint WindowProcessId(IntPtr window) { uint id; GetWindowThreadProcessId(window, out id); return id; }
+        public static bool ValidClientRegion(Rectangle region, Rectangle desktop) {
+            return region.Width >= 60 && region.Height >= 20 && region.Width <= 8192 && region.Height <= 8192
+                && (long)region.Width * region.Height <= 8388608 && desktop.Contains(region);
+        }
+        public static Rectangle ClientRegion(IntPtr window) {
+            RECT client, outer;
+            Point origin = Point.Empty;
+            if (!TwsWindow(window) || IsIconic(window) || !GetClientRect(window, out client)
+                || !ClientToScreen(window, ref origin) || !GetWindowRect(window, out outer))
+                throw new InvalidOperationException("TWS_CLIENT_AREA_UNAVAILABLE");
+            Rectangle region = new Rectangle(origin.X, origin.Y, client.Right-client.Left, client.Bottom-client.Top);
+            if (!ValidClientRegion(region, SystemInformation.VirtualScreen) || !outer.Rectangle.Contains(region))
+                throw new InvalidOperationException("TWS_CLIENT_AREA_OUT_OF_BOUNDS");
+            return region;
+        }
         public static bool Unobscured(IntPtr owner, Rectangle region) {
             // Walk windows above this exact owner in Z order, not just the
             // foreground window. Non-activating topmost notifications matter too.
@@ -185,24 +216,6 @@ namespace RossDiagnostics {
             }
             SetForegroundWindow(window);
         }
-        public static IntPtr WindowForRegion(Rectangle region) {
-            IntPtr window = GetAncestor(WindowFromPoint(new Point(region.X + region.Width/2, region.Y + region.Height/2)), 2);
-            RECT bounds;
-            if (TwsWindow(window) && !IsIconic(window) && GetWindowRect(window, out bounds)
-                && bounds.Rectangle.Contains(region)) return window;
-            // Closing the selector can return focus to the terminal. Resolve a
-            // unique supported TWS under the selected rectangle, then restore it.
-            IntPtr selected = IntPtr.Zero; int matches = 0;
-            EnumWindows(delegate(IntPtr candidate, IntPtr ignored) {
-                RECT rectangle;
-                if (TwsWindow(candidate) && !IsIconic(candidate) && GetWindowRect(candidate, out rectangle)
-                    && rectangle.Rectangle.Contains(region)) { selected = candidate; matches++; }
-                return true;
-            }, IntPtr.Zero);
-            if (matches != 1) throw new InvalidOperationException("SELECTED_REGION_IS_NOT_A_UNIQUE_SUPPORTED_TWS_WINDOW");
-            RestoreTws(selected);
-            return selected;
-        }
         public static string DiscoveryJson() {
             int visible = 0, matched = 0, minimized = 0, javaFrames = 0, namedTws = 0, nativeNames = 0, pathMatches = 0;
             EnumWindows(delegate(IntPtr window, IntPtr ignored) {
@@ -223,11 +236,12 @@ namespace RossDiagnostics {
                 + ",\"title_rule_matches\":" + namedTws + ",\"native_tws_process_windows\":" + nativeNames
                 + ",\"installation_path_matches\":" + pathMatches + "}";
         }
-        public static IntPtr FindTws() {
+        public static IntPtr FindTwsForProcess(uint expectedProcessId) {
+            if (expectedProcessId == 0) return IntPtr.Zero;
             IntPtr found = IntPtr.Zero; long area = 0;
             EnumWindows(delegate(IntPtr window, IntPtr unused) {
                 RECT rect;
-                if (TwsWindow(window) && GetWindowRect(window, out rect)) {
+                if (WindowProcessId(window) == expectedProcessId && TwsWindow(window) && GetWindowRect(window, out rect)) {
                     long candidate = (long)rect.Rectangle.Width * rect.Rectangle.Height;
                     if (candidate > area) { area = candidate; found = window; }
                 }
@@ -237,44 +251,4 @@ namespace RossDiagnostics {
         }
     }
 
-    // One drag chooses only the watchlist header and LGHL row. The temporary
-    // background stays in memory; only the chosen region is ever saved.
-    public sealed class RegionSelector : Form {
-        readonly Bitmap background;
-        readonly Point origin;
-        Point anchor;
-        Rectangle selected;
-        bool dragging;
-        public Rectangle Selected { get { return new Rectangle(selected.X + origin.X, selected.Y + origin.Y, selected.Width, selected.Height); } }
-        public RegionSelector() {
-            Rectangle desktop = SystemInformation.VirtualScreen;
-            origin = desktop.Location;
-            background = new Bitmap(desktop.Width, desktop.Height);
-            using (Graphics g = Graphics.FromImage(background))
-                g.CopyFromScreen(desktop.Location, Point.Empty, desktop.Size);
-            FormBorderStyle = FormBorderStyle.None;
-            StartPosition = FormStartPosition.Manual;
-            Bounds = desktop; TopMost = true; KeyPreview = true; DoubleBuffered = true;
-            Cursor = Cursors.Cross;
-            KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Escape) { DialogResult = DialogResult.Cancel; Close(); } };
-            MouseDown += delegate(object sender, MouseEventArgs e) { if (e.Button == MouseButtons.Left) { anchor = e.Location; dragging = true; } };
-            MouseMove += delegate(object sender, MouseEventArgs e) {
-                if (!dragging) return;
-                selected = Rectangle.FromLTRB(Math.Min(anchor.X,e.X),Math.Min(anchor.Y,e.Y),Math.Max(anchor.X,e.X),Math.Max(anchor.Y,e.Y));
-                Invalidate();
-            };
-            MouseUp += delegate(object sender, MouseEventArgs e) {
-                if (!dragging || e.Button != MouseButtons.Left) return;
-                dragging = false;
-                if (selected.Width >= 60 && selected.Height >= 20) { DialogResult = DialogResult.OK; Close(); }
-            };
-        }
-        protected override void OnPaint(PaintEventArgs e) {
-            e.Graphics.DrawImageUnscaled(background, 0, 0);
-            using (Pen pen = new Pen(Color.Red, 3)) e.Graphics.DrawRectangle(pen, selected);
-            using (Brush brush = new SolidBrush(Color.Black)) e.Graphics.FillRectangle(brush,0,0,Width,35);
-            e.Graphics.DrawString("Drag around the watchlist headers and LGHL row (include full Volume). Esc cancels.", SystemFonts.DefaultFont, Brushes.White, 10, 10);
-        }
-        protected override void Dispose(bool disposing) { if (disposing) background.Dispose(); base.Dispose(disposing); }
-    }
 }

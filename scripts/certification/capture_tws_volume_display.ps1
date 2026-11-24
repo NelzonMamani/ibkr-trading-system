@@ -25,39 +25,42 @@ $root = Join-Path 'C:\tmp' ('tws-volume-' + [guid]::NewGuid().ToString('N').Subs
 $null = New-Item -ItemType Directory -Path $root
 Write-Host ('Private automatic capture: ' + $root)
 [RossDiagnostics.Native]::DiscoveryJson() | Set-Content -LiteralPath (Join-Path $root 'window-discovery.json') -Encoding UTF8
-$window = [RossDiagnostics.Native]::FindTws()
-if ($window -ne [IntPtr]::Zero) { [RossDiagnostics.Native]::RestoreTws($window) }
-$choice = [System.Windows.Forms.MessageBox]::Show(
-    "Show $VolumeSymbol and its full native Volume in TWS. You can arrange TWS while this message is open. After OK, drag once around the watchlist headers and that row. Keep TWS visible and stationary during capture. No phone or clock is needed.",
-    'Choose TWS comparison region', [System.Windows.Forms.MessageBoxButtons]::OKCancel
-)
-if ($choice -ne [System.Windows.Forms.DialogResult]::OK) { throw 'DISPLAY_SELECTION_CANCELLED_NO_CAPTURE_STARTED' }
-# The region overlay is local selection only; it never sends input to TWS.
-if ($window -ne [IntPtr]::Zero) { [RossDiagnostics.Native]::RestoreTws($window) }
-Start-Sleep -Milliseconds 500
-$selector = New-Object RossDiagnostics.RegionSelector
-try {
-    if ($selector.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { throw 'DISPLAY_SELECTION_CANCELLED' }
-    $region = $selector.Selected
-} finally { $selector.Dispose() }
-# Bind the actual chosen TWS window, including a title that changed during setup.
-# Generic Java apps and regions outside the supported TWS window still refuse.
-Start-Sleep -Milliseconds 200
-$window = [RossDiagnostics.Native]::WindowForRegion($region)
-$null = [RossDiagnostics.Native]::SetForegroundWindow($window)
+function Get-VolumeListenerOwners {
+    try {
+        @(Get-NetTCPConnection -State Listen -LocalPort 7497 -ErrorAction Stop |
+            Where-Object { $_.LocalAddress -in @('127.0.0.1','0.0.0.0','::1','::') } |
+            Select-Object -ExpandProperty OwningProcess -Unique)
+    } catch { throw 'PAPER_API_LISTENER_QUERY_UNAVAILABLE_NO_NEW_REQUEST' }
+}
+# Passive OS binding only. No socket is opened to choose the displayed instance.
+$owners = @(Get-VolumeListenerOwners)
+$discovery = Get-Content -LiteralPath (Join-Path $root 'window-discovery.json') -Raw | ConvertFrom-Json
+$discovery | Add-Member -NotePropertyName listener_processes -NotePropertyValue $owners.Count
+$discovery | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'window-discovery.json') -Encoding UTF8
+if ($owners.Count -ne 1 -or $owners[0] -le 0) { throw 'UNIQUE_PAPER_API_LISTENER_REQUIRED_NO_CAPTURE_STARTED' }
+$listenerOwner = [uint32]$owners[0]
+$window = [RossDiagnostics.Native]::FindTwsForProcess($listenerOwner)
+if ($window -eq [IntPtr]::Zero) { throw 'LISTENER_BOUND_TWS_WINDOW_REQUIRED_NO_CAPTURE_STARTED' }
+[RossDiagnostics.Native]::RestoreTws($window)
 Start-Sleep -Milliseconds 300
 $frames = Join-Path $root 'frames'
-$recorder = [RossDiagnostics.VolumeDisplayRecorder]::FromScreen($frames, $window, $region)
+$recorder = [RossDiagnostics.VolumeDisplayRecorder]::FromWindow($frames, $window)
+Write-Host 'Capturing the TWS client area automatically. Keep it visible and stationary; no selection or recording is needed.'
+Write-Host 'Images stay local and may contain account information. Review them before sharing.'
 $output = New-Object 'System.Collections.Generic.List[string]'
 $probeFailure = $null
 $screenFailure = $null
 try {
     if (!$recorder.Start(10000)) { throw 'DISPLAY_RECORDER_NOT_READY_NO_PROBE_STARTED' }
+    $currentOwners = @(Get-VolumeListenerOwners)
+    if ($currentOwners.Count -ne 1 -or [uint32]$currentOwners[0] -ne $listenerOwner) { throw 'PAPER_API_LISTENER_CHANGED_NO_PROBE_STARTED' }
     # Retain partial output too if the existing bounded probe refuses.
     & (Join-Path $PSScriptRoot 'run_quote_transport_diagnostic.ps1') `
         -ExpectedCommit $ExpectedCommit -ExpectedTree $ExpectedTree `
         -DiagnosticProfile live-volume -VolumeSymbol $VolumeSymbol 6>&1 |
         ForEach-Object { $output.Add([string]$_); Write-Host ([string]$_) }
+    $currentOwners = @(Get-VolumeListenerOwners)
+    if ($currentOwners.Count -ne 1 -or [uint32]$currentOwners[0] -ne $listenerOwner) { throw 'PAPER_API_LISTENER_CHANGED_DURING_CAPTURE' }
 } catch { $probeFailure = $_.Exception.GetType().Name }
 finally {
     try { $recorder.Stop(); $screenFailure = $recorder.Failure }
@@ -67,7 +70,7 @@ $rootLines = @($output | Where-Object { $_ -cmatch '^live-volume diagnostic only
 $status = [ordered]@{
     schema='ROSS_TWS_VOLUME_DISPLAY_CAPTURE_V1'; status='COMPARISON_NOT_VERIFIED'
     source=$ExpectedCommit; frame_count=$count; probe_failure_type=$probeFailure
-    screen_failure_type=$screenFailure; PAPER_READY=$false
+    screen_failure_type=$screenFailure; capture_scope='TWS_CLIENT_AREA_NO_REDACTION'; PAPER_READY=$false
 }
 if ($rootLines.Count -eq 1 -and !$probeFailure -and !$screenFailure) {
     $probeRoot = $rootLines[0].Substring('live-volume diagnostic only. Fresh root: '.Length)
@@ -104,13 +107,13 @@ if ($rootLines.Count -eq 1 -and !$probeFailure -and !$screenFailure) {
         Copy-Item -LiteralPath (Join-Path $frames $item.row.file) -Destination (Join-Path $review $name)
         $selected += [ordered]@{ file=$name; started_utc=$item.row.started_utc; finished_utc=$item.row.finished_utc }
     }
-    @{ schema='ROSS_TWS_VOLUME_REVIEW_V1'; symbol=$VolumeSymbol; api_received_at_utc=$received.ToString('o'); frames=$selected } |
+    @{ schema='ROSS_TWS_VOLUME_REVIEW_V1'; symbol=$VolumeSymbol; capture_scope='TWS_CLIENT_AREA_NO_REDACTION'; api_received_at_utc=$received.ToString('o'); frames=$selected } |
         ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $review 'review-times.json') -Encoding UTF8
     # Paths and raw API numbers remain in the private local linkage, not the review images.
     @{ probe_path=$probePath; frames_path=$frames } | ConvertTo-Json |
         Set-Content -LiteralPath (Join-Path $root 'private-linkage.json') -Encoding UTF8
     $status.status = 'DISPLAY_CAPTURE_COMPLETE_UNITS_UNVERIFIED'
-    Write-Host ('Review these cropped images locally before sharing: ' + $review)
+    Write-Host ('Review these private TWS client images locally before sharing: ' + $review)
 }
 $status | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'capture-status.json') -Encoding UTF8
 Write-Host ('Private automatic capture: ' + $root)
