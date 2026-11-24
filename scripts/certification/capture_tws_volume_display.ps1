@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedCommit,
     [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedTree,
-    [ValidatePattern('^[A-Z][A-Z0-9. -]{0,14}$')][string]$VolumeSymbol = 'LGHL'
+    [ValidatePattern('^[A-Z][A-Z0-9. -]{0,14}$')][string]$VolumeSymbol = 'LGHL',
+    [string]$PythonExecutable
 )
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or
@@ -120,6 +121,8 @@ $probeFailureMessage = $null
 $screenFailure = $null
 $screenFailureCode = $null
 $screenFailureAt = $null
+$runtimeArguments = @{}
+if ($PythonExecutable) { $runtimeArguments.PythonExecutable = $PythonExecutable }
 try {
     if (!$recorder.Start(10000)) { throw 'DISPLAY_RECORDER_NOT_READY_NO_PROBE_STARTED' }
     $currentOwners = @(Get-VolumeListenerOwners)
@@ -127,7 +130,7 @@ try {
     # Retain partial output too if the existing bounded probe refuses.
     & (Join-Path $PSScriptRoot 'run_quote_transport_diagnostic.ps1') `
         -ExpectedCommit $ExpectedCommit -ExpectedTree $ExpectedTree `
-        -DiagnosticProfile live-volume -VolumeSymbol $VolumeSymbol 6>&1 |
+        -DiagnosticProfile live-volume -VolumeSymbol $VolumeSymbol @runtimeArguments 6>&1 |
         ForEach-Object { $output.Add([string]$_); Write-Host ([string]$_) }
     $currentOwners = @(Get-VolumeListenerOwners)
     if ($currentOwners.Count -ne 1 -or [uint32]$currentOwners[0] -ne $listenerOwner) { throw 'PAPER_API_LISTENER_CHANGED_DURING_CAPTURE' }
@@ -149,6 +152,8 @@ $probeReceipt = $null
 $probeOuter = $null
 $quoteDiagnostics = @()
 $quoteReadState = 'MISSING'
+$nativeVolumeStatus = $null
+$probeResultStatus = $null
 if ($rootLines.Count -eq 1) {
     $candidateRoot = $rootLines[0].Substring('live-volume diagnostic only. Fresh root: '.Length)
     # The root is emitted by our unchanged producer and must also carry its
@@ -157,6 +162,17 @@ if ($rootLines.Count -eq 1) {
     try { $probeReceipt = Get-Content -LiteralPath (Join-Path $candidateRoot 'e\result.json') -Raw | ConvertFrom-Json }
     catch { $probeReceipt = $null }
     if ($probeReceipt.accepted -ceq $ExpectedCommit -and $probeReceipt.scope -ceq 'LIVE_VOLUME_DIAGNOSTIC_ONLY') {
+        if ($probeReceipt.status -cin @('FAIL','DIAGNOSTIC_ONLY','DIAGNOSTIC_COMPLETE')) {
+            $probeResultStatus = $probeReceipt.status
+        }
+        if ($probeReceipt.native_volume_sample_status -cin @(
+            'LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED', 'ROSS_VOLUME_EVIDENCE_MISSING',
+            'ROSS_VOLUME_SOURCE_UNSUPPORTED', 'ROSS_VOLUME_DATA_NOT_LIVE',
+            'ROSS_VOLUME_SCOPE_MISMATCH', 'ROSS_VOLUME_STALE_OR_UNTIMED',
+            'ROSS_VOLUME_VALUE_INVALID', 'PAPER_RELEASE_VOLUME_NATIVE_PROBE_INCOMPLETE',
+            'PAPER_RELEASE_VOLUME_HISTORICAL_PROBE_UNVERIFIED')) {
+            $nativeVolumeStatus = $probeReceipt.native_volume_sample_status
+        }
         try { $probeOuter = Get-Content -LiteralPath (Join-Path $candidateRoot 'e\outer-status.json') -Raw | ConvertFrom-Json }
         catch { $probeOuter = $null }
         $privateProbePath = Join-Path $candidateRoot 'volume-probe.json'
@@ -184,6 +200,7 @@ $status = [ordered]@{
     probe_failure_code=$probeFailureCode; screen_failure_type=$screenFailure
     screen_failure_code=$screenFailureCode; screen_failure_at_utc=$screenFailureAt
     quote_diagnostics_read_state=$quoteReadState; quote_diagnostics=$quoteDiagnostics
+    probe_result_status=$probeResultStatus; native_volume_sample_status=$nativeVolumeStatus
     capture_scope='TWS_CLIENT_AREA_NO_REDACTION'; PAPER_READY=$false
 }
 if ($rootLines.Count -eq 1 -and !$probeFailure -and !$screenFailure) {

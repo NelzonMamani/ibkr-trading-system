@@ -61,12 +61,79 @@ def _message(body, profile='quotes'):
     return out
 
 
+# Fixed reviewed protobuf message names. Never use a payload as an import name.
+_PROTO_INCOMING = {
+    1: "TickPrice", 2: "TickSize", 4: "ErrorMessage", 46: "TickString",
+    57: "TickSnapshotEnd", 58: "MarketDataType", 3: "OrderStatus",
+    5: "OpenOrder", 53: "OpenOrdersEnd",
+}
+
+
+def _parse_proto(name, payload):
+    """Parse one bounded reviewed SDK schema; unknown fields are not coverage."""
+    from importlib import import_module
+    if len(payload) > 1048576:
+        return None
+    module = import_module("ibapi.protobuf." + name + "_pb2")
+    message = getattr(module, name)()
+    message.ParseFromString(payload)
+    known = type(message)()
+    known.CopyFrom(message)
+    known.DiscardUnknownFields()
+    if known.SerializeToString(deterministic=True) != message.SerializeToString(deterministic=True):
+        return None
+    return message
+
+
+def _protobuf_message(payload, msg_id, profile='quotes'):
+    name = _PROTO_INCOMING.get(msg_id)
+    kinds = {3: 'ORDER_STATUS', 4: 'ERROR', 5: 'ORDER', 53: 'ORDER_END'}
+    kind = kinds.get(msg_id, 'OTHER') if profile == 'final-orders' else ('QUOTE' if msg_id in _QUOTE else 'OTHER')
+    if kind == 'OTHER' or name is None:
+        return {'kind': 'OTHER'}
+    out = {'kind': kind, 'message_id': msg_id, 'schema_known': False}
+    try:
+        message = _parse_proto(name, payload)
+        if message is None:
+            return out
+        out['field_count'] = len(message.ListFields())
+        if profile == 'final-orders':
+            out['schema_known'] = True
+            return out  # No order/account identifiers leave the parser.
+        if msg_id != 4 and not message.HasField('reqId'):
+            return out
+        request_field = 'id' if msg_id == 4 else 'reqId'
+        if message.HasField(request_field):
+            out['request_id'] = getattr(message, request_field)
+        if msg_id in (1, 2, 46):
+            if not message.HasField('tickType'):
+                return out
+            out['tick_id'] = message.tickType
+        if msg_id == 4 and message.HasField('errorCode'):
+            out['error_code'] = message.errorCode
+        out['schema_known'] = True
+        return out
+    except Exception:
+        # Parser failures remain generic facts; never expose protobuf text/values.
+        return out
+
+
+def _modern_message(body, profile='quotes'):
+    if len(body) >= 4 and body[0] == 0:
+        msg_id = int.from_bytes(body[:4], 'big')
+        if msg_id > 200:
+            return _protobuf_message(body[4:], msg_id - 200, profile)
+        body = str(msg_id).encode('ascii') + b'\0' + body[4:]
+    return _message(body, profile)
+
+
 class TransportDiagnostic:
     """64 records x 4096 UTF-8 bytes, fixed saturating counters, no acquisition."""
     def __init__(self, client, *, profile='quotes'):
         if profile not in ('quotes', 'final-orders'):
             raise ValueError('Unknown transport profile')
         self.profile = profile
+        self.modern_sdk = False
         self.client = client
         self.order_window = False
         self.pending_frame_bytes = 0
@@ -165,6 +232,9 @@ class TransportDiagnostic:
                         (k in enums and v in enums[k])}
                 if event == 'sdk_identity':
                     safe['hashes'] = dict(self.hashes)
+                    if self.modern_sdk:
+                        safe['sdk_distribution'] = '10.50.2'
+                        safe['sdk_source_count'] = 235
                 if 'counters' in facts:
                     safe['counters'] = dict(self.counters)
                 if 'exception_class' in facts:
@@ -237,7 +307,11 @@ class TransportDiagnostic:
         return original
 
     def _facts(self, body):
-        facts = _message(body, self.profile)
+        facts = (_modern_message(body, self.profile) if self.modern_sdk
+                 else _message(body, self.profile))
+        if (self.modern_sdk and self.profile == 'quotes' and facts.get('kind') == 'QUOTE'
+                and facts.get('schema_known') is False):
+            self.count('unverified_quote_schema')
         if self.profile == 'final-orders' and self.order_window:
             if facts['kind'] == 'OTHER':
                 self.count('unknown_messages')
@@ -267,13 +341,71 @@ class TransportDiagnostic:
     def _wire(self, frame):
         if len(frame) < 4 or int.from_bytes(frame[:4], 'big') != len(frame)-4:
             return
+        body = frame[4:]
+        if self.modern_sdk and len(body) >= 4 and body[0] == 0:
+            message_id = int.from_bytes(body[:4], 'big')
+            if message_id > 200:
+                return self._wire_proto(body[4:], message_id - 200, len(frame))
+            normalized = str(message_id).encode('ascii') + b'\0' + body[4:]
+            return self._wire_legacy(len(normalized).to_bytes(4, 'big') + normalized, len(frame))
+        return self._wire_legacy(frame)
+
+    def _wire_proto(self, payload, message_id, wire_size):
+        if self.profile == 'final-orders':
+            if message_id == 16 and self.order_window:
+                request = _parse_proto('AllOpenOrdersRequest', payload)
+                if request is not None and not request.ListFields():
+                    self.count('order_serialized')
+                    self.record('serialized_order_query', message_id=16, field_count=0,
+                                bytes=wire_size, server_version=self.client.serverVersion())
+                    return {'message_id': 16}
+            if self.order_window:
+                self.count('order_schema_unknown')
+            return
+        if message_id != 1:
+            if message_id in (2, 59):
+                self.record('outgoing_control', message_id=message_id, bytes=wire_size)
+                return {'message_id': message_id}
+            return
+        self.quote_window = True
+        self.record('quote_window_start', counters=dict(self.counters))
+        request = _parse_proto('MarketDataRequest', payload)
+        valid = (request is not None and request.HasField('reqId') and request.HasField('contract')
+                 and request.contract.secType == 'STK' and not request.contract.comboLegs
+                 and not request.contract.HasField('deltaNeutralContract')
+                 and not request.genericTickList and not request.marketDataOptions)
+        if not valid:
+            self.count('unverified_quote_schema')
+            self.record('serialized_quote', schema_verified=False, bytes=wire_size)
+            return
+        from src.ibkr.evidence_safety import scrub_text
+        contract = request.contract
+        values = {
+            'message_id': '1', 'request_id': str(request.reqId), 'con_id': str(contract.conId),
+            'symbol': contract.symbol, 'sec_type': contract.secType, 'expiry': contract.lastTradeDateOrContractMonth,
+            'right': contract.right, 'exchange': contract.exchange, 'primary_exchange': contract.primaryExch,
+            'currency': contract.currency, 'local_symbol': contract.localSymbol, 'trading_class': contract.tradingClass,
+            'generic_ticks': request.genericTickList, 'snapshot': str(int(request.snapshot)),
+            'regulatory_snapshot': str(int(request.regulatorySnapshot)), 'options': '',
+        }
+        safe = {name: scrub_text(value) if _SAFE.fullmatch(value) else 'OMITTED_UNSAFE_OR_OVERLONG'
+                for name, value in values.items()}
+        self.count('serialized_quotes_verified')
+        self.record('serialized_quote', schema_verified=True, server_version=self.client.serverVersion(),
+                    fields=safe, bytes=wire_size)
+        return {'message_id': 1, 'request_id': request.reqId}
+
+    def _wire_legacy(self, frame, wire_size=None):
+        if len(frame) < 4 or int.from_bytes(frame[:4], 'big') != len(frame)-4:
+            return
+        wire_size = len(frame) if wire_size is None else wire_size
         fields = frame[4:].split(b'\0')
         if fields[-1:] == [b'']:
             fields.pop()
         if self.profile == 'final-orders':
             if fields == [b'16', b'1'] and self.order_window:
                 self.count('order_serialized')
-                self.record('serialized_order_query', message_id=16, field_count=2, bytes=len(frame),
+                self.record('serialized_order_query', message_id=16, field_count=2, bytes=wire_size,
                             server_version=self.client.serverVersion())
                 return {'message_id': 16}
             # Handshake/startApi/type controls are counted, not exported.
@@ -284,7 +416,7 @@ class TransportDiagnostic:
             return
         msg = _integer(fields[0])
         if msg != 1:
-            self.record('outgoing_control', message_id=msg, bytes=len(frame))
+            self.record('outgoing_control', message_id=msg, bytes=wire_size)
             return {'message_id': msg}
         self.quote_window = True
         self.record('quote_window_start', counters=dict(self.counters))
@@ -309,7 +441,7 @@ class TransportDiagnostic:
                  and pairs.get('generic_ticks') == b'' and pairs.get('options', b'') == b'')
         if not valid:
             self.count('unverified_quote_schema')
-            self.record('serialized_quote', schema_verified=False, field_count=len(fields), bytes=len(frame))
+            self.record('serialized_quote', schema_verified=False, field_count=len(fields), bytes=wire_size)
             return
         from src.ibkr.evidence_safety import scrub_text
         safe = {}
@@ -319,7 +451,7 @@ class TransportDiagnostic:
             safe[name] = scrub_text(value) if _SAFE.fullmatch(value) else 'OMITTED_UNSAFE_OR_OVERLONG'
         self.count('serialized_quotes_verified')
         self.record('serialized_quote', schema_verified=True, server_version=version,
-                    fields=safe, bytes=len(frame))
+                    fields=safe, bytes=wire_size)
         return {'message_id': 1, 'request_id': _integer(pairs['request_id'])}
 
     def __enter__(self):
@@ -328,11 +460,14 @@ class TransportDiagnostic:
             raise RuntimeError('Diagnostic requires unused disconnected client')
         self.active = True
         try:
-            if metadata.version('ibapi') != '9.81.1.post1':
-                raise RuntimeError('Unreviewed SDK distribution')
+            from src.ibkr.sdk_profile import require_supported_sdk
+            self.modern_sdk = require_supported_sdk() == '10.50.2'
             for module in (sdk, connection, decoder, reader, comm, wrapper):
                 with open(inspect.getsourcefile(module), 'rb') as source:
                     self.hashes[module.__name__] = hashlib.sha256(source.read()).hexdigest()
+            if self.modern_sdk:
+                from src.ibkr.sdk_profile import OFFICIAL_SDK_SOURCE_SHA256
+                self.hashes['official_sdk_source_tree'] = OFFICIAL_SDK_SOURCE_SHA256
             self.record('sdk_identity', distribution=metadata.version('ibapi'),
                         python=sys.version.split()[0], hashes=self.hashes, signatures={
                             'reqMktData': str(inspect.signature(sdk.EClient.reqMktData)),
@@ -420,9 +555,12 @@ class TransportDiagnostic:
                                 return result
                             handle.processMeth = checked
                             dec.msgId2handleInfo[msg_id] = handle
-                def interpret(dec, fields):
+                def interpret(dec, fields, *message_ids):
                     owner._safe('count', 'decoder_entry')
-                    fact = owner._safe('observe', owner._facts, b'\0'.join(fields)) or {'kind': 'OTHER'}
+                    body = b'\0'.join(fields)
+                    if owner.modern_sdk and len(message_ids) == 1:
+                        body = str(message_ids[0]).encode('ascii') + b'\0' + body
+                    fact = owner._safe('observe', owner._facts, body) or {'kind': 'OTHER'}
                     owner._safe('_order_stage', 'decode', fact)
                     if fact['kind'] != 'OTHER':
                         def handler_facts():
@@ -432,7 +570,7 @@ class TransportDiagnostic:
                                                       'CUSTOM' if handle and handle.processMeth else 'NONE')}
                             if handle and handle.wrapperMeth:
                                 extra['arity_ok'] = (handle.wrapperParams is not None and
-                                    len(fields)-2 == len(handle.wrapperParams)-1)
+                                    len(fields)-(1 if owner.modern_sdk else 2) == len(handle.wrapperParams)-1)
                             return extra
                         fact.update(owner._safe('observe', handler_facts) or {})
                         if owner.profile == 'final-orders' and (not fact.get('handler_known') or fact.get('handler_kind') == 'NONE' or fact.get('arity_ok') is False):
@@ -441,9 +579,39 @@ class TransportDiagnostic:
                     else:
                         owner._safe('count', 'other_messages')
                     try:
-                        result = super().interpret(fields)
+                        result = super().interpret(fields, *message_ids)
                     except BaseException as exc:
                         owner._safe('count', 'decoder_exception')
+                        if fact['kind'] != 'OTHER':
+                            owner._safe('record', 'decoder_exception', exception_class=type(exc).__name__, **fact)
+                        raise
+                    owner._safe('count', 'decoder_return')
+                    owner._safe('_order_stage', 'decoded', fact)
+                    if fact['kind'] != 'OTHER':
+                        owner._safe('record', 'decoder_return', **fact)
+                    return result
+                def processProtoBuf(dec, payload, message_id):
+                    # Modern SDK invokes its real protobuf parser exactly once;
+                    # observer facts never replace its callbacks or create values.
+                    owner._safe('count', 'decoder_entry')
+                    body = (message_id + 200).to_bytes(4, 'big') + payload
+                    fact = owner._safe('observe', owner._facts, body) or {'kind': 'OTHER'}
+                    owner._safe('_order_stage', 'decode', fact)
+                    if fact['kind'] != 'OTHER':
+                        handle = dec.msgId2handleInfoProtoBuf.get(message_id)
+                        fact.update(handler_known=handle is not None,
+                            handler_kind='CUSTOM' if handle and handle.processMeth else 'NONE')
+                        if not handle or not handle.processMeth or fact.get('schema_known') is not True:
+                            owner._safe('count', 'order_schema_unknown' if owner.profile == 'final-orders' else 'unverified_quote_schema')
+                        owner._safe('record', 'decoder_entry', **fact)
+                    else:
+                        owner._safe('count', 'other_messages')
+                    try:
+                        result = super().processProtoBuf(payload, message_id)
+                    except BaseException as exc:
+                        owner._safe('count', 'decoder_exception')
+                        if owner.profile != 'final-orders':
+                            owner._safe('count', 'unverified_quote_schema')
                         if fact['kind'] != 'OTHER':
                             owner._safe('record', 'decoder_exception', exception_class=type(exc).__name__, **fact)
                         raise
@@ -560,7 +728,9 @@ class TransportDiagnostic:
             def callback(*args, _original=original, _prefix=prefix, **kwargs):
                 if owner.order_window:
                     owner._safe('count', _prefix+'_callback_entry')
-                owner._safe('record', _prefix+'_callback', **({'error_code': args[1]} if _prefix == 'error' and len(args)>1 else {}))
+                owner._safe('record', _prefix+'_callback', **(
+                    {'error_code': args[2] if owner.modern_sdk and len(args) >= 4 else args[1]}
+                    if _prefix == 'error' and len(args)>1 else {}))
                 try:
                     value = _original(*args, **kwargs)
                 except BaseException as exc:

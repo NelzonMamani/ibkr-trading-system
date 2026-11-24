@@ -5,6 +5,7 @@ from math import isfinite
 import os
 
 from src.domain.quote_freshness import quote_time_rejection
+from src.ibkr.sdk_profile import SUPPORTED_DIAGNOSTIC_SDKS
 
 VERIFIED_SHARE_UNIT = "SHARES"
 READ_ONLY_VOLUME_DIAGNOSTIC = "VOLUME_UNVERIFIED_READ_ONLY_DIAGNOSTIC"
@@ -21,7 +22,7 @@ def native_stock_volume_rejection(evidence, *, client_id=None, connection_epoch=
     if not isinstance(evidence, Mapping):
         return "ROSS_VOLUME_EVIDENCE_MISSING"
     if (evidence.get("source") != "IBKR_NATIVE_TICK_SIZE"
-            or evidence.get("sdk_distribution") != "9.81.1.post1"
+            or evidence.get("sdk_distribution") not in SUPPORTED_DIAGNOSTIC_SDKS
             or evidence.get("session_basis") != "IBKR_CURRENT_TRADING_DAY_CUMULATIVE"
             or evidence.get("security_type") != "STK" or evidence.get("currency") != "USD"
             or evidence.get("primary_exchange") not in US_PRIMARY_EXCHANGES):

@@ -23001,3 +23001,101 @@ Actual successful paired TWS/API evidence and share/daily-RTH unit comparisons
 remain unproved. PR1253 remains unmerged until applicable full checks pass;
 accepted mainccbb382b and all five legacy ownership vetoes remain.
 PAPER_READY=NO.
+
+### November 24: identify code2176 and stage the official SDK READ_ONLY profile
+
+The next actual run on802278c180508ccb282859a61facd8e96ceeffe8 retained41frames
+in C:\tmp\tws-volume-ef0e0e24 with no screen failure. API root is
+C:\tmp\qtransport-be1c3bf0, source worktree C:\tmp\tws-volume-source-fd6fdd97.
+SnapshotEnd arrived; requested/returned typeLIVE; all five fields present;
+age0.366537seconds. The one retained broker code is2176, which keeps
+qualification false and effectiveexit2. The automated safe report/clipboard
+worked. This run resolves the current screen-acquisition failure; it does
+not prove the cause of the earlier37frame screen interruption or establish
+volume/history/calibration/PAPER readiness.
+
+Official IBKR error documentation identifies2176 as unsupported fractional
+size rules with a size trimmed and recommends an API upgrade:
+https://www.interactivebrokers.com/docs/tws-api/doc/error/codes
+The current diagnostic correctly refuses potentially altered data. Which
+size field was trimmed is not proved. Do not clear brokerErrors, ignore2176,
+rewrite old receipts, claim it is a subscription failure or merely raise the
+old SDK protocol ceiling. History remained gated, so the retained files
+cannot establish a completed20-day unit comparison.
+
+Downloaded official stable API1050.02 to match TWS10.50 family from
+https://interactivebrokers.github.io/downloads/twsapi_macunix.1050.02.zip
+Verified archive11412955bytes/SHA256
+673129e5cba58c4d77bc40647265f84ea42f605eccf88fa4c1221d62d12454f3.
+Its Python distribution is10.50.2, requiresprotobuf5.29.5 and contains235
+Python source files; sorted relative-path/NUL/content-SHA/newline tree digest
+72dccfacba1295b3e4c45d5c97cf160cdb2e86d95b92de2ff408610f570b208b.
+Official10.52.01 was also inspected and has the same relevant migration
+surfaces. The selected stable SDK changes errorTime callbacks, commission
+names, Decimal sizes, send/decoder signatures and protobuf framing; it is
+not a drop-in replacement for9.81.1.post1.
+
+The staged profile adds backward-compatible data/observer support and attests
+the exact modern package sources/dependency. Decimal quantities retain exact
+integral JSON integers; fractional/nonfinite raw values remain explicit
+unverified text and cannot mint share/ADV20 authority through float rounding.
+The actual modern decoder forwards to the existing owned callbacks. Numeric
+errorCode is normalized without exporting errorTime as code or rejectionJSON.
+The commission callback bridge does not borrow the old eight-field zero-fee
+witness. Modern native clients require explicitREAD_ONLY; every six public
+legacy/protobuf order mutation entry is audited and independently refused
+for the modern profile even if execution flags are enabled. Legacy execution
+and its existing source/commission proof remain intact; modern order/fee
+certification is still a separate required task, not silently inherited.
+
+The preparer verifies the official archive and extraction paths, creates a
+wholly new venv in a fresh immediate C:\tmp child and validates its installed
+profile. It preserves the old interpreter/environment/project and runs no
+samples or broker acquisition. The existing display/probe owners gain one
+optional explicitPythonExecutable argument; default legacy behavior stays.
+The new native Windows CI job performs actual isolated preparation, checks
+base pip inventory unchanged and runs the modern compatibility controls.
+
+Local verification:48 modern-profile focused tests passed (actual protobuf/
+legacy decoder and transport fixtures, exact Decimal/history, profile/source
+attestation, safe preparer, and all mutation entrypoint refusals). Legacy
+focused sets passed, including159passes/13modernskips from the native review,
+143passes/1modernskip and4READ_ONLY guard checks from coordinator checks.
+Two author-independent reviews are being finalized; changed-head native
+Windows preparation/controls and full required CI remain pending. No local
+broker call, user environment update or new laptop capture occurred here.
+Preserve all earlier roots. The old802278 capture caller is now superseded;
+do not ask for another run until the new SDK candidate's applicable checks
+pass. PAPER_READY=NO; five legacy ownership vetoes and operational readiness
+requirements remain unchanged.
+
+
+November24 native Windows correction: official-sdk run45442862235/job138618491035
+on03e83e4 successfully downloaded/verified the pinned archive, created the real
+isolated10.50.2 environment and verified the base pip inventory was unchanged.
+Its tests reported47passed/1failed: the hostile-backslash ZIP fixture was
+normalized by Windows ZipInfo before writing, so it did not represent the raw
+unsafe filename it claimed to test. This is a failed verification receipt,
+not full acceptance. The fixture now writes explicit raw ZipInfo names; the
+extractor validates orig_filename as well as filename and refuses separator
+normalization/NUL truncation. Added an actual raw-NUL case. All49 local modern
+controls pass. The status also exposes validated enum-only native volume/probe
+statuses automatically, so a future precision/history refusal is actionable
+without another retained-file inspection command. The03e83e4 exact-head bot
+review was clear; changed-head native/full CI and review must be checked anew.
+
+
+November24 follow-up verification:6c076aa19698843fd026d5b601e44a577038c1b2
+passed the actual native Windows official-SDK preparation and49controls in
+CI45444136438/job138623109494 at17:05:40UTC (merge checkout71dda13), including
+unchanged base package inventory. Its exact-head bot review had no findings.
+The separate legacy Windows focused check ran139Python tests successfully
+but its PowerShell contract still required exactly4parameters and rejected
+the newly added optionalPythonExecutable parameter. The coordinator missed
+that older parser assertion when adding the runtime option. It now checks
+the explicit5parameter API and executes only actual binding/runtime-selection
+AST fragments to prove the old pinned default and the explicit modern runtime
+both route correctly, without launching any child/broker. This follow-up
+changes the contract test and checkpoint only; SDK/runtime source is unchanged.
+Changed-head native/required CI and review remain to be checked. No new local
+TWS capture or trading readiness has been granted. PAPER_READY=NO.
