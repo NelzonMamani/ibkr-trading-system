@@ -1359,7 +1359,10 @@ class TradeLifecycleEngine:
                 and value.isalpha() and value == value.upper())
 
     def _native_fee_rows(self, observations, requirement, *, now, source_client) -> tuple[dict[str, Any], ...]:
-        from ibapi.common import UNSET_DOUBLE
+        try:
+            from ibapi.common import UNSET_DOUBLE
+        except ImportError:
+            from ibapi.const import UNSET_DOUBLE  # Official SDK 10.50 moved constants.
         if type(observations) is not tuple:
             raise ValueError("NATIVE_FEE_SOURCE_ROWS_REQUIRED")
         expected = {row["execution_id"]: row for row in requirement["executions"]}

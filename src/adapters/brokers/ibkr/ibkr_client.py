@@ -36,6 +36,12 @@ from ibapi.decoder import Decoder as _SDKDecoder
 from ibapi.message import IN as _SDK_IN
 from ibapi.utils import decode as _SDKDecode
 try:
+    from ibapi.execution import OptionExerciseType as _SDKOptionExerciseType
+except ImportError:
+    _SDKOptionExerciseType = None
+_SDK_OPTION_EXERCISE_MEMBERS = (tuple((member, member.value) for member in _SDKOptionExerciseType)
+    if _SDKOptionExerciseType is not None else ())
+try:
     from ibapi.commission_report import CommissionReport as _SDKCommissionReport
 except ModuleNotFoundError as _commission_import_error:
     if _commission_import_error.name != "ibapi.commission_report":
@@ -65,10 +71,25 @@ from src.ibkr.volume_calibration import HISTORICAL_BASIS, load_paper_volume_cali
 
 
 SDK_COMMISSION_PRESENCE_SOURCE = "IBKR_SDK_DECODER"
-SDK_COMMISSION_SCHEMA = "IBAPI_9_81_1_POST1_COMMISSION_8_FIELDS"
+try:
+    _SDK_COMMISSION_MODERN = _sdk_distribution_version("ibapi") == "10.50.2"
+except Exception:
+    _SDK_COMMISSION_MODERN = False
+# A process-specific semantic profile covers the two reviewed SDK encodings.
+# The original legacy profile and its eight-field interpretation are unchanged.
+SDK_COMMISSION_SCHEMA = ("IBAPI_10_50_2_COMMISSION_FEES" if _SDK_COMMISSION_MODERN
+    else "IBAPI_9_81_1_POST1_COMMISSION_8_FIELDS")
 _SDK_COMMISSION_PROCESS = getattr(_SDKDecoder, "processCommissionReportMsg", None)
 _SDK_COMMISSION_CODE = getattr(_SDK_COMMISSION_PROCESS, "__code__", None)
 _SDK_COMMISSION_SOURCE_SHA256 = "624d4881337a7ed0551c225182b7ce5281d34c18dd8b79f965e63e88618914e2"
+_SDK_FEES_PROCESS = getattr(_SDKDecoder, "processCommissionAndFeesReportMsg", None)
+_SDK_FEES_PROTO_PROCESS = getattr(_SDKDecoder, "processCommissionAndFeesReportMsgProtoBuf", None)
+_SDK_FEES_CODE = getattr(_SDK_FEES_PROCESS, "__code__", None)
+_SDK_FEES_PROTO_CODE = getattr(_SDK_FEES_PROTO_PROCESS, "__code__", None)
+_SDK_FEES_PROTO_CLASS = (getattr(_SDK_FEES_PROTO_PROCESS, "__globals__", {})
+    .get("CommissionAndFeesReportProto"))
+_SDK_FEES_SOURCE_SHA256 = "db172921859bbdc8d2762224e80687b7f2abc1a35599f1311b1ca104ada72350"
+_SDK_FEES_PROTO_SOURCE_SHA256 = "953ffbb7f062b216126f09448dba1479350805989a9e533e5d74177ac2ad4df0"
 _COMMISSION_PRESENCE_FIELDS = (
     "commission_field_present", "commission_presence_source", "commission_decoder_schema",
     "commission_client_object_id", "commission_decoder_object_id", "commission_decoder_epoch",
@@ -77,6 +98,13 @@ _COMMISSION_PRESENCE_FIELDS = (
 
 def _commission_sdk_schema_supported():
     try:
+        if _SDK_COMMISSION_MODERN:
+            from src.ibkr.sdk_profile import require_supported_sdk
+            return (require_supported_sdk() == "10.50.2" and _commission_sdk_runtime_valid()
+                and hashlib.sha256(inspect.getsource(_SDK_FEES_PROCESS).encode()).hexdigest()
+                    == _SDK_FEES_SOURCE_SHA256
+                and hashlib.sha256(inspect.getsource(_SDK_FEES_PROTO_PROCESS).encode()).hexdigest()
+                    == _SDK_FEES_PROTO_SOURCE_SHA256)
         return (_sdk_distribution_version("ibapi") == "9.81.1.post1"
             and _SDK_COMMISSION_CODE is not None
             and _SDK_COMMISSION_PROCESS.__code__ is _SDK_COMMISSION_CODE
@@ -86,6 +114,24 @@ def _commission_sdk_schema_supported():
                 == _SDK_COMMISSION_SOURCE_SHA256)
     except Exception:
         return False
+
+
+def _commission_sdk_runtime_valid():
+    if not _SDK_COMMISSION_MODERN:
+        return (_SDK_COMMISSION_PROCESS is not None
+            and _SDK_COMMISSION_PROCESS.__code__ is _SDK_COMMISSION_CODE
+            and _SDK_COMMISSION_PROCESS.__globals__.get("decode") is _SDKDecode
+            and _SDK_COMMISSION_PROCESS.__globals__.get("CommissionReport") is _SDKCommissionReport)
+    return (_SDK_FEES_CODE is not None and _SDK_FEES_PROTO_CODE is not None
+        and getattr(_SDKDecoder, "processCommissionAndFeesReportMsg", None) is _SDK_FEES_PROCESS
+        and getattr(_SDKDecoder, "processCommissionAndFeesReportMsgProtoBuf", None) is _SDK_FEES_PROTO_PROCESS
+        and _SDK_FEES_PROCESS.__code__ is _SDK_FEES_CODE
+        and _SDK_FEES_PROTO_PROCESS.__code__ is _SDK_FEES_PROTO_CODE
+        and _SDK_FEES_PROCESS.__globals__.get("decode") is _SDKDecode
+        and _SDK_FEES_PROCESS.__globals__.get("CommissionAndFeesReport") is _SDKCommissionReport
+        and _SDK_FEES_PROTO_PROCESS.__globals__.get("CommissionAndFeesReport") is _SDKCommissionReport
+        and _SDK_FEES_PROTO_CLASS is not None
+        and _SDK_FEES_PROTO_PROCESS.__globals__.get("CommissionAndFeesReportProto") is _SDK_FEES_PROTO_CLASS)
 
 
 class _CommissionDecoderProxy:
@@ -206,6 +252,124 @@ class _CommissionDecoderProxy:
         return dict(zip(_COMMISSION_PRESENCE_FIELDS, (
             context["present"], SDK_COMMISSION_PRESENCE_SOURCE, SDK_COMMISSION_SCHEMA,
             id(self.owner), id(self.decoder), self.epoch, 1, threading.get_ident())))
+
+
+class _OfficialCommissionDecoderProxy(_CommissionDecoderProxy):
+    """Wire presence for the exact official 10.50.2 fee decoder profile."""
+    def __init__(self, owner, decoder):
+        super().__init__(owner, decoder)
+        self.process_proto = self._process_proto
+
+    def _eligible(self, decoder):
+        return (decoder is self.decoder and getattr(self.local, "context", None) is None
+            and getattr(self.local, "forward", None) is None
+            and self.owner._commission_decoder_current(self, require_thread=True))
+
+    def _process(self, decoder, fields):
+        frozen = tuple(fields)
+        supported = (len(frozen) == 7 and all(type(value) is bytes for value in frozen)
+            and self._eligible(decoder))
+        facts = {"fields": frozen, "present": frozen[2] != b"", "encoding": "FIELDS"} if supported else None
+        return self._run(_SDK_FEES_PROCESS, decoder, iter(frozen), facts)
+
+    def _process_proto(self, decoder, payload):
+        facts = None
+        if type(payload) is bytes and len(payload) <= 1024 * 1024 and self._eligible(decoder):
+            try:
+                message = _SDK_FEES_PROTO_CLASS()
+                message.ParseFromString(payload)
+                clean = _SDK_FEES_PROTO_CLASS()
+                clean.CopyFrom(message)
+                clean.DiscardUnknownFields()
+                if clean.SerializeToString() == message.SerializeToString():
+                    facts = {"encoding": "PROTOBUF", "present": message.HasField("commissionAndFees"),
+                        "exec_id": message.execId, "currency": message.currency,
+                        "amount": message.commissionAndFees}
+            except Exception:
+                pass  # The untouched SDK below owns decoding errors and callbacks.
+        return self._run(_SDK_FEES_PROTO_PROCESS, decoder, payload, facts)
+
+    def _run(self, process, decoder, payload, facts):
+        if facts is None:
+            self.owner._commission_zero_disabled = True
+        previous = getattr(self.local, "context", None)
+        context = ({**facts, "thread": threading.get_ident(), "complete": False,
+            "pending_zero": None, "zero_claimed": False} if facts is not None else None)
+        self.local.context = context
+        try:
+            result = process(decoder, payload)
+            if context is not None:
+                context["complete"] = True
+        except BaseException:
+            self.owner._commission_zero_disabled = True
+            if context is not None:
+                context["pending_zero"] = None
+            raise
+        finally:
+            self.local.context = previous
+        pending = context.pop("pending_zero") if context is not None else None
+        if pending is not None:
+            corroborated = None
+            if not context["zero_claimed"] and self._corroborated_projection(context, pending) == "ZERO":
+                context["zero_claimed"] = True
+                corroborated = context
+            self.local.context = None
+            try:
+                self._forward(pending, corroborated)
+            finally:
+                self.local.context = previous
+        return result
+
+    def _corroborated_projection(self, context, report):
+        if (context is None or type(report) is not _SDKCommissionReport
+                or type(report.execId) is not str or type(report.currency) is not str
+                or type(report.commissionAndFees) is not float
+                or not math.isfinite(report.commissionAndFees) or report.commissionAndFees != 0.0
+                or not self.owner._commission_decoder_current(self, require_thread=True)):
+            return None
+        if context["encoding"] == "PROTOBUF":
+            if (report.execId != context["exec_id"] or report.currency != context["currency"]
+                    or report.commissionAndFees != context["amount"]):
+                return None
+            return "ZERO" if context["present"] else "EMPTY"
+        try:
+            if (report.execId.encode("ascii") != context["fields"][1]
+                    or report.currency.encode("ascii") != context["fields"][3]):
+                return None
+        except UnicodeEncodeError:
+            return None
+        raw_amount = context["fields"][2]
+        return "EMPTY" if raw_amount == b"" else "ZERO" if raw_amount in (b"0", b"0.0") else None
+
+    def commissionAndFeesReport(self, report):
+        context = getattr(self.local, "context", None)
+        frame = inspect.currentframe()
+        caller = frame.f_back if frame is not None else None
+        try:
+            sdk_origin = (caller is not None
+                and any(caller.f_code is code for code in (_SDK_FEES_CODE, _SDK_FEES_PROTO_CODE))
+                and caller.f_locals.get("self") is self.decoder
+                and caller.f_locals.get("commissionAndFeesReport") is report)
+        finally:
+            del caller, frame  # Do not retain the parser's mutable frame/report.
+        projection = self._corroborated_projection(context, report) if sdk_origin else None
+        if projection == "ZERO":
+            context["pending_zero"] = report
+            return None
+        if context is not None:
+            # The raw-protobuf callback precedes the actual SDK projection.
+            # A synthetic early matching object cannot outlive a mismatching
+            # final SDK report from that same mutable protobuf callback.
+            context["pending_zero"] = None
+        return self._forward(report, context if projection == "EMPTY" else None)
+
+    def _forward(self, report, corroborated):
+        previous = getattr(self.local, "forward", None)
+        self.local.forward = {"report": report, "context": corroborated, "used": False}
+        try:
+            return self.owner.commissionAndFeesReport(report)
+        finally:
+            self.local.forward = previous
 
 
 @dataclass(frozen=True)
@@ -444,6 +608,14 @@ def _local_native_value(value):
     from ibapi.softdollartier import SoftDollarTier
     from ibapi.execution import Execution
     from ibapi.order_state import OrderState
+    if _SDKOptionExerciseType is not None and type(value) is _SDKOptionExerciseType:
+        raw = value.value
+        if (not _SDK_COMMISSION_MODERN or type(raw) is not tuple or len(raw) != 2
+                or type(raw[0]) is not int or type(raw[1]) is not str
+                or not any(value is member and raw == original
+                    for member, original in _SDK_OPTION_EXERCISE_MEMBERS)):
+            raise RuntimeError("P02_LOCAL_UNSUPPORTED_NATIVE_VALUE")
+        return ("OptionExerciseType", _local_native_value(raw))
     if type(value) is float and not math.isfinite(value):
         raise RuntimeError("P02_LOCAL_NONFINITE_NATIVE_VALUE")
     if type(value) in (str, int, float, bool, bytes, type(None)):
@@ -1042,6 +1214,36 @@ class IbkrClient(EWrapper, EClient):
                 lease.abort()
             raise
 
+    @staticmethod
+    def _official_order_cancel(value):
+        from ibapi.order_cancel import OrderCancel
+
+        if value is None:
+            return OrderCancel()
+        if type(value) is str:
+            request = OrderCancel()
+            request.manualOrderCancelTime = value
+            return request
+        if type(value) is not OrderCancel:
+            raise TypeError("IBKR_ORDER_CANCEL_ARGUMENT_INVALID")
+        return value
+
+    def cancelOrder(self, orderId, orderCancel=None):  # type: ignore[override]
+        # The audited SDK boundary owns the one mutation count and the current
+        # PAPER/account checks, including its immediate protobuf delegation.
+        if _sdk_distribution_version("ibapi") == "10.50.2":
+            return super().cancelOrder(orderId, self._official_order_cancel(orderCancel))
+        if orderCancel is not None:
+            raise TypeError("IBKR_LEGACY_ORDER_CANCEL_ARGUMENT_UNSUPPORTED")
+        return super().cancelOrder(orderId)
+
+    def reqGlobalCancel(self, orderCancel=None):  # type: ignore[override]
+        if _sdk_distribution_version("ibapi") == "10.50.2":
+            return super().reqGlobalCancel(self._official_order_cancel(orderCancel))
+        if orderCancel is not None:
+            raise TypeError("IBKR_LEGACY_ORDER_CANCEL_ARGUMENT_UNSUPPORTED")
+        return super().reqGlobalCancel()
+
     def __init__(
         self,
         host: str,
@@ -1051,14 +1253,13 @@ class IbkrClient(EWrapper, EClient):
         market_data_type: str,
         readonly_enabled: bool,
     ):
-        # Modern SDK support is deliberately acquisition-only until its order,
-        # cancellation and commission-presence profiles are separately certified.
-        # Legacy execution behavior and the old exact decoder witness stay intact.
+        # Mutable modern clients require an explicit local PAPER endpoint. Every
+        # mutation additionally verifies the connected account and existing gates.
         if _sdk_distribution_version("ibapi") == "10.50.2":
-            from src.ibkr.sdk_profile import require_supported_sdk
+            from src.ibkr.sdk_profile import require_sdk_paper_connection, require_supported_sdk
             require_supported_sdk()
             if readonly_enabled is not True:
-                raise RuntimeError("IBKR_OFFICIAL_SDK_EXECUTION_NOT_CERTIFIED")
+                require_sdk_paper_connection(host, port)
         lifetime = self._initialize_local_source_lifetime()
         EWrapper.__init__(self)
         EClient.__init__(self, wrapper=self)
@@ -1289,7 +1490,10 @@ class IbkrClient(EWrapper, EClient):
         supplies neither root/strategy nor account/security. Receipt time is
         local observation time, not a fill timestamp or economic-day allocation.
         """
-        from ibapi.common import UNSET_DOUBLE
+        try:
+            from ibapi.common import UNSET_DOUBLE
+        except ImportError:
+            from ibapi.const import UNSET_DOUBLE  # Official SDK 10.50 moved constants.
 
         def currency_valid(value):
             return (isinstance(value, str) and len(value) == 3 and value.isascii()
@@ -1449,7 +1653,9 @@ class IbkrClient(EWrapper, EClient):
         # before this native owner starts the decoder loop. No reconnect rearm.
         from ibapi import decoder as sdk_decoder
         with self._lock:
-            message_id = getattr(_SDK_IN, "COMMISSION_REPORT", None)
+            message_id = getattr(_SDK_IN, "COMMISSION_AND_FEES_REPORT" if _SDK_COMMISSION_MODERN else "COMMISSION_REPORT", None)
+            if _SDK_COMMISSION_MODERN and isinstance(message_id, _SDK_IN):
+                message_id = message_id.value
             handle_type = getattr(sdk_decoder, "HandleInfo", None)
             # Optional private SDK capability: unsupported installations retain
             # the preexisting connection/callback APIs with ZERO unavailable.
@@ -1459,10 +1665,14 @@ class IbkrClient(EWrapper, EClient):
                 return
             decoder = getattr(self, "decoder", None)
             handle = getattr(decoder, "msgId2handleInfo", {}).get(message_id)
+            proto_handle = getattr(decoder, "msgId2handleInfoProtoBuf", {}).get(message_id)
+            process = _SDK_FEES_PROCESS if _SDK_COMMISSION_MODERN else _SDK_COMMISSION_PROCESS
             eligible = (not self._commission_zero_disabled and self._commission_connection_attempts == 1
                 and self._thread is None and self.msg_queue is self._commission_constructor_queue
                 and decoder is not None and decoder.wrapper is self
-                and handle is not None and handle.processMeth is _SDK_COMMISSION_PROCESS
+                and handle is not None and handle.processMeth is process
+                and (not _SDK_COMMISSION_MODERN or (proto_handle is not None
+                    and proto_handle.processMeth is _SDK_FEES_PROTO_PROCESS))
                 and self.reader is not None and self.reader.msg_queue is self.msg_queue
                 and self.reader.conn is self.conn and self.is_connected()
                 and type(self.client_id) is int and type(self.clientId) is int
@@ -1472,9 +1682,13 @@ class IbkrClient(EWrapper, EClient):
             if not eligible:
                 self._commission_zero_disabled = True
                 return
-            proxy = _CommissionDecoderProxy(self, decoder)
+            proxy_type = _OfficialCommissionDecoderProxy if _SDK_COMMISSION_MODERN else _CommissionDecoderProxy
+            proxy = proxy_type(self, decoder)
             decoder.msgId2handleInfo = dict(decoder.msgId2handleInfo)
             decoder.msgId2handleInfo[message_id] = handle_type(proc=proxy.process)
+            if _SDK_COMMISSION_MODERN:
+                decoder.msgId2handleInfoProtoBuf = dict(decoder.msgId2handleInfoProtoBuf)
+                decoder.msgId2handleInfoProtoBuf[message_id] = handle_type(proc=proxy.process_proto)
             decoder.wrapper = proxy
             self._commission_decoder_proxy = proxy
 
@@ -1483,7 +1697,9 @@ class IbkrClient(EWrapper, EClient):
             if self._commission_zero_disabled:
                 return False
             handle = getattr(self.decoder, "msgId2handleInfo", {}).get(
-                getattr(_SDK_IN, "COMMISSION_REPORT", None))
+                getattr(_SDK_IN, "COMMISSION_AND_FEES_REPORT" if _SDK_COMMISSION_MODERN else "COMMISSION_REPORT", None))
+            proto_handle = getattr(self.decoder, "msgId2handleInfoProtoBuf", {}).get(
+                getattr(_SDK_IN, "COMMISSION_AND_FEES_REPORT", None))
             valid = (self._commission_decoder_proxy is proxy and self.decoder is proxy.decoder
                 and self.decoder.wrapper is proxy and self.msg_queue is proxy.queue
                 and self.msg_queue is self._commission_constructor_queue and self.reader is proxy.reader
@@ -1496,9 +1712,9 @@ class IbkrClient(EWrapper, EClient):
                 and type(self._position_connection_epoch) is int and self._position_connection_epoch == proxy.epoch
                 and self.decoder.serverVersion == proxy.server_version == self.serverVersion()
                 and handle is not None and handle.processMeth is proxy.process
-                and _SDK_COMMISSION_PROCESS.__code__ is _SDK_COMMISSION_CODE
-                and _SDK_COMMISSION_PROCESS.__globals__.get("decode") is _SDKDecode
-                and _SDK_COMMISSION_PROCESS.__globals__.get("CommissionReport") is _SDKCommissionReport
+                and (not _SDK_COMMISSION_MODERN or (proto_handle is not None
+                    and proto_handle.processMeth is proxy.process_proto))
+                and _commission_sdk_runtime_valid()
                 and self.is_connected() and not self._stop_event.is_set()
                 and self._position_transport_available)
             if not valid:
@@ -4284,7 +4500,12 @@ class IbkrClient(EWrapper, EClient):
         # The official SDK renamed both the report and its amount. Reuse the
         # existing receipt owner without borrowing the old eight-field proof.
         # In particular an absent/default zero remains UNKNOWN, not a free trade.
-        self._commission_zero_disabled = True
+        if _SDK_COMMISSION_MODERN and type(report) is _SDKCommissionReport:
+            # Keep the exact SDK object through single-use witness consumption.
+            # Direct/unowned callbacks have no decoder receipt to consume.
+            if self._commission_decoder_proxy is None:
+                self._commission_zero_disabled = True
+            return self.commissionReport(report)
         projected = SimpleNamespace(
             execId=getattr(report, "execId", None),
             commission=getattr(report, "commissionAndFees", None),
@@ -4295,7 +4516,9 @@ class IbkrClient(EWrapper, EClient):
     def commissionReport(self, commissionReport):  # type: ignore[override]
         wire_witness = self._consume_commission_witness(commissionReport)
         exec_id = getattr(commissionReport, "execId", None)
-        commission = getattr(commissionReport, "commission", None)
+        commission = (commissionReport.commissionAndFees
+            if _SDK_COMMISSION_MODERN and type(commissionReport) is _SDKCommissionReport
+            else getattr(commissionReport, "commission", None))
         raw_currency = getattr(commissionReport, "currency", None)
         # Bind reception before diagnostics/conversion can interleave a new
         # connection scope. Never label an old callback with a later epoch.

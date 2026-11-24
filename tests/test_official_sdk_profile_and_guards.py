@@ -1,4 +1,4 @@
-"""The official data profile cannot acquire execution authority from runtime flags."""
+"""An attested official SDK still requires the explicit exclusive PAPER scope."""
 from importlib import metadata
 from types import SimpleNamespace
 
@@ -67,7 +67,60 @@ def test_official_profile_all_public_mutation_entries_refuse_even_with_execution
     ]
     for call, category in calls:
         before = mutation_audit.snapshot()
-        with pytest.raises(RuntimeError, match="OFFICIAL_SDK_EXECUTION_NOT_CERTIFIED"):
+        with pytest.raises(RuntimeError, match="OFFICIAL_SDK_PAPER_SCOPE_UNVERIFIED"):
             call()
         expected = dict(before); expected[category] += 1
         assert mutation_audit.snapshot() == expected
+
+
+@pytest.mark.parametrize("mode,host,port", [
+    ("LIVE", "127.0.0.1", 7497), ("SIM", "127.0.0.1", 7497),
+    ("READ_ONLY", "127.0.0.1", 7497), ("PAPER", "localhost", 7497),
+    ("PAPER", "127.0.0.1", 7496), ("PAPER", "127.0.0.1", "7497"),
+    ("PAPER", "192.0.2.1", 7497),
+])
+def test_modern_paper_construction_rejects_other_modes_and_endpoints(monkeypatch, mode, host, port):
+    from src.config import runtime_config
+    monkeypatch.setattr(profile, "require_supported_sdk", lambda: profile.OFFICIAL_SDK_VERSION)
+    monkeypatch.setattr(runtime_config, "_resolve_runtime_authority", lambda: (mode, True))
+    with pytest.raises(RuntimeError, match="PAPER_SCOPE_UNVERIFIED"):
+        profile.require_sdk_paper_connection(host, port)
+
+
+def test_modern_paper_construction_does_not_require_or_grant_order_execution(monkeypatch):
+    from src.config import runtime_config
+    monkeypatch.setattr(profile, "require_supported_sdk", lambda: profile.OFFICIAL_SDK_VERSION)
+    monkeypatch.setattr(runtime_config, "_resolve_runtime_authority", lambda: ("PAPER", False))
+    profile.require_sdk_paper_connection("127.0.0.1", 7497)
+    with pytest.raises(RuntimeError, match="PAPER_SCOPE_UNVERIFIED"):
+        profile.require_sdk_execution_profile()
+
+
+@pytest.mark.parametrize("accounts,complete,connected,transport,order_account", [
+    ([], True, True, True, ""), (["U10001"], True, True, True, ""),
+    (["DU10001", "DU10002"], True, True, True, ""),
+    (["DU10001", "DU10001"], True, True, True, ""),
+    (["DU10001"], False, True, True, ""), (["DU10001"], True, False, True, ""),
+    (["DU10001"], True, True, False, ""), (["DU10001"], True, True, True, "U10001"),
+    (["DU10001"], True, True, True, "DU10002"), ([" DU10001"], True, True, True, ""),
+])
+def test_modern_paper_mutation_requires_current_exclusive_owned_account_scope(
+        monkeypatch, accounts, complete, connected, transport, order_account):
+    import threading
+    from src.config import runtime_config
+    monkeypatch.setattr(profile, "require_supported_sdk", lambda: profile.OFFICIAL_SDK_VERSION)
+    monkeypatch.setattr(runtime_config, "_resolve_runtime_authority", lambda: ("PAPER", True))
+    event = threading.Event()
+    if complete:
+        event.set()
+    client = SimpleNamespace(host="127.0.0.1", port=7497, _managed_accounts=accounts,
+        _managed_accounts_event=event, isConnected=lambda: connected,
+        _position_transport_available=transport, _stop_event=threading.Event(), readonly_enabled=False)
+    with pytest.raises(RuntimeError, match="PAPER_SCOPE_UNVERIFIED"):
+        profile.require_sdk_execution_profile(client, order_account=order_account)
+
+
+def test_legacy_profile_retains_existing_execution_contract(monkeypatch):
+    monkeypatch.setattr(profile, "require_supported_sdk", lambda: profile.LEGACY_SDK_VERSION)
+    profile.require_sdk_paper_connection("legacy-existing-host", 4002)
+    profile.require_sdk_execution_profile()

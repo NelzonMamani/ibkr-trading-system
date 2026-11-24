@@ -1451,7 +1451,11 @@ def _pristine_native_quote_facts(h, monkeypatch, row):
     for key,value in dict(symbol='JPM',conId=123,exchange='SMART',currency='USD',secType='STK',localSymbol='JPM').items():
         setattr(supplied.contract,key,value)
     supplied.longName = CANDIDATE.company_name
-    def read_transport(message):
+    def read_transport(message, body=None):
+        # The official SDK supplies the message id separately. Reconstruct the
+        # same supplied read packet; this fixture still has no socket writer.
+        if body is not None:
+            message = str(message) + '\0' + body
         fields = message.split('\0')
         opcode = int(fields[0])
         transport.append(opcode)

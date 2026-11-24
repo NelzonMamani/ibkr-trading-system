@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import atexit
+from enum import Enum
 from contextlib import contextmanager
 from pathlib import Path
 import sys
@@ -20,7 +21,9 @@ _ACCOUNT_PATTERN = re.compile(r"(?<![A-Za-z0-9])(?:DU|U|DF|F)[0-9]{5,}(?![A-Za-z
 
 
 def register_account(value):
-    if isinstance(value, str):
+    if isinstance(value, Enum):
+        register_account(value.value)
+    elif isinstance(value, str):
         with _lock:
             _tokens.update(t.strip() for t in value.split(",") if t.strip() and t.strip().upper() not in {REDACTED, "UNKNOWN", "NONE", "N/A", "REDACTED_ACCOUNT", "[REDACTED]", "NO_SECRET_DATA_PRESENT"})
     elif isinstance(value, (list, tuple, set)):
@@ -40,7 +43,11 @@ def _account_key(key):
 
 
 def register_payload(value):
-    if isinstance(value, dict):
+    if isinstance(value, Enum):
+        # Enum metadata references its class. Only its detached value belongs
+        # at the observable boundary; never walk or modify that shared class.
+        register_payload(value.value)
+    elif isinstance(value, dict):
         for key, child in value.items():
             if _account_key(key):
                 register_account(child)
@@ -57,6 +64,8 @@ def sanitize(value):
     # Register all fields before handling free-form siblings, irrespective of order.
     register_payload(value)
     def clean(item):
+        if isinstance(item, Enum):
+            return clean(item.value)
         if isinstance(item, str):
             return scrub_text(item)
         if isinstance(item, dict):

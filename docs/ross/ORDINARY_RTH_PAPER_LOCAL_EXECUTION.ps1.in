@@ -10,11 +10,13 @@
 # Invocation also attests that entry-fee-ceiling.json reflects the applicable
 # written broker confirmation for all one-share entry charges on every fill
 # through the reviewed regular-session close.
+# Use the prepared, verified SDK interpreter from sdk-environment.json when
+# the volume witness was captured with that SDK. Preflight rejects a mismatch.
 $rossPaperCaller = @'
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $repo = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
-$python = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system\.venv\Scripts\python.exe'
+$python = 'ENTER_VERIFIED_SDK_PYTHON_PATH'
 $state = 'ENTER_EXISTING_PRIVATE_PAPER_STATE_DIRECTORY'
 $calendar = 'ENTER_REVIEWED_CALENDAR_JSON_PATH'
 $calendarSha = 'ENTER_REVIEWED_CALENDAR_JSON_SHA256'

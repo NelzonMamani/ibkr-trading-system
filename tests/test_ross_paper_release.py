@@ -188,3 +188,35 @@ def test_laptop_preflight_refuses_missing_private_evidence(tmp_path, monkeypatch
 
     assert operator.run(state, tmp_path, calendar, sha256(calendar.read_bytes()).hexdigest(),
                         witness) == (expected, 2)
+
+
+@pytest.mark.parametrize("installed,captured,accepted", [
+    ("10.50.2", "10.50.2", True),
+    ("9.81.1.post1", "9.81.1.post1", True),
+    ("9.81.1.post1", "10.50.2", False),
+    ("10.50.2", "9.81.1.post1", False),
+    ("10.50.2", None, False),
+])
+def test_laptop_preflight_binds_execution_sdk_to_volume_witness(monkeypatch, installed, captured, accepted):
+    from scripts.certification import ross_paper_release_operator as operator
+    from src.ibkr import sdk_profile
+
+    monkeypatch.setattr(sdk_profile, "require_supported_sdk", lambda: installed)
+    calibration = {"sdk_distribution": captured}
+    if accepted:
+        operator.require_calibrated_sdk(calibration)
+    else:
+        with pytest.raises(RuntimeError, match="PAPER_RELEASE_VOLUME_SDK_MISMATCH"):
+            operator.require_calibrated_sdk(calibration)
+
+
+def test_laptop_preflight_rejects_unattested_sdk_before_broker_import(monkeypatch):
+    from scripts.certification import ross_paper_release_operator as operator
+    from src.ibkr import sdk_profile
+
+    def unverified():
+        raise RuntimeError("IBKR_SDK_PROFILE_UNVERIFIED")
+
+    monkeypatch.setattr(sdk_profile, "require_supported_sdk", unverified)
+    with pytest.raises(RuntimeError, match="PAPER_RELEASE_SDK_PROFILE_UNVERIFIED"):
+        operator.require_calibrated_sdk({"sdk_distribution": "10.50.2"})

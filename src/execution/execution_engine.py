@@ -452,7 +452,14 @@ class ExecutionEngine:
             return tuple(ExecutionEngine._p02_source_value(item) for item in payload)
         if kind == "dict":
             return {key: ExecutionEngine._p02_source_value(item) for key, item in payload}
-        if kind in {"Contract", "Execution", "Order", "OrderState", "CommissionReport", "SoftDollarTier"}:
+        if kind == "OptionExerciseType":
+            member = ExecutionEngine._p02_source_value(payload)
+            if (type(member) is not tuple or len(member) != 2
+                    or type(member[0]) is not int or type(member[1]) is not str):
+                raise ValueError("P02_LOCAL_SOURCE_VALUE_INVALID")
+            return dict(_native_type=kind, value=member)
+        if kind in {"Contract", "Execution", "Order", "OrderState", "CommissionReport",
+                "CommissionAndFeesReport", "SoftDollarTier"}:
             fields = ExecutionEngine._p02_source_value(payload)
             return dict(fields, _native_type=kind)
         raise ValueError("P02_LOCAL_SOURCE_VALUE_UNSUPPORTED")
@@ -501,7 +508,10 @@ class ExecutionEngine:
     def _p02_financial_bundle(self, *, lease, snapshot):
         """Read ONE closed actual standalone bundle; create no financial effects."""
         from decimal import Decimal
-        from ibapi.common import UNSET_DOUBLE
+        try:
+            from ibapi.common import UNSET_DOUBLE
+        except ImportError:
+            from ibapi.const import UNSET_DOUBLE  # Official SDK 10.50 moved constants.
         from src.storage.sqlite_store import _LocalCooldownFence
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         state, client = self._p02_local, self._p02_local["client"]
@@ -692,8 +702,10 @@ class ExecutionEngine:
                 by_open[native_id] = fields
             elif ticket.kind == "commissionReport":
                 report = fields["commissionReport"]; view = views.get(report.get("execId"))
+                amount_field = ("commissionAndFees" if report.get("_native_type") == "CommissionAndFeesReport"
+                    else "commission")
                 if (view is None or publication.get("execution_id") != report["execId"]
-                        or Decimal(str(report.get("commission"))) != view["amount"]
+                        or Decimal(str(report.get(amount_field))) != view["amount"]
                         or report.get("currency") != view["report_currency"]):
                     raise RuntimeError("P02_LOCAL_FEE_OCCURRENCE_CONFLICT")
                 previous_report = by_report.setdefault(report["execId"], report)

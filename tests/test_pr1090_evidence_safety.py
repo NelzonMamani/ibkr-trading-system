@@ -30,6 +30,41 @@ def test_freeform_siblings_objects_and_prewrite(tmp_path):
     assert privacy.scan_artifacts(tmp_path)["passed"]
 
 
+def test_enum_values_redact_before_freeform_siblings_without_copying_shared_metadata(monkeypatch):
+    from enum import Enum
+    token = "synthetic-enum-account-alpha"
+    class ReportKind(Enum):
+        DETAIL = (7, {"account": token, "echo": token})
+        @staticmethod
+        def helper():
+            raise AssertionError("Enum class methods are not payload")
+    original_member = dict(vars(ReportKind.DETAIL))
+    original_class = dict(vars(ReportKind))
+    original_copy = privacy.copy.copy
+    def checked_copy(value):
+        assert not isinstance(value, Enum) and value is not ReportKind
+        return original_copy(value)
+    monkeypatch.setattr(privacy.copy, "copy", checked_copy)
+    protected = privacy.sanitize({"message": "connection " + token,
+        "position": SimpleNamespace(kind=ReportKind.DETAIL)})
+    assert protected["message"] == "connection REDACTED"
+    assert protected["position"].kind == (7, {"account": "REDACTED", "echo": "REDACTED"})
+    assert vars(ReportKind.DETAIL) == original_member and vars(ReportKind) == original_class
+    assert ReportKind.DETAIL.value[1] == {"account": token, "echo": token}
+
+
+def test_enum_in_account_field_registers_its_value_before_sibling_redaction():
+    from enum import Enum
+    token = "synthetic-enum-account-beta"
+    class Account(str, Enum):
+        PRIMARY = token
+    payload = {"message": "echo " + token, "account": Account.PRIMARY,
+        "another": Account.PRIMARY}
+    assert privacy.sanitize(payload) == {"message": "echo REDACTED", "account": "REDACTED",
+        "another": "REDACTED"}
+    assert payload["account"] is Account.PRIMARY and Account.PRIMARY.value == token
+
+
 def test_unknown_account_shape_is_redacted():
     token = "DU" + "987654321"
     assert privacy.scrub_text("session=" + token) == "session=REDACTED"

@@ -138,8 +138,11 @@ def test_modern_commission_decoder_never_borrows_legacy_zero_presence(native, pr
 
 
 @modern
-def test_official_constructor_rejects_execution_mode():
-    with pytest.raises(RuntimeError, match="IBKR_OFFICIAL_SDK_EXECUTION_NOT_CERTIFIED"):
+@pytest.mark.parametrize("mode", ["LIVE", "READ_ONLY", "SIM"])
+def test_official_constructor_rejects_nonpaper_execution_mode(monkeypatch, mode):
+    from src.config import runtime_config
+    monkeypatch.setattr(runtime_config, "_resolve_runtime_authority", lambda: (mode, True))
+    with pytest.raises(RuntimeError, match="IBKR_OFFICIAL_SDK_PAPER_SCOPE_UNVERIFIED"):
         native_module.IbkrClient("127.0.0.1", 7497, 71, 1, "LIVE", False)
 
 
