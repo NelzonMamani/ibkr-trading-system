@@ -21,12 +21,18 @@ $volume = & $binding -ExpectedCommit $pin -DiagnosticProfile 'live-volume' -Expe
 if ($volume.Selected -cne 'live-volume' -or $volume.Tree -cne $tree -or $volume.VolumeSymbol -cne 'SYNTH') {
     throw 'Volume profile/tree/contract binding failed.'
 }
-$rejected = $false
-try { & $binding -ExpectedCommit $pin -DiagnosticProfile 'live-volume' -ExpectedTree $tree } catch { $rejected = $true }
-if (!$rejected) { throw 'Missing explicit volume contract accepted.' }
-$rejected = $false
-try { & $binding -ExpectedCommit $pin -DiagnosticProfile 'quotes' -VolumeSymbol 'SYNTH' } catch { $rejected = $true }
-if (!$rejected) { throw 'Volume contract accepted outside the volume profile.' }
+$automaticVolume = & $binding -ExpectedCommit $pin -DiagnosticProfile 'live-volume' -ExpectedTree $tree
+if ($automaticVolume.Selected -cne 'live-volume' -or $automaticVolume.Tree -cne $tree -or
+    ![string]::IsNullOrEmpty($automaticVolume.VolumeSymbol)) {
+    throw 'Automatic volume scanner selection binding failed.'
+}
+foreach ($profile in @('quotes', 'final-orders')) {
+    $rejected = $false
+    try {
+        & $binding -ExpectedCommit $pin -DiagnosticProfile $profile -ExpectedTree $tree -VolumeSymbol 'SYNTH'
+    } catch { $rejected = $true }
+    if (!$rejected) { throw "Volume contract accepted outside the volume profile: $profile." }
+}
 foreach ($profile in @('final-orders', 'live-volume')) {
     $rejected = $false
     try {
@@ -79,11 +85,18 @@ foreach ($command in $commands) {
     $quoteArgs = & $onlyArguments -ExpectedCommit $pin
     $orderArgs = & $onlyArguments -ExpectedCommit $pin -DiagnosticProfile 'final-orders' -ExpectedTree $tree
     $volumeArgs = & $onlyArguments -ExpectedCommit $pin -DiagnosticProfile 'live-volume' -ExpectedTree $tree -VolumeSymbol 'SYNTH'
-    if ($quoteArgs.Count -ne 6 -or $orderArgs.Count -ne 8 -or $volumeArgs.Count -ne 9) { throw 'Child argument count/scope changed.' }
+    $automaticVolumeArgs = & $onlyArguments -ExpectedCommit $pin -DiagnosticProfile 'live-volume' -ExpectedTree $tree
+    if ($quoteArgs.Count -ne 6 -or $orderArgs.Count -ne 8 -or $volumeArgs.Count -ne 9 -or
+        $automaticVolumeArgs.Count -ne 8) { throw 'Child argument count/scope changed.' }
     if (@($quoteArgs.Values | Where-Object { [string]::IsNullOrEmpty($_) }).Count -ne 0) { throw 'Empty quote argument.' }
+    if (@($automaticVolumeArgs.Values | Where-Object { [string]::IsNullOrEmpty($_) }).Count -ne 0) {
+        throw 'Automatic volume selection appended an empty contract argument.'
+    }
     if ($orderArgs.Values[-2] -cne 'final-orders' -or $orderArgs.Values[-1] -cne $tree) { throw 'Order scope/tree absent.' }
     if ($volumeArgs.Values[-3] -cne 'live-volume' -or $volumeArgs.Values[-2] -cne $tree -or
         $volumeArgs.Values[-1] -cne 'SYNTH') { throw 'Volume scope/tree/contract absent.' }
+    if ($automaticVolumeArgs.Values[-2] -cne 'live-volume' -or
+        $automaticVolumeArgs.Values[-1] -cne $tree) { throw 'Automatic volume scope/tree absent.' }
 }
 $privateOnly = @($ast.FindAll({ param($n)
     $n -is [Management.Automation.Language.IfStatementAst] -and
@@ -93,6 +106,51 @@ $privateOnly = @($ast.FindAll({ param($n)
 if ($privateOnly.Count -ne 1 -or $privateOnly[0].Extent.EndOffset -ge $commands[1].Extent.StartOffset -or
     !$privateOnly[0].Extent.Text.Contains('return')) {
     throw 'Private volume must return before package or seal.'
+}
+# Execute only the terminal volume branch against a mocked private JSON reader.
+# The native child, filesystem acquisition, package and seal are never invoked.
+$onlyVolumeTerminal = [ScriptBlock]::Create(@'
+param([int]$exitCode, [string]$ProbeJson)
+$DiagnosticProfile = 'live-volume'
+$root = 'private-root'
+$messages = New-Object 'System.Collections.Generic.List[string]'
+$reads = New-Object 'System.Collections.Generic.List[string]'
+function Get-Content {
+    param([string]$LiteralPath, [switch]$Raw)
+    if (!$Raw) { throw 'Private symbol reader must use raw JSON.' }
+    $reads.Add($LiteralPath)
+    return $ProbeJson
+}
+function Write-Host {
+    param([object]$Object)
+    $messages.Add([string]$Object)
+}
+$failure = $null
+try { & {
+'@ + "`n" + $privateOnly[0].Extent.Text + "`n" + @'
+} } catch { $failure = [string]$_ }
+[pscustomobject]@{ Messages=$messages.ToArray(); Reads=$reads.ToArray(); Failure=$failure }
+'@)
+$privateJson = '{"watchlist":{"symbol":"SYNTH","con_id":9012345,"raw_value":123456},"account":"DU_PRIVATE_SENTINEL"}'
+$terminal = & $onlyVolumeTerminal -exitCode 0 -ProbeJson $privateJson
+if ($terminal.Failure -or $terminal.Reads.Count -ne 1 -or
+    $terminal.Reads[0] -cne (Join-Path 'private-root' 'volume-probe.json') -or
+    $terminal.Messages.Count -ne 3 -or $terminal.Messages[-1] -cne 'SYNTH') {
+    throw 'Successful private volume branch did not emit only the selected ticker cue.'
+}
+foreach ($secret in @('9012345', '123456', 'DU_PRIVATE_SENTINEL', '{', '}')) {
+    if (($terminal.Messages -join "`n").Contains($secret)) { throw 'Private volume fields reached console.' }
+}
+$failedProbe = & $onlyVolumeTerminal -exitCode 2 -ProbeJson $privateJson
+if (!$failedProbe.Failure -or $failedProbe.Reads.Count -ne 0 -or $failedProbe.Messages.Count -ne 2) {
+    throw 'Failed probe read or printed the private symbol cue.'
+}
+foreach ($invalidJson in @('{"watchlist":{"symbol":"synth"}}',
+    '{"watchlist":{"symbol":"SYNTH\n"}}', '{"watchlist":{}}', 'not-json')) {
+    $invalidTerminal = & $onlyVolumeTerminal -exitCode 0 -ProbeJson $invalidJson
+    if (!$invalidTerminal.Failure -or $invalidTerminal.Messages.Count -ne 2) {
+        throw 'Invalid private symbol was printed.'
+    }
 }
 $text = [IO.File]::ReadAllText((Resolve-Path $entry).Path)
 foreach ($required in @('-BudgetSeconds 120 -StopSeconds 30', '-BudgetSeconds 90 -StopSeconds 30',

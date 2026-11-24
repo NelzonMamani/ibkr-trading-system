@@ -22403,3 +22403,117 @@ and standalone late-fill modules run with named test output in their own
 job. Independent collection verified full coverage across the two jobs
 (1,501 and 7,187 distinct cases) and five aggregate gate tests passed.
 The repaired workflow still requires a passing exact-head run before integration.
+
+### PR1250 operational release integration
+
+The reviewed PR head `f6fed702d1a4b0e0ea2f2a0646889c1c4903a89d` passed
+required [PR run 45274120155](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/45274120155).
+Linux reported 8,685 passed, three skipped and 39 subtests. Windows reported
+7,185 passed, two skipped and 39 subtests in the offline suite and 1,501
+passed in the lifecycle suite. The native PowerShell 5.1 controls and required
+Windows aggregate passed. The named Windows lifecycle output confirms the
+MICRO_PULLBACK partial-remainder and stop-to-flat case passed.
+
+GitHub merged PR1250 as `f08d46e6f632293ca569819968f9700b7b1c1975` with
+first parent `42bf5ba95b5808231ed923d824ad96977882cb68` and second
+parent `f6fed702d1a4b0e0ea2f2a0646889c1c4903a89d`. The merge tree
+`7c34a3746a6942f6e43b1b7a11a1ca8b5dc3022f` matches the reviewed PR tree.
+
+The automatic [main run 45279904609](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/45279904609)
+passed at that exact merge commit. Linux reported 8,685 passed, three
+skipped and 39 subtests. Windows reported 7,185 passed, two skipped and
+39 subtests in the offline suite and 1,501 passed in the lifecycle suite.
+The native PowerShell 5.1 controls and Windows aggregate also passed.
+
+The published [PowerShell 5.1 caller](./ORDINARY_RTH_PAPER_LOCAL_EXECUTION.ps1)
+pins the verified merge commit and tree. Its raw LF SHA-256 is
+`87cbdd7b4076bd2319877e731f6f469eb3197e8cb5eb15688f7c8454df3ad140`. The caller accepts the pinned Python operator's
+LF SHA-256 `6c0078ed25ce2ac1ab87943fe8ed1fa6c047a5cd62d4cce55c6dd92d629224f6`
+or CRLF SHA-256 `3f017297c3780544d9ffc1ee9c3360574f2dbfb71287e1f1b4df0b32d7b53269`.
+Publication substitutes those four values into the native-parser-checked
+template. The caller checks its inner script with the native parser before
+invocation. Fill the private local fields and paste the complete caller
+only after the laptop facts are established. Invocation carries the
+exclusive-start attestation and requires no separate confirmation phrase.
+
+Software integration and CI passed. PAPER_READY=NO. The five legacy
+holding vetoes remain. The controlled run still requires the retained
+state, a clean exclusive PAPER start, an installed TWS that supplies the
+scoped settled cash field, broker-confirmed entry fee evidence, the
+reviewed session calendar, private exact-contract share calibration,
+and supervised acceptance. No cloud broker session or broker mutation
+was performed. The next laptop action is the separate READ_ONLY volume
+diagnostic in step 1 above on the accepted merge commit and tree.
+
+### Coordinator acceptance checkpoint (2026-11-24)
+
+Current main is f08d46e6f632293ca569819968f9700b7b1c1975.
+The ordered merge parents and tree were independently re-read from GitHub.
+Reviewed head f6fed702d1a4b0e0ea2f2a0646889c1c4903a89d and the merge share
+tree 7c34a3746a6942f6e43b1b7a11a1ca8b5dc3022f.
+
+Coordinator read the actual post-merge job logs for run 45279904609:
+Linux 8,685 passed / 3 skipped; Windows offline 7,185 passed / 2 skipped
+and lifecycle 1,501 passed. All six jobs, including native PowerShell 5.1
+controls and the required Windows aggregate, completed successfully.
+The Windows split retains complementary full-suite ownership and guards.
+
+Independent bounded source review closes the previously identified pending
+BUY shutdown, cash/limit/fee admission and serialized initial-stop findings.
+Separate source review confirms exact-contract calibration and compatible
+live/history volume units at RVOL admission. No additional concrete defect
+was identified in those reviewed topics. No tests were rerun or broker
+operations performed for this coordinator acceptance review.
+
+| Checklist | Software status | Remaining evidence |
+| --- | --- | --- |
+| B01 | Existing ownership guard preserved. | Clean, exclusive PAPER starting inventory remains unverified. Five unresolved legacy holdings remain vetoed. |
+| B02/B03 | Implemented, reviewed and verified with inert transport and required CI. | Actual same-contract live and historical TWS share comparisons, build/settings and same-day private calibration. |
+| B04 | Implemented cash-only limit-plus-fee contract, reviewed and verified with inert transport and required CI. | Installed TWS settled-cash delivery and applicable entry-fee evidence remain laptop prerequisites. |
+| B05/B06 | Ordinary one-share ABCD chain, pending-order resolution, continued-management handoff and final stop serialization implemented and verified with inert transport and required CI. | Supervised native acknowledgment/fill/protection/exit acceptance remains unproved. |
+| B07 | Source pins and hashes published in release e321d0a63ae389460b6f8e57fb059ca499e74156. | The caller still needs private state, calendar/hash, calibration and expected-account fields; a pin alone is not completed laptop preparation. |
+| B08 | Local acceptance remains pending. | After prerequisites pass, run the bounded controlled PAPER attempt without forcing an opportunity. |
+
+The next local operation is the separate pinned READ_ONLY exact-contract
+volume probe and independent TWS comparisons. Calibration does not force
+selection, clear legacy holdings or certify execution readiness. Keep the
+probe, comparison, fee, account and financial records private. No unchanged
+general READ_ONLY observation or additional strategy implementation is needed
+to close these already reviewed software items.
+
+PAPER_READY=NO. All five ownership vetoes remain. No holdings disposition,
+adoption/exemption, state clearing, cloud broker connection or trade occurred.
+
+### PRE and automatic READ_ONLY volume preparation (2026-11-24)
+
+Operator requested premarket capture and a complete paste-and-Enter script
+without replacing a ticker. The older probe's RTH-only restriction was an
+implementation gate, not a general limitation of READ_ONLY calibration.
+
+Only the existing live-volume diagnostic now admits actual configured PRE
+or RTH. Other diagnostic profiles retain RTH-only admission. There is no
+session override; CLOSED, AH and other unsupported sessions still refuse.
+US PRE starts at 04:00 New York (09:00 London on November 24), so 04:52
+London remains too early. This change does not open controlled PAPER entry
+outside its existing reviewed RTH opening profile.
+
+Omitting VolumeSymbol uses one existing completed TOP_PERC_GAIN scanner
+query, at most 50 US stock rows with the existing $1-$20 scan bounds.
+The first valid returned contract supplies its own fresh LIVE tick8 and
+completed RTH TRADES historical-volume probe. No retry, ticker substitution,
+forced Focus, manual setup or order permission is introduced. Successful
+output prints only the strictly validated selected public ticker.
+Incomplete/empty scanner, stale/nonlive quote and missing history evidence
+remain refusals. Raw paired records remain laptop-private.
+
+Independent source and final PowerShell delta review CLEAR. The focused
+Python operator suite passed 41 cases in 0.72 seconds with causal session,
+automatic/explicit symbol, completion/freshness/history and privacy controls.
+git diff --check passed. Native Windows PowerShell binding, parser, output
+privacy and controller checks remain required on the published head.
+No local PowerShell runtime or broker was used.
+
+Same-New-York-date calibration still requires two independent TWS share
+comparisons and consistent supported TWS build/settings. Automatic capture
+does not itself establish those comparisons or clear any ownership veto.
+All existing B01-B08 laptop gates remain. PAPER_READY=NO.
