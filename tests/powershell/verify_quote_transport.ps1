@@ -6,15 +6,37 @@ $parseErrors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile(
     (Resolve-Path $entry).Path, [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count -ne 0) { throw 'Quote diagnostic entry has syntax errors.' }
-if ($ast.ParamBlock.Parameters.Count -ne 4) { throw 'Expected commit, explicit profile, tree and volume contract parameters.' }
+$parameterNames = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath } | Sort-Object)
+if (($parameterNames -join ',') -cne 'DiagnosticProfile,ExpectedCommit,ExpectedTree,PythonExecutable,VolumeSymbol') {
+    throw 'Expected source/profile/tree/contract parameters and the optional explicit Python runtime.'
+}
 # Bind only the actual parameter block and pre-body guard, never invoke entry.
 $guard = ($ast.EndBlock.Statements[0..1] | ForEach-Object { $_.Extent.Text }) -join "`n"
 $binding = [ScriptBlock]::Create($ast.ParamBlock.Extent.Text + "`n" + $guard +
-    "`n[pscustomobject]@{ Selected=`$DiagnosticProfile; Tree=`$ExpectedTree; VolumeSymbol=`$VolumeSymbol }")
+    "`n[pscustomobject]@{ Selected=`$DiagnosticProfile; Tree=`$ExpectedTree; VolumeSymbol=`$VolumeSymbol; PythonExecutable=`$PythonExecutable }")
 $pin = 'a' * 40
 $tree = 'b' * 40
 $defaults = & $binding -ExpectedCommit $pin
 if ($defaults.Selected -cne 'quotes') { throw 'Default quote profile changed.' }
+if (![string]::IsNullOrEmpty($defaults.PythonExecutable)) { throw 'Explicit Python unexpectedly became mandatory/defaulted.' }
+$runtimeFixture = 'C:\tmp\official-sdk-fixture\venv\Scripts\python.exe'
+$runtimeBinding = & $binding -ExpectedCommit $pin -DiagnosticProfile 'live-volume' -ExpectedTree $tree -PythonExecutable $runtimeFixture
+if ($runtimeBinding.PythonExecutable -cne $runtimeFixture) { throw 'Explicit Python parameter was not preserved.' }
+# Evaluate only the actual runtime assignments; no filesystem/process/broker call.
+$pythonAssignments = @($ast.FindAll({ param($node)
+    $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$python'
+}, $true))
+$pythonSelection = @($ast.FindAll({ param($node)
+    $node -is [Management.Automation.Language.IfStatementAst] -and
+    $node.Extent.Text -ceq 'if ($PythonExecutable) { $python = $PythonExecutable }'
+}, $true))
+if ($pythonAssignments.Count -ne 2 -or $pythonSelection.Count -ne 1) { throw 'Actual Python runtime selection is missing or ambiguous.' }
+$runtimeSelector = [ScriptBlock]::Create($ast.ParamBlock.Extent.Text + "`n" + $guard + "`n" +
+    $pythonAssignments[0].Extent.Text + "`n" + $pythonSelection[0].Extent.Text + "`n" + '[string]$python')
+if ((& $runtimeSelector -ExpectedCommit $pin) -cne 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe' -or
+    (& $runtimeSelector -ExpectedCommit $pin -PythonExecutable $runtimeFixture) -cne $runtimeFixture) {
+    throw 'Legacy default or explicit Python runtime selection changed.'
+}
 $order = & $binding -ExpectedCommit $pin -DiagnosticProfile 'final-orders' -ExpectedTree $tree
 if ($order.Selected -cne 'final-orders' -or $order.Tree -cne $tree) { throw 'Explicit profile/tree binding failed.' }
 $volume = & $binding -ExpectedCommit $pin -DiagnosticProfile 'live-volume' -ExpectedTree $tree -VolumeSymbol 'SYNTH'

@@ -23083,3 +23083,19 @@ controls pass. The status also exposes validated enum-only native volume/probe
 statuses automatically, so a future precision/history refusal is actionable
 without another retained-file inspection command. The03e83e4 exact-head bot
 review was clear; changed-head native/full CI and review must be checked anew.
+
+
+November24 follow-up verification:6c076aa19698843fd026d5b601e44a577038c1b2
+passed the actual native Windows official-SDK preparation and49controls in
+CI45444136438/job138623109494 at17:05:40UTC (merge checkout71dda13), including
+unchanged base package inventory. Its exact-head bot review had no findings.
+The separate legacy Windows focused check ran139Python tests successfully
+but its PowerShell contract still required exactly4parameters and rejected
+the newly added optionalPythonExecutable parameter. The coordinator missed
+that older parser assertion when adding the runtime option. It now checks
+the explicit5parameter API and executes only actual binding/runtime-selection
+AST fragments to prove the old pinned default and the explicit modern runtime
+both route correctly, without launching any child/broker. This follow-up
+changes the contract test and checkpoint only; SDK/runtime source is unchanged.
+Changed-head native/required CI and review remain to be checked. No new local
+TWS capture or trading readiness has been granted. PAPER_READY=NO.
