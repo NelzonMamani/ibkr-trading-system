@@ -22826,3 +22826,44 @@ A complete externally distributed bootstrap will pin that reviewed source
 and tree while retaining its helper hash check and passive7497 listener gate.
 Raw native records remain on the laptop. All five legacy ownership vetoes
 remain; inventory preservation remains closed; PAPER_READY=NO.
+
+
+### November 24 continuity and automatic TWS display preparation
+
+PR1252 is merged at ccbb382b29357406c30b462f006c0c12a0da7862, tree
+77285078996c97dd6aa8ac27210e79785955b35f. Reviewed-head run45374619485
+completed all six jobs successfully. Post-merge CI has not been re-audited here.
+The recovered local LGHL receipt at C:\tmp\qtransport-af44e394 is reported
+DIAGNOSTIC_COMPLETE/exit0 with complete LIVE quote/tick8, completed audit and
+disconnect and zero order mutations. The subsequent laptop transcript passed
+source, retained completion and mutation checks before its repeated settings
+prompt refused an empty response. Those checks did not perform a new capture.
+Corrected TWS build10.50.1h and both unchecked US-stock lot settings are operator
+confirmed. Prefer Native Volume and full-digit display were subsequently shown.
+
+The operator has no contemporaneous independent TWS observation for the old
+LGHL sample. Its successful diagnostic is retained; no independent share witness
+can be reconstructed from later volume. The manual recording wrapper then
+refused before acquisition on an immediate process-window-handle check, despite
+its clock appearing afterward. That wrapper failure is not a broker failure.
+
+The operator explicitly requests automatic collection and authorizes the
+coordinator to implement and verify it without further instruction relays.
+The new optional standalone capture entry invokes the unchanged bounded live-volume
+READ_ONLY owner. A single cropped region selection is followed by an automatically
+owned image recorder, UTC capture intervals, manifest, readiness from the first
+saved frame, bounded storage and joined shutdown. It retains the five images
+nearest the native API receive timestamp for independent visual comparison.
+Unready, failed, moved or obscured captures cannot grant comparison completion.
+No clock window, phone recording, live-volume transcription, automatic upload,
+OCR assertion or new trading engine is added. Cropped images and the raw probe
+linkage remain local. The existing calibration consumer and all trading gates
+are unchanged. An image is evidence to inspect, not automatic share authority.
+
+This is implementation under verification, not a laptop acceptance receipt.
+Required native Windows checks compile the actual C# helper, parse the PowerShell
+entry and exercise synthetic frame readiness, PNG pixels, timestamps, slow/failed
+startup and no late writes after joined stop. They do not acquire desktop or
+broker evidence. Actual exact-contract visual comparison and completed RTH-chart
+comparison, capital/fee/calendar/state/ownership prerequisites and supervised
+PAPER lifecycle remain open. All five legacy-holding vetoes remain. PAPER_READY=NO.
