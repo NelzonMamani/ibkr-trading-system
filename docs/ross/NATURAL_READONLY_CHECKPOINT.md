@@ -22609,3 +22609,50 @@ f08d46e6f632293ca569819968f9700b7b1c1975 and b20d6d641b57e64c65d6712c64f2e948ce2
 Its tree01206b24db969dda7ed5805de0fdd6b9eb41c8e6 matches the reviewed source.
 Post-merge CI is not yet an acceptance receipt here. No new probe or broker
 connection was run by the coordinator. All five vetoes remain. PAPER_READY=NO.
+
+### Current missing API listener and handshake-send evidence
+
+The operator's passive snapshot completed and found no listener on local
+port 7497, no IPv4 loopback/wildcard listener row and no established server
+rows. This proves the endpoint is unavailable at check time; it does not
+prove its state during the earlier probe or identify why it is absent.
+
+The retained observer reports one 17-byte startup send attempt, no returned
+bytes, one TimeoutError at about 3.117 seconds, and no recv/frame/queue/decoder
+activity. No bytes were successfully reported as sent; this is not proof
+that no bytes reached a peer. No client71 conflict, firewall fault or market
+data entitlement failure is established. Hooks were fully installed/restored
+and the reader stopped. Prior zero mutation/cleanup facts remain accepted.
+
+Next local action: open the TWS desktop application, complete PAPER login,
+and check Global Configuration -> API -> Settings: enable ActiveX and Socket
+Clients, use socket port7497, retain Read-Only API, then Apply/OK.
+IBKR's primary setup documentation confirms the required socket listener
+and matching port; Read-Only is appropriate for this diagnostic.
+https://www.interactivebrokers.com/campus/trading-lessons/installing-configuring-tws-for-the-api/
+
+Repeat only the passive listener check below first. A subsequent capture
+is justified after the missing listener/precondition has actually changed.
+No new scanner, connection attempt, order mutation, account disposition or
+recovery clearing was performed here. PAPER_READY=NO.
+
+```powershell
+# TITLE: Check the local PAPER API listener
+& {
+    $ErrorActionPreference = 'Stop'
+    try {
+        $listeners = @(Get-NetTCPConnection -ErrorAction Stop |
+            Where-Object { $_.LocalPort -eq 7497 -and $_.State -eq 'Listen' })
+        [pscustomobject]@{
+            query_status = 'COMPLETE'
+            listener_present = ($listeners.Count -gt 0)
+            ipv4_listener_present = (@($listeners | Where-Object {
+                $_.LocalAddress -in @('127.0.0.1','0.0.0.0')
+            }).Count -gt 0)
+        } | ConvertTo-Json
+    } catch {
+        Write-Host 'LISTENER_CHECK_UNAVAILABLE'
+    }
+}
+# END
+```
