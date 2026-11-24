@@ -177,7 +177,12 @@ namespace RossDiagnostics {
         }
         public static void RestoreTws(IntPtr window) {
             if (!TwsWindow(window)) throw new InvalidOperationException("TWS_WINDOW_IDENTITY_REQUIRED");
-            if (IsIconic(window)) ShowWindowAsync(window, 9);
+            if (IsIconic(window)) {
+                ShowWindowAsync(window, 9);
+                Stopwatch wait = Stopwatch.StartNew();
+                while (IsIconic(window) && wait.ElapsedMilliseconds < 2000) Thread.Sleep(25);
+                if (IsIconic(window)) throw new InvalidOperationException("TWS_RESTORE_NOT_COMPLETE");
+            }
             SetForegroundWindow(window);
         }
         public static IntPtr WindowForRegion(Rectangle region) {

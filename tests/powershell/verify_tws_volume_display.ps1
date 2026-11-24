@@ -71,6 +71,9 @@ using System.IO;
 using System.Windows.Forms;
 public sealed class PassiveOverlay : Form {
     protected override bool ShowWithoutActivation { get { return true; } }
+    protected override CreateParams CreateParams {
+        get { CreateParams value = base.CreateParams; value.ExStyle |= 0x08000000 | 0x00000080; return value; }
+    }
 }
 public static class InertWindowFixture {
     [STAThread] public static void Main(string[] args) {
@@ -124,12 +127,19 @@ try {
     if (![RossDiagnostics.Native]::GetWindowRect($found, [ref]$bounds)) { throw 'INERT_WINDOW_GEOMETRY_UNAVAILABLE' }
     $area = [Drawing.Rectangle]::FromLTRB($bounds.Left+50, $bounds.Top+70, $bounds.Left+130, $bounds.Top+90)
     if (![RossDiagnostics.Native]::Unobscured($found, $area)) { throw 'CLEAR_INERT_WINDOW_WAS_OBSCURED' }
-    $foreground = [RossDiagnostics.Native]::GetForegroundWindow()
+    # Wait for the asynchronous restore/foreground transition before establishing
+    # the fixture baseline; later changes must not be mistaken for overlay input.
+    $deadline = [datetime]::UtcNow.AddSeconds(3)
+    while ([RossDiagnostics.Native]::GetForegroundWindow() -ne $found -and [datetime]::UtcNow -lt $deadline) {
+        $null = [RossDiagnostics.Native]::SetForegroundWindow($found)
+        Start-Sleep -Milliseconds 100
+    }
+    if ([RossDiagnostics.Native]::GetForegroundWindow() -ne $found) { throw 'INERT_OWNER_NOT_FOREGROUND' }
     [IO.File]::WriteAllText($readyPath + '.overlay', 'SHOW')
     $deadline = [datetime]::UtcNow.AddSeconds(3)
     while (!(Test-Path -LiteralPath ($readyPath + '.overlay-ready')) -and [datetime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
     if (!(Test-Path -LiteralPath ($readyPath + '.overlay-ready'))) { throw 'PASSIVE_OVERLAY_DID_NOT_START' }
-    if ([RossDiagnostics.Native]::GetForegroundWindow() -ne $foreground) { throw 'PASSIVE_OVERLAY_CHANGED_FOREGROUND' }
+    if ([RossDiagnostics.Native]::GetForegroundWindow() -ne $found) { throw 'PASSIVE_OVERLAY_CHANGED_FOREGROUND' }
     if ([RossDiagnostics.Native]::Unobscured($found, $area)) { throw 'NON_ACTIVATING_OVERLAY_WAS_ACCEPTED' }
 } finally {
     [IO.File]::WriteAllText($readyPath + '.stop', 'STOP')
