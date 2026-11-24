@@ -22444,3 +22444,42 @@ reviewed session calendar, private exact-contract share calibration,
 and supervised acceptance. No cloud broker session or broker mutation
 was performed. The next laptop action is the separate READ_ONLY volume
 diagnostic in step 1 above on the accepted merge commit and tree.
+
+### Coordinator acceptance checkpoint (2026-11-24)
+
+Current main is f08d46e6f632293ca569819968f9700b7b1c1975.
+The ordered merge parents and tree were independently re-read from GitHub.
+Reviewed head f6fed702d1a4b0e0ea2f2a0646889c1c4903a89d and the merge share
+tree 7c34a3746a6942f6e43b1b7a11a1ca8b5dc3022f.
+
+Coordinator read the actual post-merge job logs for run 45279904609:
+Linux 8,685 passed / 3 skipped; Windows offline 7,185 passed / 2 skipped
+and lifecycle 1,501 passed. All six jobs, including native PowerShell 5.1
+controls and the required Windows aggregate, completed successfully.
+The Windows split retains complementary full-suite ownership and guards.
+
+Independent bounded source review closes the previously identified pending
+BUY shutdown, cash/limit/fee admission and serialized initial-stop findings.
+Separate source review confirms exact-contract calibration and compatible
+live/history volume units at RVOL admission. No additional concrete defect
+was identified in those reviewed topics. No tests were rerun or broker
+operations performed for this coordinator acceptance review.
+
+| Checklist | Software status | Remaining evidence |
+| --- | --- | --- |
+| B01 | Existing ownership guard preserved. | Clean, exclusive PAPER starting inventory remains unverified. Five unresolved legacy holdings remain vetoed. |
+| B02/B03 | Implemented, reviewed and verified with inert transport and required CI. | Actual same-contract live and historical TWS share comparisons, build/settings and same-day private calibration. |
+| B04 | Implemented cash-only limit-plus-fee contract, reviewed and verified with inert transport and required CI. | Installed TWS settled-cash delivery and applicable entry-fee evidence remain laptop prerequisites. |
+| B05/B06 | Ordinary one-share ABCD chain, pending-order resolution, continued-management handoff and final stop serialization implemented and verified with inert transport and required CI. | Supervised native acknowledgment/fill/protection/exit acceptance remains unproved. |
+| B07 | Source pins and hashes published in release e321d0a63ae389460b6f8e57fb059ca499e74156. | The caller still needs private state, calendar/hash, calibration and expected-account fields; a pin alone is not completed laptop preparation. |
+| B08 | Local acceptance remains pending. | After prerequisites pass, run the bounded controlled PAPER attempt without forcing an opportunity. |
+
+The next local operation is the separate pinned READ_ONLY exact-contract
+volume probe and independent TWS comparisons. Calibration does not force
+selection, clear legacy holdings or certify execution readiness. Keep the
+probe, comparison, fee, account and financial records private. No unchanged
+general READ_ONLY observation or additional strategy implementation is needed
+to close these already reviewed software items.
+
+PAPER_READY=NO. All five ownership vetoes remain. No holdings disposition,
+adoption/exemption, state clearing, cloud broker connection or trade occurred.
