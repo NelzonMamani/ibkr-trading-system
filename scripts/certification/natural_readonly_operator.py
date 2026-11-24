@@ -265,24 +265,10 @@ def require_controller():
         raise SystemExit('Admission requires the original live runner; no resume.')
     parent = os.getppid()
     if os.name == 'nt':
-        from src.runtime.process_identity import WindowsProcessHandle, read_process_identity
-        # Reuse retained-handle/OS identity owners; venv redirectors may intervene.
-        handle = WindowsProcessHandle(controller['pid'], controller['creation_token'])
-        try:
-            if handle.poll() is not None:
-                raise SystemExit('Admission controller exited.')
-            deadline = time.monotonic() + 3
-            for _ in range(4):
-                if parent == controller['pid']:
-                    break
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise SystemExit('Controller ancestry deadline expired.')
-                parent = read_process_identity(parent, timeout=remaining)['parent_pid']
-            if parent != controller['pid'] or handle.poll() is not None:
-                raise SystemExit('Admission controller ancestry unavailable.')
-        finally:
-            handle.close()
+        from src.runtime.process_identity import require_live_windows_ancestor
+        # A venv redirector may intervene. Parent links need retained-handle OS
+        # facts, not the full argv/CIM query used by the startup handshake.
+        require_live_windows_ancestor(controller['pid'], controller['creation_token'])
     elif parent != controller['pid']:
         raise SystemExit('Admission controller changed.')
     return controller

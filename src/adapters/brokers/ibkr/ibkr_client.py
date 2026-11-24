@@ -36,6 +36,12 @@ from ibapi.decoder import Decoder as _SDKDecoder
 from ibapi.message import IN as _SDK_IN
 from ibapi.utils import decode as _SDKDecode
 try:
+    from ibapi.execution import OptionExerciseType as _SDKOptionExerciseType
+except ImportError:
+    _SDKOptionExerciseType = None
+_SDK_OPTION_EXERCISE_MEMBERS = (tuple((member, member.value) for member in _SDKOptionExerciseType)
+    if _SDKOptionExerciseType is not None else ())
+try:
     from ibapi.commission_report import CommissionReport as _SDKCommissionReport
 except ModuleNotFoundError as _commission_import_error:
     if _commission_import_error.name != "ibapi.commission_report":
@@ -602,6 +608,14 @@ def _local_native_value(value):
     from ibapi.softdollartier import SoftDollarTier
     from ibapi.execution import Execution
     from ibapi.order_state import OrderState
+    if _SDKOptionExerciseType is not None and type(value) is _SDKOptionExerciseType:
+        raw = value.value
+        if (not _SDK_COMMISSION_MODERN or type(raw) is not tuple or len(raw) != 2
+                or type(raw[0]) is not int or type(raw[1]) is not str
+                or not any(value is member and raw == original
+                    for member, original in _SDK_OPTION_EXERCISE_MEMBERS)):
+            raise RuntimeError("P02_LOCAL_UNSUPPORTED_NATIVE_VALUE")
+        return ("OptionExerciseType", _local_native_value(raw))
     if type(value) is float and not math.isfinite(value):
         raise RuntimeError("P02_LOCAL_NONFINITE_NATIVE_VALUE")
     if type(value) in (str, int, float, bool, bytes, type(None)):

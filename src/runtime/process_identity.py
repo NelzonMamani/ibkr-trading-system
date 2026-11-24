@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -87,12 +88,33 @@ def _creation_token(api, handle):
     return "windows-filetime:" + str((values[0].dwHighDateTime << 32) | values[0].dwLowDateTime)
 
 
+class _WindowsBasicInformation(ctypes.Structure):
+    # ProcessBasicInformation, as declared by winternl.h. Explicit 32-bit
+    # NTSTATUS/KPRIORITY and pointer-sized fields preserve the x86/x64 layout.
+    _fields_ = [("ExitStatus", ctypes.c_int32), ("PebBaseAddress", ctypes.c_void_p),
+                ("AffinityMask", ctypes.c_size_t), ("BasePriority", ctypes.c_int32),
+                ("UniqueProcessId", ctypes.c_size_t),
+                ("InheritedFromUniqueProcessId", ctypes.c_size_t)]
+
+
+def _ntdll():
+    # Query only the retained process object; do not read another process's PEB
+    # or request VM/termination rights. Unsupported/query-denied systems refuse.
+    api = ctypes.WinDLL("ntdll")
+    api.NtQueryInformationProcess.argtypes = [ctypes.c_void_p, ctypes.c_uint32,
+        ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]
+    api.NtQueryInformationProcess.restype = ctypes.c_int32
+    return api
+
+
 class WindowsProcessHandle:
     """A retained kernel handle cannot be redirected by PID reuse."""
-    def __init__(self, pid, expected_creation=None, *, allow_terminate=False):
+    def __init__(self, pid, expected_creation=None, *, allow_terminate=False, query_parent=False):
         self.pid = pid
         self.api = _kernel32()
-        access = 0x1000 | 0x00100000 | (0x0001 if allow_terminate else 0)
+        # Full query rights are required only by native ProcessBasicInformation.
+        # Existing liveness/argv handshake handles retain their original rights.
+        access = 0x1000 | 0x00100000 | (0x0001 if allow_terminate else 0) | (0x0400 if query_parent else 0)
         self.handle = self.api.OpenProcess(access, False, pid)
         if not self.handle:
             raise ctypes.WinError(ctypes.get_last_error())
@@ -116,6 +138,25 @@ class WindowsProcessHandle:
             raise ctypes.WinError(ctypes.get_last_error())
         return code.value
 
+    def parent_pid(self):
+        """Read one parent link from this live retained Windows process handle."""
+        if self.poll() is not None:
+            raise RuntimeError("Process exited before parent inspection")
+        information, returned = _WindowsBasicInformation(), ctypes.c_uint32()
+        try:
+            status = _ntdll().NtQueryInformationProcess(self.handle, 0,
+                ctypes.byref(information), ctypes.sizeof(information), ctypes.byref(returned))
+        except Exception:
+            raise RuntimeError("Windows process parent query unavailable") from None
+        parent = information.InheritedFromUniqueProcessId
+        if (status != 0 or returned.value != ctypes.sizeof(information)
+                or information.UniqueProcessId != self.pid
+                or not 0 < parent <= 0xffffffff or parent == self.pid):
+            raise RuntimeError("Windows process parent metadata unavailable")
+        if self.poll() is not None:
+            raise RuntimeError("Process exited during parent inspection")
+        return int(parent)
+
     def wait(self, timeout):
         deadline = time.monotonic() + timeout
         while True:
@@ -137,6 +178,47 @@ class WindowsProcessHandle:
         if self.handle:
             self.api.CloseHandle(self.handle)
             self.handle = None
+
+
+def require_live_windows_ancestor(ancestor_pid, ancestor_creation, *, timeout=3):
+    """Verify the controller chain without starting a CIM/PowerShell process.
+
+    Keep every observed process object alive by retained handle. Creation order
+    rejects a reused ancestor PID, and the original fixed time/hop limits still
+    govern admission. Full argv identity inspection remains a separate owner.
+    """
+    if (os.name != "nt" or type(timeout) not in (int, float)
+            or not math.isfinite(timeout) or timeout <= 0 or type(ancestor_pid) is not int
+            or not 0 < ancestor_pid <= 0xffffffff):
+        raise RuntimeError("Unsupported controller ancestry inspection")
+    deadline, handles = time.monotonic() + timeout, []
+    try:
+        ancestor = WindowsProcessHandle(ancestor_pid, ancestor_creation)
+        handles.append(ancestor)
+        current = WindowsProcessHandle(os.getpid(), query_parent=True)
+        handles.append(current)
+        parent = current.parent_pid()
+        for _ in range(4):
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Controller ancestry deadline expired")
+            if parent == ancestor_pid:
+                break
+            if parent in {handle.pid for handle in handles}:
+                raise RuntimeError("Controller ancestry cycle")
+            older = WindowsProcessHandle(parent, query_parent=True)
+            handles.append(older)
+            if _creation_order({"creation_token": older.creation_token}) > _creation_order(
+                    {"creation_token": current.creation_token}):
+                raise RuntimeError("Controller ancestor PID was reused")
+            current, parent = older, older.parent_pid()
+        if (parent != ancestor_pid or time.monotonic() >= deadline
+                or _creation_order({"creation_token": ancestor.creation_token}) > _creation_order(
+                    {"creation_token": current.creation_token})
+                or any(handle.poll() is not None for handle in handles)):
+            raise RuntimeError("Admission controller ancestry unavailable")
+    finally:
+        for handle in reversed(handles):
+            handle.close()
 
 
 def read_process_identity(pid, *, platform=None, proc_root=None, timeout=15):

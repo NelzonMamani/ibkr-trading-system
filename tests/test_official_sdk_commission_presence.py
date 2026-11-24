@@ -302,6 +302,56 @@ def test_unknown_sdk_profile_cannot_install(native, monkeypatch):
     assert native._commission_decoder_proxy is None and native._commission_zero_disabled
 
 
+def test_actual_sdk_execution_default_enum_has_detached_typed_freeze(source, capsys):
+    from ibapi.execution import Execution, OptionExerciseType
+    from ibapi.message import IN
+    from ibapi.protobuf.ExecutionDetails_pb2 import ExecutionDetails
+    message = ExecutionDetails(reqId=-1)
+    message.contract.conId, message.contract.symbol = 123, "JPM"
+    message.contract.secType, message.contract.currency = "STK", "USD"
+    message.execution.orderId, message.execution.execId = 71, "SYNTH_DEFAULT_ENUM"
+    message.execution.acctNumber, message.execution.clientId = "SYNTHETIC_TEST", source.owner.client_id
+    message.execution.time, message.execution.side = "2026-10-20T13:35:00+00:00", "BOT"
+    message.execution.shares = message.execution.cumQty = "1"
+    message.execution.price = message.execution.avgPrice = 10.53
+    assert not message.execution.HasField("optExerciseOrLapseType")
+    events, visible = [], []
+    source.owner.register_reconciliation_callback(events.append)
+    source.owner.register_execution_callback(visible.append)
+    source.run(lambda: source.decoder.processProtoBuf(message.SerializeToString(), IN.EXECUTION_DATA))
+    execution = events[0]["execution"]
+    assert type(execution) is Execution
+    assert execution.optExerciseOrLapseType is OptionExerciseType.NoneItem
+    assert execution.acctNumber == "SYNTHETIC_TEST"
+    assert len(visible) == 1 and visible[0]["execution"] is not execution
+    assert visible[0]["execution"].acctNumber == "REDACTED"
+    assert visible[0]["execution"].optExerciseOrLapseType == (-1, "None")
+    assert "CALLBACK_ERROR" not in capsys.readouterr().out
+    kind, fields = module._local_native_value(execution)
+    assert kind == "Execution" and fields[0] == "dict"
+    assert dict(fields[1])["optExerciseOrLapseType"] == (
+        "OptionExerciseType", ("tuple", (("int", -1), ("str", "None"))))
+
+
+def test_foreign_or_forged_sdk_enum_cannot_gain_native_freeze_support():
+    from enum import Enum
+    from ibapi.execution import OptionExerciseType
+    class ForeignEnum(Enum):
+        NoneItem = (-1, "None")
+    forged = object.__new__(OptionExerciseType)
+    forged._name_, forged._value_ = "NoneItem", (-1, "None")
+    for value in (ForeignEnum.NoneItem, forged):
+        with pytest.raises(RuntimeError, match="P02_LOCAL_UNSUPPORTED_NATIVE_VALUE"):
+            module._local_native_value(value)
+
+
+def test_modified_sdk_enum_member_value_is_not_a_valid_frozen_fact(monkeypatch):
+    from ibapi.execution import OptionExerciseType
+    monkeypatch.setattr(OptionExerciseType.NoneItem, "_value_", (999, "changed"))
+    with pytest.raises(RuntimeError, match="P02_LOCAL_UNSUPPORTED_NATIVE_VALUE"):
+        module._local_native_value(OptionExerciseType.NoneItem)
+
+
 @pytest.fixture
 def modern_fee_consumers(source, isolated_runtime_schema, monkeypatch):
     """Modern decoder receipts joined to the existing SQLite/lifecycle owners."""

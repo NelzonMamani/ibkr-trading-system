@@ -209,7 +209,7 @@ jobs:
       - name: Serial manifest and single-use admission controls
         env:
           PYTHONPATH: ${{ github.workspace }}/tests/offline;${{ github.workspace }}
-        run: python -m pytest -q tests/test_readonly_observation_duration.py
+        run: python -m pytest -q tests/test_readonly_observation_duration.py tests/test_windows_controller_ancestry.py
       - name: Offline cache startup diagnostic fixtures
         run: python tests/powershell/verify_cache_probe.py
       - name: Actual Windows PowerShell exit propagation regression
