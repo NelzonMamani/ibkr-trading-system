@@ -22656,3 +22656,86 @@ recovery clearing was performed here. PAPER_READY=NO.
 }
 # END
 ```
+
+### Repeated absent listener: inspect the running app before more retries
+
+The second passive check again completed with listener_present=false and
+ipv4_listener_present=false for port7497. It provides no new evidence that
+TWS PAPER login or API settings were actually applied. Do not infer either
+an account mode or the specific cause of the absent endpoint.
+
+The next and final passive discriminator is the process/common-port map
+below. Only LISTEN rows are counted. It emits heuristic app categories,
+aliases, visible-window flags and common API port numbers, never raw window
+titles, paths, PIDs, addresses, credentials or command lines. It makes no
+connection and does not retarget the probe. TWS-like/Java-like classification
+does not prove PAPER login or API readiness.
+
+Use that result for a concrete next step: full TWS PAPER if the wrong product
+is open; inspect the actual instance's API settings if it uses another port
+or has no listener. Avoid repeating the same7497 check without a changed
+precondition. IBKR confirms PAPER and LIVE TWS settings are saved separately:
+https://www.interactivebrokers.com/support/faq/content/29950139
+
+PAPER_READY=NO. No capture, broker mutation or state/ownership change occurred.
+
+```powershell
+# TITLE: Identify broker apps and API listeners without connecting
+& {
+    $ErrorActionPreference = 'Stop'
+    $ports = @(4001,4002,7496,7497)
+    $tcpStatus = 'UNAVAILABLE'
+    $listeners = @()
+    try {
+        $listeners = @(Get-NetTCPConnection -ErrorAction Stop |
+            Where-Object { $_.State -eq 'Listen' -and $_.LocalPort -in $ports })
+        $tcpStatus = 'COMPLETE'
+    } catch {}
+
+    $index = 0
+    $apps = @(
+        foreach ($app in @(Get-Process -ErrorAction SilentlyContinue)) {
+            try {
+                $name = [string]$app.ProcessName
+                $title = [string]$app.MainWindowTitle
+                if ($name -notmatch '^(tws|ibgateway|java|javaw|ibkr.*)$' -and
+                    $title -notmatch 'Trader Workstation|IB Gateway|IBKR Desktop') {
+                    continue
+                }
+                $index++
+                $kind = 'JAVA_OR_IBKR_PROCESS_UNCLASSIFIED'
+                if ($name -match '^ibgateway$' -or $title -match 'IB Gateway') {
+                    $kind = 'IB_GATEWAY_LIKE'
+                } elseif ($name -match '^tws$' -or $title -match 'Trader Workstation|^TWS\b') {
+                    $kind = 'TWS_LIKE'
+                } elseif ($name -match '^ibkr.*desktop' -or $title -match 'IBKR Desktop') {
+                    $kind = 'IBKR_DESKTOP_LIKE'
+                }
+                [pscustomobject]@{
+                    alias = ('A{0:D2}' -f $index)
+                    detected_kind = $kind
+                    visible_window = ($app.MainWindowHandle -ne [IntPtr]::Zero)
+                    common_api_listener_ports = @($listeners |
+                        Where-Object { $_.OwningProcess -eq $app.Id } |
+                        Select-Object -ExpandProperty LocalPort -Unique)
+                }
+            } catch {}
+        }
+    )
+
+    [pscustomobject]@{
+        tcp_query_status = $tcpStatus
+        apps = $apps
+        common_api_ports = @(
+            foreach ($port in $ports) {
+                $present = $null
+                if ($tcpStatus -eq 'COMPLETE') {
+                    $present = @($listeners | Where-Object { $_.LocalPort -eq $port }).Count -gt 0
+                }
+                [pscustomobject]@{ port=$port; listening=$present }
+            }
+        )
+    } | ConvertTo-Json -Depth 5
+}
+# END
+```
