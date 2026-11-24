@@ -501,7 +501,10 @@ class ExecutionEngine:
     def _p02_financial_bundle(self, *, lease, snapshot):
         """Read ONE closed actual standalone bundle; create no financial effects."""
         from decimal import Decimal
-        from ibapi.common import UNSET_DOUBLE
+        try:
+            from ibapi.common import UNSET_DOUBLE
+        except ImportError:
+            from ibapi.const import UNSET_DOUBLE  # Official SDK 10.50 moved constants.
         from src.storage.sqlite_store import _LocalCooldownFence
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         state, client = self._p02_local, self._p02_local["client"]

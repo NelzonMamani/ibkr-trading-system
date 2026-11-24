@@ -19,6 +19,19 @@ from src.ibkr.evidence_safety import write_json
 _DURATION_SECONDS = 900
 
 
+def require_calibrated_sdk(calibration):
+    # Source/protobuf attestation precedes every broker import. A retained
+    # witness from the isolated SDK cannot authorize the old project interpreter.
+    from src.ibkr.sdk_profile import require_supported_sdk
+
+    try:
+        installed = require_supported_sdk()
+    except RuntimeError:
+        raise RuntimeError("PAPER_RELEASE_SDK_PROFILE_UNVERIFIED") from None
+    if calibration.get("sdk_distribution") != installed:
+        raise RuntimeError("PAPER_RELEASE_VOLUME_SDK_MISMATCH")
+
+
 def run(state, evidence, calendar, calendar_sha256, witness=None):
     inventory = runtime_inventory(include_controllers=True, owned_pids=(os.getpid(),))
     if not inventory["completed"] or inventory["runtimes"]:
@@ -78,6 +91,7 @@ def run(state, evidence, calendar, calendar_sha256, witness=None):
 
     now = datetime.now(timezone.utc)
     calibration = load_paper_volume_calibration(witness, now=now)
+    require_calibrated_sdk(calibration)
     os.environ["ROSS_TWS_VOLUME_CALIBRATION_SHA256"] = calibration["calibration_id"]
     fee_terms = PaperEntryFeeCeiling.load(
         fee_ceiling, expected_account=os.environ.get("ROSS_PAPER_EXPECTED_ACCOUNT"), now=now)
