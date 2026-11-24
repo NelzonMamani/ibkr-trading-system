@@ -87,9 +87,13 @@ def extract_python_source(archive, destination):
         selected, names = [], set()
         for member in members:
             name = member.filename
+            raw_name = member.orig_filename
             path = PurePosixPath(name)
             mode = member.external_attr >> 16
-            if (not name or "\\" in name or "\x00" in name or path.is_absolute()
+            # ZipInfo may normalize native separators or truncate at NUL. Never
+            # accept a rewritten member name as evidence that its raw path is safe.
+            if (raw_name != name or "\\" in raw_name or "\x00" in raw_name
+                    or not name or "\\" in name or "\x00" in name or path.is_absolute()
                     or any(part in (".", "..") or ":" in part or part.endswith((".", " "))
                            or re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", part.split(".")[0])
                            for part in name.rstrip("/").split("/"))

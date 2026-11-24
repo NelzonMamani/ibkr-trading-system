@@ -23068,3 +23068,18 @@ Preserve all earlier roots. The old802278 capture caller is now superseded;
 do not ask for another run until the new SDK candidate's applicable checks
 pass. PAPER_READY=NO; five legacy ownership vetoes and operational readiness
 requirements remain unchanged.
+
+
+November24 native Windows correction: official-sdk run45442862235/job138618491035
+on03e83e4 successfully downloaded/verified the pinned archive, created the real
+isolated10.50.2 environment and verified the base pip inventory was unchanged.
+Its tests reported47passed/1failed: the hostile-backslash ZIP fixture was
+normalized by Windows ZipInfo before writing, so it did not represent the raw
+unsafe filename it claimed to test. This is a failed verification receipt,
+not full acceptance. The fixture now writes explicit raw ZipInfo names; the
+extractor validates orig_filename as well as filename and refuses separator
+normalization/NUL truncation. Added an actual raw-NUL case. All49 local modern
+controls pass. The status also exposes validated enum-only native volume/probe
+statuses automatically, so a future precision/history refusal is actionable
+without another retained-file inspection command. The03e83e4 exact-head bot
+review was clear; changed-head native/full CI and review must be checked anew.

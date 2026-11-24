@@ -21,7 +21,11 @@ def archive_bytes(extra=()):
         zipped.writestr(preparation.PYTHON_PREFIX + "setup.py", "# inert fixture; never execute\n")
         zipped.writestr("IBJts/samples/DO_NOT_RUN.py", "raise AssertionError('sample executed')")
         for name, value in extra:
-            zipped.writestr(name, value)
+            # Bypass ZipInfo's platform-dependent constructor normalization so
+            # the central directory really contains the hostile raw filename.
+            member = zipfile.ZipInfo("fixture-placeholder")
+            member.filename = member.orig_filename = name
+            zipped.writestr(member, value)
     return stream.getvalue()
 
 
@@ -56,13 +60,15 @@ def test_verified_copy_rejects_digest_size_and_budget_before_install(monkeypatch
         preparation.copy_verified_archive(io.BytesIO(data), tmp_path / "late.zip")
 
 
-@pytest.mark.parametrize("name", ["../outside.py", "/absolute.py", "C:/drive.py", "a\\b.py",
+@pytest.mark.parametrize("name", ["../outside.py", "/absolute.py", "C:/drive.py", "a\\b.py", "safe.py\x00hidden.py",
                                  preparation.PYTHON_PREFIX + "../escape.py",
                                  preparation.PYTHON_PREFIX + "nul.txt",
                                  preparation.PYTHON_PREFIX + "trailing."])
 def test_unsafe_zip_paths_write_no_source(name, tmp_path):
     archive = tmp_path / "archive.zip"
     archive.write_bytes(archive_bytes(((name, "PRIVATE"),)))
+    with zipfile.ZipFile(archive) as zipped:
+        assert zipped.infolist()[-1].orig_filename == name
     source = tmp_path / "source"
     with pytest.raises(preparation.PreparationError, match="UNSAFE_MEMBER"):
         preparation.extract_python_source(archive, source)
