@@ -24,6 +24,13 @@ def manifest(repo):
     return {name: digest(repo/name) for name in names if name}
 
 
+def require_diagnostic_session(profile, session):
+    allowed = ('PRE', 'RTH') if profile == 'live-volume' else ('RTH',)
+    if session not in allowed:
+        required = 'PRE or RTH' if profile == 'live-volume' else 'RTH'
+        raise RuntimeError(f'Normal configured {required} required; no override')
+
+
 def acquire(client, put, *, put_private=None, requested_type="DELAYED", volume_symbol=None):
     from ibapi.scanner import ScannerSubscription
     from src.core.acquisition import acquisition_deadline, checkpoint, wait_event
@@ -122,7 +129,7 @@ def acquire(client, put, *, put_private=None, requested_type="DELAYED", volume_s
                 client.record_quote_completion(req, reason)
                 client.cancelMktData(req)
                 put('acquisition.json', result)
-            if volume_symbol and result.get("native_volume_sample_status") == "LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED":
+            if put_private is not None and result.get("native_volume_sample_status") == "LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED":
                 history = client.reqHistoricalData(c, durationStr="20 D", barSizeSetting="1 day",
                                                   whatToShow="TRADES", useRTH=1, formatDate=1)
                 if history.volume_basis is None:
@@ -188,7 +195,7 @@ def main():
     phase, root_text, expected = args[:3]
     profile, expected_tree = args[3:5] if len(args) >= 5 else ('quotes', None)
     volume_symbol = args[5] if len(args) == 6 else None
-    if (profile == "live-volume" and (not volume_symbol or not re.fullmatch(r"[A-Z][A-Z0-9. -]{0,14}", volume_symbol))) or (
+    if (volume_symbol is not None and not re.fullmatch(r"[A-Z][A-Z0-9. -]{0,14}", volume_symbol)) or (
             profile != "live-volume" and volume_symbol):
         raise RuntimeError("PAPER_RELEASE_VOLUME_CALIBRATION_CONTRACT_REQUIRED")
     if profile not in ('quotes', 'final-orders', 'live-volume'):
@@ -312,8 +319,7 @@ def main():
             inventory = safety.runtime_inventory(); put('initial-runtime-inventory.json', inventory)
             if not inventory['completed'] or inventory['runtimes']:
                 raise RuntimeError('Initial runtime inventory unavailable/nonempty')
-            if get_current_market_session() != 'RTH':
-                raise RuntimeError('Normal configured RTH required; no override')
+            require_diagnostic_session(profile, get_current_market_session())
             for action in ('PLACE_ORDER', 'MODIFY_ORDER', 'CANCEL_ORDER'):
                 try:
                     assert_read_only_allows(action)
@@ -350,7 +356,7 @@ def main():
                     client.connect()  # One connection, no manager/reconnect wrapper.
                     diagnostic.record('negotiated', server_version=client.serverVersion())
                     stage('connected_acquisition_begin')
-                    report['scanner_attempted'] = profile != "live-volume"
+                    report['scanner_attempted'] = not volume_symbol
                     if profile == "live-volume":
                         result = acquire(client, put, requested_type=requested_type, volume_symbol=volume_symbol,
                                          put_private=lambda name, value: write_json(root/name, value))

@@ -4,8 +4,7 @@ param([Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$Ex
       [ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedTree,
       [ValidatePattern('^[A-Z][A-Z0-9. -]{0,14}$')][string]$VolumeSymbol)
 if ($DiagnosticProfile -ne 'quotes' -and !$ExpectedTree) { throw 'This profile requires the reviewed tree.' }
-if (($DiagnosticProfile -eq 'live-volume' -and !$VolumeSymbol) -or
-    ($DiagnosticProfile -ne 'live-volume' -and $VolumeSymbol)) {
+if ($DiagnosticProfile -ne 'live-volume' -and $VolumeSymbol) {
     throw 'An exact US stock symbol applies only to the live-volume profile.'
 }
 & {
@@ -53,11 +52,12 @@ if (($DiagnosticProfile -eq 'live-volume' -and !$VolumeSymbol) -or
     $payload = Join-Path $checkout 'scripts\certification\quote_transport_diagnostic.py'
     . (Join-Path $checkout 'scripts\certification\Invoke-ReadonlyObservation.ps1')
     Write-Host "$DiagnosticProfile diagnostic only. Fresh root: $root"
-    Write-Host 'Normal RTH and PAPER TWS Read-Only API127.0.0.1:7497; unused client71 required.'
+    $sessionScope = if ($DiagnosticProfile -eq 'live-volume') { 'Actual PRE or RTH' } else { 'Normal RTH' }
+    Write-Host "$sessionScope and PAPER TWS Read-Only API127.0.0.1:7497; unused client71 required."
     Write-Host "Cooperative stop: New-Item -ItemType File -Force '$evidence\STOP_REQUESTED'"
     $profileArgs = @()
     if ($DiagnosticProfile -ne 'quotes') { $profileArgs = @($DiagnosticProfile,$ExpectedTree) }
-    if ($DiagnosticProfile -eq 'live-volume') { $profileArgs += @($VolumeSymbol) }
+    if ($DiagnosticProfile -eq 'live-volume' -and $VolumeSymbol) { $profileArgs += @($VolumeSymbol) }
     $scope = switch ($DiagnosticProfile) {
         'final-orders' { 'FINAL_ORDERS_DIAGNOSTIC_ONLY' }
         'live-volume'  { 'LIVE_VOLUME_DIAGNOSTIC_ONLY' }
@@ -77,6 +77,14 @@ if (($DiagnosticProfile -eq 'live-volume' -and !$VolumeSymbol) -or
         Write-Host "Probe effective exit: $exitCode. PAPER_READY=NO."
         Write-Host "Private native volume probe: $root\volume-probe.json. Keep this root on the laptop."
         if ($exitCode -ne 0) { throw "Volume diagnostic exit $exitCode. Inspect local result.json and outer-status.json." }
+        try {
+            $privateProbe = Get-Content -LiteralPath (Join-Path $root 'volume-probe.json') -Raw | ConvertFrom-Json
+            $selectedVolumeSymbol = [string]$privateProbe.watchlist.symbol
+        } catch { throw 'Private volume probe symbol unavailable.' }
+        if ($selectedVolumeSymbol -cnotmatch '^[A-Z][A-Z0-9. -]{0,14}\z') {
+            throw 'Private volume probe symbol invalid.'
+        }
+        Write-Host $selectedVolumeSymbol
         return
     }
     $packagePrefix = Join-Path $root 'package-process'

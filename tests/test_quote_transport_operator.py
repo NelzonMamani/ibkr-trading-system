@@ -239,9 +239,15 @@ def test_live_volume_probe_keeps_raw_callback_outside_general_artifacts(monkeypa
         'unit': 'UNKNOWN',
     }
     f.snapshot_volume_evidence = lambda ticker: raw
+    f.reqHistoricalData = lambda *args, **kwargs: NS(
+        volume_basis={'unit': 'UNKNOWN'}, raw_source_bars=({'date': '20261019', 'volume': 81234},),
+    )
     regular, private = {}, {}
     observation = payload.acquire(f, regular.__setitem__, put_private=private.__setitem__, requested_type='LIVE')
-    assert private == {'native-volume.json': raw}
+    assert private == {
+        'native-volume.json': raw,
+        'volume-probe.json': {'watchlist': raw, 'history': {'unit': 'UNKNOWN', 'bars': [['20261019', 81234]]}},
+    }
     assert observation['native_volume_sample_status'] == 'LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED'
     assert observation['quotes'][0]['requested_type'] == 'LIVE'
     assert '39018' not in repr(regular)
@@ -249,13 +255,26 @@ def test_live_volume_probe_keeps_raw_callback_outside_general_artifacts(monkeypa
 
 
 @pytest.mark.parametrize('history_complete', [True, False])
-def test_live_volume_probe_uses_exact_contract_and_keeps_paired_sources_private(monkeypatch, history_complete):
+@pytest.mark.parametrize('automatic', [True, False])
+def test_live_volume_probe_uses_exact_contract_and_keeps_paired_sources_private(monkeypatch, history_complete, automatic):
     f = Fake()
     monkeypatch.setattr(acquisition, 'wait_event', lambda event, timeout: True)
     symbol = 'SYNTH'
     contract = Contract()
     contract.symbol, contract.conId, contract.secType, contract.currency = symbol, 123, 'STK', 'USD'
     f.resolve_contract = lambda requested: NS(contract=contract) if requested == symbol else pytest.fail(requested)
+    scan = f.reqScannerData
+    def completed_scan(subscription):
+        scan(subscription)  # Retain the existing bounded query contract assertion.
+        f.last_scanner_request['row_count'] = 1
+        return [NS(rank=0, contractDetails=NS(contract=contract))]
+    f.reqScannerData = completed_scan
+    quote_targets = []
+    quote = f.reqMktData
+    def snapshot(target, **flags):
+        quote_targets.append(target)
+        return quote(target, **flags)
+    f.reqMktData = snapshot
     now = datetime.now(timezone.utc).isoformat()
     watch = {
         'source': 'IBKR_NATIVE_TICK_SIZE', 'sdk_distribution': '9.81.1.post1',
@@ -267,7 +286,8 @@ def test_live_volume_probe_uses_exact_contract_and_keeps_paired_sources_private(
     f.snapshot_volume_evidence = lambda ticker: watch
     history_calls = []
     def history(target, **parameters):
-        assert target is contract
+        assert target is quote_targets[0]
+        assert (target.symbol, target.conId) == (symbol, 123)
         assert parameters == dict(durationStr='20 D', barSizeSetting='1 day',
                                   whatToShow='TRADES', useRTH=1, formatDate=1)
         history_calls.append(target)
@@ -277,8 +297,9 @@ def test_live_volume_probe_uses_exact_contract_and_keeps_paired_sources_private(
 
     regular, private = {}, {}
     outcome = payload.acquire(f, regular.__setitem__, put_private=private.__setitem__,
-                              requested_type='LIVE', volume_symbol=symbol)
-    assert f.scans == 0 and f.requests == [(symbol, 123)] and history_calls == [contract]
+                              requested_type='LIVE', volume_symbol=None if automatic else symbol)
+    assert f.scans == int(automatic) and f.requests == [(symbol, 123)]
+    assert history_calls == quote_targets and len(history_calls) == 1
     assert f.cancelled == [1] and not f._market_events
     assert '39018' not in repr(regular) and '81234' not in repr(regular)
     if history_complete:
@@ -288,3 +309,79 @@ def test_live_volume_probe_uses_exact_contract_and_keeps_paired_sources_private(
     else:
         assert 'volume-probe.json' not in private
         assert outcome['native_volume_sample_status'] == 'PAPER_RELEASE_VOLUME_HISTORICAL_PROBE_UNVERIFIED'
+
+
+@pytest.mark.parametrize('mode', ['empty', 'incomplete'])
+def test_automatic_live_volume_requires_completed_nonempty_scanner_before_any_quote_or_history(monkeypatch, mode):
+    f = Fake(mode)
+    f.reqHistoricalData = lambda *a, **k: pytest.fail('No historical request without selected live source')
+    f.snapshot_volume_evidence = lambda *a: pytest.fail('No volume sample without selected source')
+    private = {}
+    if mode == 'incomplete':
+        with pytest.raises(RuntimeError, match='Scanner completion'):
+            payload.acquire(f, lambda *a: None, put_private=private.__setitem__, requested_type='LIVE')
+    else:
+        outcome = payload.acquire(f, lambda *a: None, put_private=private.__setitem__, requested_type='LIVE')
+        assert outcome['scan_outcome'] == 'CONFIRMED_EMPTY' and not outcome['selected']
+    assert f.scans == 1 and not f.requests and not f.cancelled and not private
+
+
+@pytest.mark.parametrize('failure', ['stale', 'future', 'delayed', 'missing_end', 'missing_fields'])
+def test_automatic_live_volume_never_pairs_history_for_unqualified_quote(monkeypatch, failure):
+    from datetime import timedelta
+    f = Fake('missing' if failure == 'missing_end' else 'success')
+    request = f.reqMktData
+    def quote(*args, **kwargs):
+        ticker = request(*args, **kwargs)
+        ticker.received = datetime.now(timezone.utc)
+        if failure == 'stale':
+            ticker.lastTime -= timedelta(seconds=103)
+        elif failure == 'future':
+            ticker.lastTime += timedelta(seconds=103)
+        elif failure == 'delayed':
+            ticker.marketDataType = 3
+        elif failure == 'missing_fields':
+            ticker.bid = -1
+        return ticker
+    f.reqMktData = quote
+    def evidence(ticker):
+        return {
+            'source': 'IBKR_NATIVE_TICK_SIZE', 'sdk_distribution': '9.81.1.post1',
+            'session_basis': 'IBKR_CURRENT_TRADING_DAY_CUMULATIVE', 'security_type': 'STK',
+            'currency': 'USD', 'primary_exchange': 'NASDAQ',
+            'market_data_status': 'DELAYED' if failure == 'delayed' else 'LIVE', 'tick_type': 8,
+            'con_id': 101, 'client_id': 71, 'server_version': 157, 'connection_epoch': 0, 'request_id': 1,
+            'market_timestamp_utc': ticker.lastTime.isoformat(), 'received_at_utc': ticker.received.isoformat(),
+            'raw_value': 39018, 'unit': 'UNKNOWN',
+        }
+    f.snapshot_volume_evidence = evidence
+    f.reqHistoricalData = lambda *a, **k: pytest.fail('Invalid volume must not start historical acquisition')
+    monkeypatch.setattr(acquisition, 'wait_event', lambda event, timeout: failure != 'missing_end')
+    private = {}
+    outcome = payload.acquire(f, lambda *a: None, put_private=private.__setitem__, requested_type='LIVE')
+    assert f.scans == 1 and len(f.requests) == 1 and f.cancelled == [1] and not f._market_events
+    assert outcome['native_volume_sample_status'] != 'LIVE_TICK8_CAPTURED_UNITS_UNVERIFIED'
+    assert 'native-volume.json' in private and 'volume-probe.json' not in private
+
+
+@pytest.mark.parametrize('profile', ['quotes', 'final-orders', 'live-volume'])
+@pytest.mark.parametrize('session', ['PRE', 'RTH', 'AH', 'OVN', 'CLOSED'])
+def test_normal_session_admission_is_premarket_only_for_live_volume(profile, session):
+    admitted = session == 'RTH' or (profile == 'live-volume' and session == 'PRE')
+    if admitted:
+        payload.require_diagnostic_session(profile, session)
+    else:
+        with pytest.raises(RuntimeError, match='Normal configured .* required; no override'):
+            payload.require_diagnostic_session(profile, session)
+
+
+def test_live_volume_profile_accepts_automatic_selection_without_symbol_before_probe(monkeypatch, tmp_path):
+    import sys
+    # Packaging is explicitly forbidden and performs no acquisition. Reaching
+    # this guard proves optional-symbol argument validation accepted the profile.
+    (tmp_path / 's').mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, 'path', list(sys.path))
+    monkeypatch.setattr(sys, 'argv', ['operator', 'package', str(tmp_path), 'a' * 40, 'live-volume', 'b' * 40])
+    with pytest.raises(RuntimeError, match='laptop-private'):
+        payload.main()
