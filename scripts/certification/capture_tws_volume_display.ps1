@@ -21,26 +21,31 @@ Add-Type -Path (Join-Path $PSScriptRoot 'TwsVolumeDisplayCapture.cs') -Reference
     'System.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll'
 )
 [RossDiagnostics.Native]::DpiAware()
+$root = Join-Path 'C:\tmp' ('tws-volume-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+$null = New-Item -ItemType Directory -Path $root
+Write-Host ('Private automatic capture: ' + $root)
+[RossDiagnostics.Native]::DiscoveryJson() | Set-Content -LiteralPath (Join-Path $root 'window-discovery.json') -Encoding UTF8
 $window = [RossDiagnostics.Native]::FindTws()
-if ($window -eq [IntPtr]::Zero) { throw 'VISIBLE_MAIN_TWS_WINDOW_REQUIRED_NO_CAPTURE_STARTED' }
+if ($window -ne [IntPtr]::Zero) { [RossDiagnostics.Native]::RestoreTws($window) }
 $choice = [System.Windows.Forms.MessageBox]::Show(
-    "Show $VolumeSymbol and its full native Volume in TWS. After OK, drag once around the watchlist headers and that row. Keep TWS visible and stationary during capture. No phone or clock is needed.",
+    "Show $VolumeSymbol and its full native Volume in TWS. You can arrange TWS while this message is open. After OK, drag once around the watchlist headers and that row. Keep TWS visible and stationary during capture. No phone or clock is needed.",
     'Choose TWS comparison region', [System.Windows.Forms.MessageBoxButtons]::OKCancel
 )
 if ($choice -ne [System.Windows.Forms.DialogResult]::OK) { throw 'DISPLAY_SELECTION_CANCELLED_NO_CAPTURE_STARTED' }
 # The region overlay is local selection only; it never sends input to TWS.
-$null = [RossDiagnostics.Native]::SetForegroundWindow($window)
+if ($window -ne [IntPtr]::Zero) { [RossDiagnostics.Native]::RestoreTws($window) }
 Start-Sleep -Milliseconds 500
 $selector = New-Object RossDiagnostics.RegionSelector
 try {
     if ($selector.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { throw 'DISPLAY_SELECTION_CANCELLED' }
     $region = $selector.Selected
 } finally { $selector.Dispose() }
+# Bind the actual chosen TWS window, including a title that changed during setup.
+# Generic Java apps and regions outside the supported TWS window still refuse.
+Start-Sleep -Milliseconds 200
+$window = [RossDiagnostics.Native]::WindowForRegion($region)
 $null = [RossDiagnostics.Native]::SetForegroundWindow($window)
 Start-Sleep -Milliseconds 300
-$root = Join-Path 'C:\tmp' ('tws-volume-' + [guid]::NewGuid().ToString('N').Substring(0,8))
-$null = New-Item -ItemType Directory -Path $root
-Write-Host ('Private automatic capture: ' + $root)
 $frames = Join-Path $root 'frames'
 $recorder = [RossDiagnostics.VolumeDisplayRecorder]::FromScreen($frames, $window, $region)
 $output = New-Object 'System.Collections.Generic.List[string]'

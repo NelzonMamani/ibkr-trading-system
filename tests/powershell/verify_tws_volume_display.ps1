@@ -12,6 +12,24 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -Path (Join-Path $repo 'scripts\certification\TwsVolumeDisplayCapture.cs') -ReferencedAssemblies @(
     'System.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll'
 )
+# The old title-only finder rejects these legitimate identity routes. Process
+# names and installation-path components are checked independently of the title.
+if (![RossDiagnostics.Native]::TwsIdentity('DU_SYNTHETIC', 'SunAwtFrame', 'javaw', 'C:\Jts\tws\jre\bin\javaw.exe')) { throw 'ACCOUNT_ONLY_JAVA_TITLE_REJECTED' }
+if (![RossDiagnostics.Native]::TwsIdentity('DU_SYNTHETIC', 'AnyNativeClass', 'tws', 'C:\Apps\tws.exe')) { throw 'NATIVE_TWS_DYNAMIC_TITLE_REJECTED' }
+if (![RossDiagnostics.Native]::TwsIdentity('Trader Workstation', 'SunAwtFrame', 'javaw', 'C:\Apps\javaw.exe')) { throw 'EXISTING_TWS_TITLE_ROUTE_REJECTED' }
+foreach ($case in @(
+    @('Editor','SunAwtFrame','javaw','C:\Apps\editor\javaw.exe'),
+    @('Trader Workstation','Chrome_WidgetWin_1','chrome','C:\Apps\chrome.exe'),
+    @('IB Gateway','SunAwtFrame','javaw','C:\Jts\ibgateway\javaw.exe'),
+    @('Trader Workstation Configuration','SunAwtDialog','javaw','C:\Jts\javaw.exe'),
+    @('Editor','SunAwtFrame','javaw','C:\not-jts\javaw.exe')
+)) {
+    if ([RossDiagnostics.Native]::TwsIdentity($case[0],$case[1],$case[2],$case[3])) { throw 'UNRELATED_OR_CONFIGURATION_WINDOW_ACCEPTED' }
+}
+$discovery = [RossDiagnostics.Native]::DiscoveryJson() | ConvertFrom-Json
+if ($null -eq $discovery.visible_windows -or $null -eq $discovery.supported_tws_windows) { throw 'DISCOVERY_COUNTS_MISSING' }
+$serializedDiscovery = $discovery | ConvertTo-Json -Compress
+if ($serializedDiscovery -match 'DU_SYNTHETIC|[A-Z]:\\|Trader Workstation|process_id|window_title') { throw 'PRIVATE_DISCOVERY_FIELDS_EXPOSED' }
 $fixture = @'
 using System;
 using System.Drawing;
@@ -42,6 +60,54 @@ Add-Type -TypeDefinition (($helper -replace 'namespace RossDiagnostics', 'namesp
     -ReferencedAssemblies @('System.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll')
 $root = Join-Path $env:RUNNER_TEMP ('tws-display-controls-' + [guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path $root
+# Exercise the actual native enumerator, including a minimized main window
+# whose title does not contain Trader Workstation. This executable is an inert
+# test-only form; it imports no broker code and makes no network request.
+$fixtureExe = Join-Path $root 'tws.exe'
+$windowFixture = @'
+using System;
+using System.IO;
+using System.Windows.Forms;
+public static class InertWindowFixture {
+    [STAThread] public static void Main(string[] args) {
+        using (Form form = new Form()) {
+            form.Text = "dynamic offline fixture";
+            form.Width = 600; form.Height = 200; form.WindowState = FormWindowState.Minimized;
+            form.Shown += delegate { File.WriteAllText(args[0], "READY"); };
+            DateTime started = DateTime.UtcNow;
+            using (Timer timer = new Timer()) {
+                timer.Interval = 100;
+                timer.Tick += delegate { if (File.Exists(args[0] + ".stop") || (DateTime.UtcNow-started).TotalSeconds > 20) form.Close(); };
+                timer.Start(); Application.Run(form);
+            }
+        }
+    }
+}
+'@
+Add-Type -TypeDefinition $windowFixture -OutputAssembly $fixtureExe -OutputType WindowsApplication `
+    -ReferencedAssemblies @('System.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll')
+$readyPath = Join-Path $root 'window-ready'
+$fixtureProcess = Start-Process -FilePath $fixtureExe -ArgumentList ('"{0}"' -f $readyPath) -PassThru
+try {
+    $deadline = [datetime]::UtcNow.AddSeconds(10)
+    while (!(Test-Path -LiteralPath $readyPath) -and [datetime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
+    if (!(Test-Path -LiteralPath $readyPath)) { throw 'INERT_WINDOW_DID_NOT_START' }
+    $found = [RossDiagnostics.Native]::FindTws()
+    $deadline = [datetime]::UtcNow.AddSeconds(3)
+    while (($found -eq [IntPtr]::Zero -or ![RossDiagnostics.Native]::IsIconic($found)) -and [datetime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 100
+        $found = [RossDiagnostics.Native]::FindTws()
+    }
+    if ($found -eq [IntPtr]::Zero -or [RossDiagnostics.Native]::WindowProcessId($found) -ne $fixtureProcess.Id -or
+        ![RossDiagnostics.Native]::IsIconic($found)) { throw 'MINIMIZED_DYNAMIC_TITLE_DISCOVERY_FAILED' }
+    [RossDiagnostics.Native]::RestoreTws($found)
+    $deadline = [datetime]::UtcNow.AddSeconds(3)
+    while ([RossDiagnostics.Native]::IsIconic($found) -and [datetime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
+    if ([RossDiagnostics.Native]::IsIconic($found) -or ![RossDiagnostics.Native]::TwsWindow($found)) { throw 'DISCOVERED_TWS_RESTORE_FAILED' }
+} finally {
+    [IO.File]::WriteAllText($readyPath + '.stop', 'STOP')
+    if (!$fixtureProcess.WaitForExit(3000)) { $fixtureProcess.Kill(); $fixtureProcess.WaitForExit() }
+}
 $goodPath = Join-Path $root 'good'
 $good = [SyntheticVolumeFrames]::Good($goodPath)
 try {
@@ -72,4 +138,4 @@ try {
     Start-Sleep -Milliseconds 600
     if ($slow.Count -ne $before) { throw 'TIMED_OUT_OWNER_WROTE_AFTER_JOIN' }
 } finally { $slow.Dispose() }
-Write-Host 'TWS_DISPLAY_CONTROLS_PASSED: native parse/compile, pixels, clocks, failed and slow startup, no writes after joined stop.'
+Write-Host 'TWS_DISPLAY_CONTROLS_PASSED: native parse/compile, minimized dynamic-title discovery and restore, unrelated-window refusals, private discovery counts, pixels, clocks, failed and slow startup, joined stop.'

@@ -2,6 +2,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -105,6 +106,10 @@ namespace RossDiagnostics {
         public delegate bool Enumerate(IntPtr window, IntPtr ignored);
         [DllImport("user32.dll")] static extern bool EnumWindows(Enumerate callback, IntPtr ignored);
         [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr window, StringBuilder title, int length);
+        [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder name, int length);
+        [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+        [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(Point point);
+        [DllImport("user32.dll")] static extern bool ShowWindowAsync(IntPtr window, int command);
         [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out RECT rectangle);
         [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
         [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
@@ -113,18 +118,89 @@ namespace RossDiagnostics {
         [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
         [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
         public static void DpiAware() { SetProcessDPIAware(); }
+        public static uint WindowProcessId(IntPtr window) { uint id; GetWindowThreadProcessId(window, out id); return id; }
+        public static bool TwsIdentity(string title, string className, string processName, string imagePath) {
+            title = title ?? ""; className = className ?? "";
+            processName = (processName ?? "").ToLowerInvariant(); imagePath = imagePath ?? "";
+            if (title.IndexOf("Configuration", StringComparison.OrdinalIgnoreCase) >= 0
+                || title.IndexOf("IB Gateway", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (processName == "tws" || processName == "tws.exe") return true;
+            if ((processName != "java" && processName != "javaw")
+                || !className.Equals("SunAwtFrame", StringComparison.Ordinal)) return false;
+            bool named = title.IndexOf("Trader Workstation", StringComparison.OrdinalIgnoreCase) >= 0;
+            return named || TwsImagePath(imagePath);
+        }
+        static bool TwsImagePath(string imagePath) {
+            string path = (imagePath ?? "").Replace('/', '\\').ToLowerInvariant();
+            if (path.Contains("\\ibgateway\\") || path.Contains("\\ib gateway\\")) return false;
+            return path.Contains("\\jts\\") || path.Contains("\\tws\\") || path.Contains("\\trader workstation\\");
+        }
+        static void Identity(IntPtr window, out string title, out string className, out string processName, out string imagePath) {
+            StringBuilder text = new StringBuilder(1024); GetWindowText(window, text, text.Capacity); title = text.ToString();
+            text = new StringBuilder(256); GetClassName(window, text, text.Capacity); className = text.ToString();
+            processName = ""; imagePath = "";
+            try {
+                uint id; GetWindowThreadProcessId(window, out id);
+                using (Process process = Process.GetProcessById(checked((int)id))) {
+                    processName = process.ProcessName;
+                    try { imagePath = process.MainModule.FileName; } catch { }
+                }
+            } catch { }
+        }
         public static bool TwsWindow(IntPtr window) {
-            StringBuilder title = new StringBuilder(1024);
-            GetWindowText(window, title, title.Capacity);
-            string text = title.ToString();
-            return IsWindowVisible(window) && text.IndexOf("Trader Workstation", StringComparison.OrdinalIgnoreCase) >= 0
-                && text.IndexOf("Configuration", StringComparison.OrdinalIgnoreCase) < 0;
+            if (!IsWindowVisible(window)) return false;
+            string title, className, processName, imagePath;
+            Identity(window, out title, out className, out processName, out imagePath);
+            return TwsIdentity(title, className, processName, imagePath);
+        }
+        public static void RestoreTws(IntPtr window) {
+            if (!TwsWindow(window)) throw new InvalidOperationException("TWS_WINDOW_IDENTITY_REQUIRED");
+            if (IsIconic(window)) ShowWindowAsync(window, 9);
+            SetForegroundWindow(window);
+        }
+        public static IntPtr WindowForRegion(Rectangle region) {
+            IntPtr window = GetAncestor(WindowFromPoint(new Point(region.X + region.Width/2, region.Y + region.Height/2)), 2);
+            RECT bounds;
+            if (TwsWindow(window) && !IsIconic(window) && GetWindowRect(window, out bounds)
+                && bounds.Rectangle.Contains(region)) return window;
+            // Closing the selector can return focus to the terminal. Resolve a
+            // unique supported TWS under the selected rectangle, then restore it.
+            IntPtr selected = IntPtr.Zero; int matches = 0;
+            EnumWindows(delegate(IntPtr candidate, IntPtr ignored) {
+                RECT rectangle;
+                if (TwsWindow(candidate) && !IsIconic(candidate) && GetWindowRect(candidate, out rectangle)
+                    && rectangle.Rectangle.Contains(region)) { selected = candidate; matches++; }
+                return true;
+            }, IntPtr.Zero);
+            if (matches != 1) throw new InvalidOperationException("SELECTED_REGION_IS_NOT_A_UNIQUE_SUPPORTED_TWS_WINDOW");
+            RestoreTws(selected);
+            return selected;
+        }
+        public static string DiscoveryJson() {
+            int visible = 0, matched = 0, minimized = 0, javaFrames = 0, namedTws = 0, nativeNames = 0, pathMatches = 0;
+            EnumWindows(delegate(IntPtr window, IntPtr ignored) {
+                if (!IsWindowVisible(window)) return true;
+                visible++;
+                string title, className, processName, imagePath;
+                Identity(window, out title, out className, out processName, out imagePath);
+                if (className == "SunAwtFrame") javaFrames++;
+                if (title.IndexOf("Trader Workstation", StringComparison.OrdinalIgnoreCase) >= 0) namedTws++;
+                if (processName.Equals("tws", StringComparison.OrdinalIgnoreCase)) nativeNames++;
+                if (TwsImagePath(imagePath)) pathMatches++;
+                if (TwsIdentity(title, className, processName, imagePath)) { matched++; if (IsIconic(window)) minimized++; }
+                return true;
+            }, IntPtr.Zero);
+            // Counts only: never serialize titles, account IDs, handles, PIDs or paths.
+            return "{\"visible_windows\":" + visible + ",\"supported_tws_windows\":" + matched
+                + ",\"minimized_tws_windows\":" + minimized + ",\"java_frame_windows\":" + javaFrames
+                + ",\"title_rule_matches\":" + namedTws + ",\"native_tws_process_windows\":" + nativeNames
+                + ",\"installation_path_matches\":" + pathMatches + "}";
         }
         public static IntPtr FindTws() {
             IntPtr found = IntPtr.Zero; long area = 0;
             EnumWindows(delegate(IntPtr window, IntPtr unused) {
                 RECT rect;
-                if (TwsWindow(window) && !IsIconic(window) && GetWindowRect(window, out rect)) {
+                if (TwsWindow(window) && GetWindowRect(window, out rect)) {
                     long candidate = (long)rect.Rectangle.Width * rect.Rectangle.Height;
                     if (candidate > area) { area = candidate; found = window; }
                 }

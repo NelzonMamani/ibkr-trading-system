@@ -22867,3 +22867,37 @@ startup and no late writes after joined stop. They do not acquire desktop or
 broker evidence. Actual exact-contract visual comparison and completed RTH-chart
 comparison, capital/fee/calendar/state/ownership prerequisites and supervised
 PAPER lifecycle remain open. All five legacy-holding vetoes remain. PAPER_READY=NO.
+
+
+### Automatic display collector: native window discovery refusal
+
+The operator ran reviewed head6787ab76ce70a89eb176c2514bc721926a07aff9 in
+C:\tmp\tws-volume-source-0bb0af37. Fetch, pinned worktree preparation and source
+checks completed. The operator then refused at
+VISIBLE_MAIN_TWS_WINDOW_REQUIRED_NO_CAPTURE_STARTED. No new API probe, visual
+frame, unit comparison or review ZIP was produced by that attempt. There is
+no printed private evidence root because the old operator created it only
+after selection. The refusal alone does not distinguish a minimized/closed
+TWS instance from an unmatched window title. Do not claim broker failure or
+that all repairs are complete.
+
+Source inspection identifies a title-only discovery predicate and exclusion
+of minimized windows. The follow-up recognizes supported TWS executable and
+Java/TWS-installation identities independently of the account-changing title,
+restores an identified minimized TWS, and binds the actual selected supported
+window after the overlay closes. A unique underlying TWS can be restored if
+selection closure returned focus to the terminal. Generic Java apps,
+configuration dialogs, IB Gateway and ambiguous unsupported selections refuse.
+When no initial match exists, setup remains available before any API request;
+selection must still identify a supported TWS window. No blind keyboard
+input, account/settings change or runtime gate weakening is added.
+
+A private root and counts-only window-discovery.json are emitted before
+selection. Discovery never serializes account-bearing titles, handles,
+process IDs or executable paths. Native Windows controls now cover the
+title-independent identity routes and unrelated-window refusals, actual
+EnumWindows discovery of an inert minimized dynamic-title tws.exe fixture
+and its restoration. Existing frame/readiness/cleanup controls remain.
+New-head verification is pending; older 6787ab7 Windows/bot successes remain
+specific to that earlier head and are not laptop acceptance. Actual display
+capture, volume comparisons and PAPER readiness remain unproved. PAPER_READY=NO.
