@@ -26,6 +26,10 @@ _STATE_FILES = ("ibkr_system.db", "order-id.json", "submission-guard.json")
 _CALENDAR_FIELDS = {"coverage", "holidays", "half_days", "early_close"}
 
 
+class _ReleaseInputError(RuntimeError):
+    """An operator input gate whose fixed code can be included in receipts."""
+
+
 def _verified_sdk():
     # Source/protobuf attestation precedes every broker import. A retained
     # witness from the isolated SDK cannot authorize the old project interpreter.
@@ -45,30 +49,30 @@ def require_calibrated_sdk(calibration):
 def _require_exclusive_process():
     inventory = runtime_inventory(include_controllers=True, owned_pids=(os.getpid(),))
     if not inventory["completed"] or inventory["runtimes"]:
-        raise RuntimeError("PAPER_RELEASE_EXCLUSIVE_PROCESS_CHECK_FAILED")
+        raise _ReleaseInputError("PAPER_RELEASE_EXCLUSIVE_PROCESS_CHECK_FAILED")
 
 
 def _load_reviewed_calendar(calendar, calendar_sha256):
     if calendar is None or not calendar.is_file():
-        raise RuntimeError("PAPER_RELEASE_REVIEWED_CALENDAR_REQUIRED")
+        raise _ReleaseInputError("PAPER_RELEASE_REVIEWED_CALENDAR_REQUIRED")
     try:
         raw = calendar.read_bytes()
     except OSError:
-        raise RuntimeError("PAPER_RELEASE_REVIEWED_CALENDAR_REQUIRED") from None
+        raise _ReleaseInputError("PAPER_RELEASE_REVIEWED_CALENDAR_REQUIRED") from None
     if hashlib.sha256(raw).hexdigest() != calendar_sha256:
-        raise RuntimeError("PAPER_RELEASE_CALENDAR_HASH_MISMATCH")
+        raise _ReleaseInputError("PAPER_RELEASE_CALENDAR_HASH_MISMATCH")
     try:
         receipt = json.loads(raw)
     except ValueError:
-        raise RuntimeError("PAPER_RELEASE_CALENDAR_FORMAT_INVALID") from None
+        raise _ReleaseInputError("PAPER_RELEASE_CALENDAR_FORMAT_INVALID") from None
     if type(receipt) is not dict or set(receipt) != _CALENDAR_FIELDS:
-        raise RuntimeError("PAPER_RELEASE_CALENDAR_FORMAT_INVALID")
+        raise _ReleaseInputError("PAPER_RELEASE_CALENDAR_FORMAT_INVALID")
     return receipt
 
 
 def _require_state_files(state):
     if state is None or not all((state / name).is_file() for name in _STATE_FILES):
-        raise RuntimeError("PAPER_RELEASE_EXISTING_STATE_FILES_REQUIRED")
+        raise _ReleaseInputError("PAPER_RELEASE_EXISTING_STATE_FILES_REQUIRED")
 
 
 def _opening_envelope(start_time, read_window):
@@ -76,7 +80,7 @@ def _opening_envelope(start_time, read_window):
     end = read_window(start_time + timedelta(seconds=_DURATION_SECONDS + 360))
     if (start is None or end is None or start.phase != "RTH_OPEN" or end.phase != "RTH_OPEN"
             or start.fingerprint != end.fingerprint):
-        raise RuntimeError("PAPER_RELEASE_REVIEWED_OPENING_ENVELOPE_REQUIRED")
+        raise _ReleaseInputError("PAPER_RELEASE_REVIEWED_OPENING_ENVELOPE_REQUIRED")
     return start
 
 
@@ -105,11 +109,11 @@ def offline(event, args):
 sys.addaudithook(offline)
 sys.path.insert(0, sys.argv[1])
 with contextlib.redirect_stdout(io.StringIO()):
-    from scripts.certification.ross_paper_release_operator import _opening_envelope
+    from scripts.certification.ross_paper_release_operator import _opening_envelope, _ReleaseInputError
     from src.market_data.session_pct_change import covered_opening_window
     try:
         window = _opening_envelope(datetime.fromisoformat(sys.argv[2]), covered_opening_window)
-    except RuntimeError:
+    except _ReleaseInputError:
         window = None
 print(json.dumps({'close': window.current_close.isoformat(), 'date': window.target_session} if window else None))
 """
@@ -214,7 +218,7 @@ def run(state, evidence, calendar, calendar_sha256, witness=None):
         _require_exclusive_process()
         receipt = _load_reviewed_calendar(calendar, calendar_sha256)
         _require_state_files(state)
-    except RuntimeError as exc:
+    except _ReleaseInputError as exc:
         return str(exc), 2
     witness = witness if witness is not None else state / "volume-witness.json"
     if not witness.is_file():
@@ -265,7 +269,7 @@ def run(state, evidence, calendar, calendar_sha256, witness=None):
         fee_ceiling, expected_account=os.environ.get("ROSS_PAPER_EXPECTED_ACCOUNT"), now=now)
     try:
         start = _opening_envelope(now, covered_opening_window)
-    except RuntimeError as exc:
+    except _ReleaseInputError as exc:
         return str(exc), 2
     fee_terms.require_rth_close(start.current_close)
 
@@ -303,18 +307,23 @@ def run(state, evidence, calendar, calendar_sha256, witness=None):
 
 def cli():
     if len(sys.argv) > 1 and sys.argv[1] == "--check-only":
-        parser = argparse.ArgumentParser(description="Check private Ross PAPER inputs offline.")
+        parser = argparse.ArgumentParser(description="Check private Ross PAPER inputs offline.",
+                                         allow_abbrev=False, exit_on_error=False)
         parser.add_argument("--state", type=Path)
         parser.add_argument("--calendar", type=Path)
         parser.add_argument("--calendar-sha256")
         parser.add_argument("--witness", type=Path)
         parser.add_argument("--planned-start")
-        args = parser.parse_args(sys.argv[2:])
+        status = "PAPER_RELEASE_OFFLINE_PREFLIGHT_ARGUMENTS_INVALID"
         try:
+            args, extra = parser.parse_known_args(sys.argv[2:])
+            if extra:
+                raise ValueError
+            status = "PAPER_RELEASE_OFFLINE_PREFLIGHT_UNAVAILABLE"
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 report = _check_only(args.state, args.calendar, args.calendar_sha256, args.witness, args.planned_start)
         except Exception:
-            print(json.dumps({"status": "PAPER_RELEASE_OFFLINE_PREFLIGHT_UNAVAILABLE",
+            print(json.dumps({"status": status,
                               "native_acceptance": "PENDING", "paper_ready": False}, separators=(",", ":")))
             return 2
         print(json.dumps(report, separators=(",", ":")))

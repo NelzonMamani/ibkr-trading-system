@@ -327,6 +327,7 @@ def test_offline_preflight_checks_inputs_before_opening_without_mutation(
 def test_cold_offline_preflight_cli_emits_only_sanitized_receipt(tmp_path):
     import json
     import subprocess
+    import sys
 
     from scripts.certification import ross_paper_release_operator as operator
 
