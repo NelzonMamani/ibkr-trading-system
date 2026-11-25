@@ -2620,7 +2620,8 @@ class IbkrClient(EWrapper, EClient):
                     # transport. Cleanup must not reinterpret it as unsent.
                     sent = True
                     if settled_usd:
-                        self.reqAccountUpdatesMulti(req_id, expected_account, "", True)
+                        # The lightweight PAPER feed omitted securities settlement.
+                        self.reqAccountUpdatesMulti(req_id, expected_account, "", False)
                     else:
                         tags = ",".join(_CAPITAL_TAGS) if capital_currency is not None else "$LEDGER"
                         self.reqAccountSummary(req_id, "All", tags)
