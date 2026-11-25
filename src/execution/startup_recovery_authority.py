@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import Enum
 from typing import Any
 
@@ -86,6 +87,17 @@ class StartupRecoveryAuthority:
             )
         positions = list(positions_result["positions"])
         print(f"[RECOVERY][POSITIONS] count={len(positions)}")
+        # Recovery can adopt a position and repair its protection. Validate the
+        # complete snapshot first because those owners require whole shares.
+        try:
+            for position in positions:
+                self._position_quantity(position)
+        except (ArithmeticError, TypeError, ValueError):
+            return self._fail(
+                "BROKER_POSITION_QUANTITY_UNSUPPORTED",
+                positions_count=len(positions),
+                lifecycle_result=lifecycle_result,
+            )
 
         orders_result = self._load_broker_orders()
         if not orders_result["ok"]:
@@ -300,7 +312,12 @@ class StartupRecoveryAuthority:
         value = getattr(position, "quantity", None)
         if value is None:
             value = getattr(position, "position", None)
-        return abs(int(value or 0))
+        if isinstance(value, bool):
+            raise ValueError("Broker recovery requires a numeric position quantity")
+        quantity = Decimal(value)
+        if not quantity.is_finite() or quantity != quantity.to_integral_value():
+            raise ValueError("Broker recovery requires whole-share positions")
+        return abs(int(quantity))
 
     @staticmethod
     def _position_side(position: Any) -> str:

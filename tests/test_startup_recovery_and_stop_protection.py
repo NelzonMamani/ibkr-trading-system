@@ -1,6 +1,9 @@
+from decimal import Decimal
 from pathlib import Path
 import sys
 from types import SimpleNamespace
+
+import pytest
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -136,6 +139,38 @@ def test_startup_recovery_flags_unprotected_position_and_skips_restore(capsys) -
         assert registry.count_active() == 0
     finally:
         set_config_overrides(None)
+
+
+@pytest.mark.parametrize("quantity", [Decimal("0.1"), Decimal("-0.25"), Decimal("1.1")])
+def test_startup_recovery_does_not_adopt_or_repair_a_fractional_snapshot(quantity, monkeypatch):
+    from src.core.active_trade_registry import ActiveTradeRegistry
+    from src.execution.post_fill_lifecycle_engine import PostFillLifecycleEngine
+    from src.execution.startup_recovery_authority import StartupRecoveryAuthority
+
+    whole = SimpleNamespace(symbol="WHOLE", position=Decimal("2"), avgCost=10, stop_loss_price=9)
+    fractional = SimpleNamespace(symbol="FRACTION", position=quantity, avgCost=10, stop_loss_price=9)
+    provider = _StartupRecoveryProvider([whole, fractional])
+
+    def forbid_order_recovery():
+        pytest.fail("fractional snapshot must refuse before reading or repairing orders")
+
+    monkeypatch.setattr(provider, "get_open_orders", forbid_order_recovery)
+    registry = ActiveTradeRegistry()
+    lifecycle = PostFillLifecycleEngine(run_mode="PAPER")
+    authority = StartupRecoveryAuthority(
+        run_mode="PAPER",
+        provider=provider,
+        post_fill_lifecycle=lifecycle,
+        trade_registry=registry,
+    )
+
+    result = authority.run()
+
+    assert result.reason == "BROKER_POSITION_QUANTITY_UNSUPPORTED"
+    assert not result.complete and result.positions_count == 2
+    assert registry.snapshot() == []
+    assert lifecycle.get_trade("recovery:WHOLE") is None
+    assert lifecycle.get_trade("recovery:FRACTION") is None
 
 
 def test_execution_resolves_stop_loss_when_missing_in_paper_mode() -> None:

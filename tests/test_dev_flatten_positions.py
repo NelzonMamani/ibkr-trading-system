@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from types import SimpleNamespace
+
+import pytest
 
 from src.execution.dev_tools import flatten_positions
 
@@ -109,3 +112,47 @@ def test_force_flatten_partial_when_some_positions_remain(monkeypatch):
     assert result["close_orders_submitted"] == 2
     assert result["positions_remaining"] == 1
     assert result["status"] == "PARTIAL"
+
+
+@pytest.mark.parametrize("quantity", [Decimal("0.25"), Decimal("-0.0625"), Decimal("1.25")])
+def test_force_flatten_refuses_a_fraction_before_submitting_any_close(monkeypatch, quantity):
+    monkeypatch.setattr(flatten_positions, "IbkrOrderTranslator", _FakeTranslator)
+    client = _FakeIbkrClient(
+        snapshots=[
+            [SimpleNamespace(symbol="AAPL", position=10), SimpleNamespace(symbol="MSFT", position=quantity)],
+            [],
+        ]
+    )
+
+    result = flatten_positions.force_flatten_all_positions(client, timeout_seconds=1)
+
+    assert result == {
+        "positions_detected": 2,
+        "close_orders_submitted": 0,
+        "positions_remaining": 2,
+        "status": "FAILED",
+    }
+    assert client.submissions == []
+
+
+def test_force_flatten_counts_a_targeted_fraction_at_timeout(monkeypatch):
+    monkeypatch.setattr(flatten_positions, "IbkrOrderTranslator", _FakeTranslator)
+    ticks = iter([0, 0, 1])
+    monkeypatch.setattr(flatten_positions.time, "time", lambda: next(ticks, 1))
+    monkeypatch.setattr(flatten_positions.time, "sleep", lambda seconds: None)
+    client = _FakeIbkrClient(
+        snapshots=[
+            [SimpleNamespace(symbol="MSFT", position=-3)],
+            [SimpleNamespace(symbol="MSFT", position=Decimal("-0.0625"))],
+        ]
+    )
+
+    result = flatten_positions.force_flatten_all_positions(client, timeout_seconds=1)
+
+    assert result == {
+        "positions_detected": 1,
+        "close_orders_submitted": 1,
+        "positions_remaining": 1,
+        "status": "FAILED",
+    }
+    assert len(client.submissions) == 1
