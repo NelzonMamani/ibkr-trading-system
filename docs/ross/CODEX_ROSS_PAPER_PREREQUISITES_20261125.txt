@@ -13,7 +13,9 @@ One next laptop action: paste this entire block into a fresh Windows
 PowerShell 5.1 console with RunPairedCapture set to false. This resolves and
 re-attests the retained official SDK without broker access. When prompted, paste
 the existing project folder shown in PyCharm. That path and the SDK receipt
-stay local. Git fetches the pinned commit if it is missing.
+stay local. Job A reuses an existing clean, registered pinned checkout under
+C:\tmp, including the one created by the source recovery check. Git fetches
+only if the pinned commit is missing and no existing checkout can be reused.
 SDK_RECEIPT_UNAVAILABLE or SDK_RECEIPT_AMBIGUOUS requires the exact retained
 sdk-environment.json in SdkReceipt. A CI worker receipt cannot select a laptop
 interpreter. The successful Nov 24 capture identifies SDK 10.50.2, but the
@@ -77,20 +79,65 @@ earlier root. The retired 8ed0d2d6 FRESH caller is obsolete.
 
         $status = 'PINNED_SOURCE_UNAVAILABLE'
         $git = (Get-Command git.exe -CommandType Application).Source
-        $null = & { $ErrorActionPreference = 'Continue'; & $git -C $Repo cat-file -e ($Pin + '^{commit}') 2>$null }
-        if ($LASTEXITCODE -ne 0) {
-            & $git -C $Repo fetch --quiet origin $Pin *> $null
-            if ($LASTEXITCODE -ne 0) { return }
+        function Invoke-PinnedGit([string[]]$GitArgs) {
+            # Native progress can use stderr even when Git exits successfully.
+            $ErrorActionPreference = 'Continue'
+            $global:LASTEXITCODE = $null
+            $lines = @(& $git @GitArgs 2>$null)
+            [pscustomobject]@{ ExitCode = $global:LASTEXITCODE; Lines = $lines }
         }
-        $actualTree = (& $git -C $Repo rev-parse ($Pin + '^{tree}') 2>$null | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0 -or $actualTree -cne $Tree) { return }
-        $checkout = Join-Path $Base ('ross-readonly-' + [guid]::NewGuid().ToString('N'))
-        & $git -C $Repo -c core.longpaths=true worktree add --detach $checkout $Pin *> $null
-        if ($LASTEXITCODE -ne 0) { return }
-        $actual = (& $git -C $checkout rev-parse HEAD 2>$null | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0 -or $actual -cne $Pin) { return }
-        $dirty = @(& $git -C $checkout status --porcelain=v1 --untracked-files=all 2>$null)
-        if ($LASTEXITCODE -ne 0 -or $dirty.Count) { return }
+
+        $status = 'WORKTREE_INVENTORY_UNAVAILABLE'
+        $inventory = Invoke-PinnedGit -GitArgs @('-C', $Repo, 'worktree', 'list', '--porcelain')
+        if ($inventory.ExitCode -ne 0) { return }
+
+        $checkout = $null
+        $pinnedWorktreeNotClean = $false
+        foreach ($line in $inventory.Lines) {
+            if (!$line.StartsWith('worktree ')) { continue }
+            $candidate = $line.Substring(9).Replace('/', '\')
+            if ($candidate -notmatch '^C:\\tmp\\ross-(source-check|readonly)-[0-9a-f]{32}$' -or
+                !(Test-Path -LiteralPath $candidate -PathType Container)) { continue }
+            $head = Invoke-PinnedGit -GitArgs @('-C', $candidate, 'rev-parse', 'HEAD')
+            if ($head.ExitCode -ne 0 -or ($head.Lines -join '') -cne $Pin) { continue }
+            $clean = Invoke-PinnedGit -GitArgs @('-C', $candidate, 'status', '--porcelain=v1', '--untracked-files=all')
+            if ($clean.ExitCode -ne 0 -or $clean.Lines.Count) {
+                $pinnedWorktreeNotClean = $true
+                continue
+            }
+            $checkout = $candidate
+            break
+        }
+
+        if (!$checkout -and $pinnedWorktreeNotClean) {
+            $status = 'PINNED_WORKTREE_NOT_CLEAN'
+            return
+        }
+        if (!$checkout) {
+            $status = 'PINNED_SOURCE_UNAVAILABLE'
+            $pinCheck = Invoke-PinnedGit -GitArgs @('-C', $Repo, 'cat-file', '-e', ($Pin + '^{commit}'))
+            if ($pinCheck.ExitCode -ne 0) {
+                $fetch = Invoke-PinnedGit -GitArgs @('-C', $Repo, 'fetch', '--quiet', 'origin', $Pin)
+                if ($fetch.ExitCode -ne 0) { return }
+            }
+        }
+        $status = 'PINNED_TREE_UNVERIFIED'
+        $treeSource = if ($checkout) { $checkout } else { $Repo }
+        $actualTree = Invoke-PinnedGit -GitArgs @('-C', $treeSource, 'rev-parse', ($Pin + '^{tree}'))
+        if ($actualTree.ExitCode -ne 0 -or ($actualTree.Lines -join '') -cne $Tree) { return }
+
+        if (!$checkout) {
+            $status = 'PINNED_WORKTREE_CREATION_FAILED'
+            $checkout = Join-Path $Base ('ross-readonly-' + [guid]::NewGuid().ToString('N'))
+            $added = Invoke-PinnedGit -GitArgs @('-C', $Repo, '-c', 'core.longpaths=true', 'worktree', 'add', '--detach', $checkout, $Pin)
+            if ($added.ExitCode -ne 0) { return }
+        }
+        $status = 'PINNED_WORKTREE_HEAD_UNVERIFIED'
+        $actual = Invoke-PinnedGit -GitArgs @('-C', $checkout, 'rev-parse', 'HEAD')
+        if ($actual.ExitCode -ne 0 -or ($actual.Lines -join '') -cne $Pin) { return }
+        $status = 'PINNED_WORKTREE_NOT_CLEAN'
+        $dirty = Invoke-PinnedGit -GitArgs @('-C', $checkout, 'status', '--porcelain=v1', '--untracked-files=all')
+        if ($dirty.ExitCode -ne 0 -or $dirty.Lines.Count) { return }
 
         $status = 'SDK_PROFILE_UNVERIFIED'
         $attest = @'
@@ -99,8 +146,13 @@ sys.path.insert(0, sys.argv[1])
 from src.ibkr.sdk_profile import require_supported_sdk
 raise SystemExit(0 if require_supported_sdk() == '10.50.2' else 2)
 '@
-        $attest | & $python -I -B - $checkout *> $null
-        if ($LASTEXITCODE -ne 0) { return }
+        $attestCode = & {
+            $ErrorActionPreference = 'Continue'
+            $global:LASTEXITCODE = $null
+            $attest | & $python -I -B - $checkout *> $null
+            $global:LASTEXITCODE
+        }
+        if ($attestCode -ne 0) { return }
         $status = 'SDK_10_50_2_VERIFIED_OFFLINE'
         if (!$RunPairedCapture) { return }
 
