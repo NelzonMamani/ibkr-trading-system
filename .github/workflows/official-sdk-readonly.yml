@@ -16,6 +16,7 @@ on:
       - 'docs/ross/ORDINARY_RTH_PAPER_LOCAL_EXECUTION.ps1.in'
       - 'tests/test_ross_paper_release.py'
       - 'tests/test_native_stop_price_prerequisite.py'
+      - 'tests/test_completed_daily_volume.py'
       - 'tests/test_official_sdk*'
 
 jobs:
@@ -55,6 +56,7 @@ jobs:
               tests\test_official_sdk_transport_compat.py tests\test_official_sdk_paper_orders.py `
               tests\test_official_sdk_commission_presence.py tests\test_official_sdk_paper_lifecycle.py `
               tests\test_official_sdk_local_fee_settlement.py `
+              tests\test_completed_daily_volume.py `
               tests\test_pr1090_evidence_safety.py::test_enum_values_redact_before_freeform_siblings_without_copying_shared_metadata `
               tests\test_pr1090_evidence_safety.py::test_enum_in_account_field_registers_its_value_before_sibling_redaction `
               tests\test_ross_paper_release.py

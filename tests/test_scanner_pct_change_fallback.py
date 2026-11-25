@@ -130,7 +130,7 @@ class _RetryAwareProvider(_BaseProvider):
         self.calls.append((use_rth, end_datetime))
         if use_rth:
             return []
-        return [_Bar("2025-01-01", 100.0, 120_000)] * 20
+        return [_Bar(f"2025-01-{day:02d}", 100.0, 120_000) for day in range(1, 21)]
 
 
 

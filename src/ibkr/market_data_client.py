@@ -10,7 +10,8 @@ import copy
 from contextlib import nullcontext, contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 import math
 import os
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
 # IBKR documents tickSnapshotEnd at about 11 seconds from snapshot request.
 # Allow one polling/scheduling margin on this explicit route only.
 _COMPLETED_SNAPSHOT_TIMEOUT_SECONDS = 12.0
+_DATETIME_TYPE = datetime
 
 
 @dataclass(frozen=True)
@@ -185,32 +187,75 @@ def historical_binding_result(result, contract, expected_spec):
     return result
 
 
-def average_daily_bar_volume(bars, window):
-    raw = [getattr(bar, "volume", None) for bar in bars]
-    exact_decimal = any(isinstance(value, Decimal) for value in raw)
-    # A preserved decimal string is unverified input, not a numeric authority.
-    # In particular, do not floor fractional modern SDK data through float.
-    if any(isinstance(value, str) for value in raw):
+def average_daily_bar_volume(bars, window, *, now=None):
+    """Average only uniquely dated prior NY days; leave source bars untouched.
+
+    historicalDataEnd completes a request, including any developing daily bar.
+    A future, malformed or repeated date makes that daily series ambiguous.
+    """
+    if type(window) is not int or window < 1:
         return None, None
-    if any(isinstance(value, Decimal) and
-           (not value.is_finite() or value != value.to_integral_value()) for value in raw):
+    try:
+        observed = now if now is not None else datetime.now(timezone.utc)
+        if isinstance(observed, str):
+            observed = datetime.fromisoformat(observed)
+        if not isinstance(observed, _DATETIME_TYPE) or observed.utcoffset() is None:
+            return None, None
+        cutoff = observed.astimezone(ZoneInfo("America/New_York")).date()
+        if isinstance(bars, HistoricalDataResult):
+            completed = bars.completed_at_utc
+            if completed is not None:
+                if isinstance(completed, str):
+                    completed = datetime.fromisoformat(completed)
+                if (not isinstance(completed, _DATETIME_TYPE) or completed.utcoffset() is None
+                        or completed > observed):
+                    return None, None
+                # Reviewing an old result tomorrow cannot complete the daily
+                # bar that was still developing when the source returned it.
+                cutoff = min(cutoff, completed.astimezone(ZoneInfo("America/New_York")).date())
+            elif bars.request_spec is not None or bars.raw_source_bars is not None:
+                return None, None
+        prior, seen = [], set()
+        for bar in bars:
+            value = getattr(bar, "date", None)
+            if value is None:
+                value = getattr(bar, "trading_date", None)
+            if type(value) is date:
+                day = value
+            elif type(value) is str and (len(value) == 8 and value.isascii() and value.isdigit()
+                    or len(value) == 10 and value[4] == "-" and value[7] == "-"):
+                day = date.fromisoformat(value)
+                if value not in (day.isoformat(), day.strftime("%Y%m%d")):
+                    return None, None
+            else:
+                return None, None
+            if day in seen or day > cutoff:
+                return None, None
+            seen.add(day)
+            if day < cutoff:
+                prior.append((day, bar))
+    except (TypeError, ValueError, AttributeError, OverflowError):
         return None, None
+    raw = [getattr(bar, "volume", None) for _, bar in sorted(prior, key=lambda row: row[0])]
     volumes = []
     for value in raw:
-        if isinstance(value, Decimal):
+        if value is None:
+            continue
+        if type(value) is int:
+            volumes.append(value)
+        elif (isinstance(value, Decimal) and value.is_finite()
+              and value == value.to_integral_value()):
+            volumes.append(int(value))
+        elif type(value) is float and math.isfinite(value) and value.is_integer():
             volumes.append(int(value))
         else:
-            cleaned = _clean(value)
-            if cleaned is not None:
-                volumes.append(int(cleaned))
+            return None, None
+    if any(value < 0 for value in volumes):
+        return None, None
     if not volumes:
         return None, None
     sample = volumes[-min(window, len(volumes)):]
-    if exact_decimal:
-        total = sum(sample)
-        average = abs(total) // len(sample)
-        return -average if total < 0 else average, len(sample)
-    return int(sum(sample) / len(sample)), len(sample)
+    return sum(sample) // len(sample), len(sample)
 
 
 def exact_raw_volume(value):

@@ -165,7 +165,12 @@ class HistoryDummyIB(DummyIB):
         self.history_calls.append({"endDateTime": endDateTime, "durationStr": durationStr, "useRTH": useRTH})
         if useRTH:
             return HistoricalDataResult("COMPLETE_EMPTY",end_received=True)
-        return HistoricalDataResult("COMPLETE_BARS",(type("Bar", (), {"close": 99.0, "volume": 1000})(),),True)
+        return HistoricalDataResult(
+            "COMPLETE_BARS",
+            (type("Bar", (), {"date": "20250101", "close": 99.0, "volume": 1000})(),),
+            True,
+            completed_at_utc=datetime.now(timezone.utc).isoformat(),
+        )
 
 
 def test_history_helpers_retry_with_use_rth_false_when_primary_returns_zero_bars():
