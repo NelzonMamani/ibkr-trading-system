@@ -11,7 +11,9 @@ JOB A | PINNED WINDOWS POWERSHELL 5.1 HANDOFF
 
 One next laptop action: paste this entire block into a fresh Windows
 PowerShell 5.1 console with RunPairedCapture set to false. This resolves and
-re-attests the retained official SDK without broker access. The receipt and path stay local. Git fetches the pinned commit if it is missing.
+re-attests the retained official SDK without broker access. When prompted, paste
+the existing project folder shown in PyCharm. That path and the SDK receipt
+stay local. Git fetches the pinned commit if it is missing.
 SDK_RECEIPT_UNAVAILABLE or SDK_RECEIPT_AMBIGUOUS requires the exact retained
 sdk-environment.json in SdkReceipt. A CI worker receipt cannot select a laptop
 interpreter. The successful Nov 24 capture identifies SDK 10.50.2, but the
@@ -32,7 +34,7 @@ earlier root. The retired 8ed0d2d6 FRESH caller is obsolete.
     $SdkReceipt = ''  # Optional exact retained laptop sdk-environment.json
     $Pin = '1ea5672e0367011f83745e644f876e363cb77b76'
     $Tree = '4725325f1d0adb6c9a0bda4d6f42d3421eb9a0cc'
-    $Repo = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
+    $Repo = Read-Host 'Existing ibkr-trading-system checkout folder'
     $Base = 'C:\tmp'
     $status = 'WINDOWS_POWERSHELL_51_REQUIRED'
     $captureRoot = $null
@@ -42,6 +44,10 @@ earlier root. The retired 8ed0d2d6 FRESH caller is obsolete.
         if ($PSVersionTable.PSEdition -ne 'Desktop' -or
             $PSVersionTable.PSVersion.Major -ne 5 -or
             $PSVersionTable.PSVersion.Minor -ne 1) { return }
+
+        $status = 'SOURCE_CHECKOUT_UNAVAILABLE'
+        if (!(Test-Path -LiteralPath $Repo -PathType Container)) { return }
+        $Repo = (Get-Item -LiteralPath $Repo).FullName
 
         $status = 'SDK_RECEIPT_UNAVAILABLE'
         $paths = if ($SdkReceipt) { @($SdkReceipt) } else {
