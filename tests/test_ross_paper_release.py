@@ -220,3 +220,124 @@ def test_laptop_preflight_rejects_unattested_sdk_before_broker_import(monkeypatc
     monkeypatch.setattr(sdk_profile, "require_supported_sdk", unverified)
     with pytest.raises(RuntimeError, match="PAPER_RELEASE_SDK_PROFILE_UNVERIFIED"):
         operator.require_calibrated_sdk({"sdk_distribution": "10.50.2"})
+
+
+@pytest.mark.parametrize(("planned_start", "opening_status", "private_evidence"), [
+    ("2026-11-27T15:08:59+00:00", "VERIFIED_FOR_PLAN", False),
+    ("2026-11-27T15:09:00+00:00", "PAPER_RELEASE_REVIEWED_OPENING_ENVELOPE_REQUIRED", False),
+    ("2026-11-26T14:38:00+00:00", "PAPER_RELEASE_REVIEWED_OPENING_ENVELOPE_REQUIRED", False),
+    ("private-value-that-must-not-print", "PAPER_RELEASE_PLANNED_START_INVALID", False),
+    ("2026-11-25T14:38:00+00:00", "VERIFIED_FOR_PLAN", True),
+    ("2026-11-27T14:38:00+00:00", "VERIFIED_FOR_PLAN", True),
+])
+def test_offline_preflight_checks_inputs_before_opening_without_mutation(
+        tmp_path, monkeypatch, capsys, planned_start, opening_status, private_evidence):
+    import hashlib
+    import json
+    import os
+    import socket
+    import sys
+
+    from scripts.certification import ross_paper_release_operator as operator
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz):
+            return datetime(2026, 11, 25, 11, tzinfo=timezone.utc).astimezone(tz)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Offline preflight attempted runtime, broker, or filesystem mutation")
+
+    monkeypatch.setattr(operator, "datetime", Clock)
+    monkeypatch.setattr(operator, "runtime_inventory", lambda **_: {"completed": True, "runtimes": []})
+    monkeypatch.setattr(operator, "_verified_sdk", lambda: "10.50.2")
+    monkeypatch.setattr(operator, "run", forbidden)
+    monkeypatch.setattr(operator, "write_json", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    monkeypatch.setitem(sys.modules, "src.main", None)
+    monkeypatch.setenv("ROSS_PAPER_EXPECTED_ACCOUNT", "DU987654321")
+    monkeypatch.setenv("FORCE_SESSION", "CLOSED")
+
+    source = operator.ROOT / "docs/ross/PR1226_OFFICIAL_CALENDAR_REVIEW_20261114.json"
+    bundle = json.loads(source.read_bytes())
+    calendar = tmp_path / "private-calendar.json"
+    calendar.write_text(json.dumps({
+        "coverage": json.loads(bundle["files"]["calendar_receipt.json"]["utf8"]),
+        "holidays": "2026-11-26", "half_days": "2026-11-27", "early_close": "13:00",
+    }), encoding="utf-8")
+    state = tmp_path / "private-state"
+    state.mkdir()
+    for name in ("ibkr_system.db", "order-id.json", "submission-guard.json"):
+        (state / name).touch()
+    if private_evidence:
+        (state / "entry-fee-ceiling.json").write_text(json.dumps({
+            "schema": "IBKR_CONFIRMED_USD_ENTRY_FEE_CEILING_V1", "account": "DU987654321",
+            "currency": "USD", "security_type": "STK", "exchange": "SMART", "side": "BUY",
+            "quantity": 1, "max_limit_price": "20", "max_fee": "0.35",
+            "valid_until_utc": "2026-11-30T22:00:00Z", "broker_reference": "private test fixture",
+        }), encoding="utf-8")
+        captured_at = "2026-11-25T10:59:59+00:00"
+        native_scope = {"con_id": 123, "client_id": 71, "connection_epoch": 0, "server_version": 226}
+        (state / "volume-witness.json").write_text(json.dumps({
+            "schema": "ROSS_IBKR_EXACT_CONTRACT_VOLUME_V2",
+            "probe": {
+                "watchlist": dict(native_scope, source="IBKR_NATIVE_TICK_SIZE", sdk_distribution="10.50.2",
+                                  session_basis="IBKR_CURRENT_TRADING_DAY_CUMULATIVE", security_type="STK",
+                                  currency="USD", primary_exchange="NASDAQ", market_data_status="LIVE",
+                                  tick_type=8, request_id=1000, symbol="TEST", raw_value=1200000,
+                                  market_timestamp_utc=captured_at, received_at_utc=captured_at),
+                "history": dict(native_scope, basis="IBKR_RTH_TRADES_DAILY", end_received=True,
+                                completed_at_utc=captured_at, bars=[["20261124", 400000]]),
+            },
+            "comparison": {"tws_build": "10.50.2", "con_id": 123, "watchlist_observed_at": captured_at,
+                           "watchlist_shares": 1200000, "historical_bar_date": "20261124",
+                           "historical_bar_shares": 400000, "watchlist_shares_setting": True,
+                           "historical_shares_setting": True},
+        }), encoding="utf-8")
+    original_files = sorted(tmp_path.rglob("*"))
+    before = dict(os.environ)
+    monkeypatch.setattr(sys, "argv", ["operator", "--check-only", "--state", str(state),
+        "--calendar", str(calendar), "--calendar-sha256", hashlib.sha256(calendar.read_bytes()).hexdigest(),
+        "--planned-start", planned_start])
+
+    complete = private_evidence and planned_start.startswith("2026-11-25")
+    assert operator.cli() == (0 if complete else 2)
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    result = json.loads(captured.out)
+    assert result["paper_ready"] is False and result["native_acceptance"] == "PENDING"
+    assert result["checks"]["opening_envelope"] == opening_status
+    if complete:
+        assert result["checks"]["current_volume_witness"] == "VERIFIED_FOR_PLAN"
+        assert result["blocked_checks"] == []
+    elif private_evidence:
+        assert result["checks"]["current_volume_witness"] == "PAPER_RELEASE_VOLUME_PLANNED_DATE_MISMATCH"
+    else:
+        assert result["checks"]["current_volume_witness"] == "PAPER_RELEASE_VOLUME_CALIBRATION_REQUIRED"
+    assert result["checks"]["entry_fee"] == ("VALID_THROUGH_PLANNED_CLOSE" if private_evidence
+                                            else "PAPER_RELEASE_ENTRY_COST_AUTHORITY_REQUIRED")
+    assert result["checks"]["state_files"] == "PRESENT"
+    assert result["checks"]["sdk"] == "VERIFIED"
+    assert "DU987654321" not in captured.out and str(tmp_path) not in captured.out
+    assert "private-value-that-must-not-print" not in captured.out
+    assert dict(os.environ) == before
+    assert sorted(tmp_path.rglob("*")) == original_files
+
+
+def test_cold_offline_preflight_cli_emits_only_sanitized_receipt(tmp_path):
+    import json
+    import subprocess
+
+    from scripts.certification import ross_paper_release_operator as operator
+
+    result = subprocess.run([sys.executable, "-I", "-B", operator.__file__, "--check-only"],
+                            cwd=tmp_path, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 2
+    assert result.stderr == ""
+    receipt = json.loads(result.stdout)
+    assert receipt["status"] == "PAPER_RELEASE_OFFLINE_PREFLIGHT_BLOCKED"
+    assert receipt["paper_ready"] is False
+    assert receipt["checks"]["state_files"] == "PAPER_RELEASE_EXISTING_STATE_FILES_REQUIRED"
+    assert receipt["checks"]["current_volume_witness"] == "PAPER_RELEASE_VOLUME_CALIBRATION_REQUIRED"
+    assert receipt["checks"]["entry_fee"] == "PAPER_RELEASE_ENTRY_COST_AUTHORITY_REQUIRED"
+    assert not list(tmp_path.iterdir())
