@@ -93,7 +93,7 @@ if ($offlineCheckOnly) {
 if (@(Get-ChildItem Env: | Where-Object { $_.Name -like 'GIT_*' }).Count) {
     throw 'PAPER_RELEASE_INHERITED_GIT_CONFIGURATION'
 }
-$git = (Get-Command git.exe -CommandType Application -ErrorAction Stop).Source
+$git = (Get-Command git.exe -CommandType Application -All -ErrorAction Stop | Select-Object -First 1).Source
 function Checked-Git([string[]]$Arguments) {
     $result = @(& $git --no-optional-locks -C $repo @Arguments 2>$null)
     if ($LASTEXITCODE -ne 0) { throw 'PAPER_RELEASE_GIT_VERIFICATION_FAILED' }
