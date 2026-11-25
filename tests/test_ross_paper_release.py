@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -342,3 +343,91 @@ def test_cold_offline_preflight_cli_emits_only_sanitized_receipt(tmp_path):
     assert receipt["checks"]["current_volume_witness"] == "PAPER_RELEASE_VOLUME_CALIBRATION_REQUIRED"
     assert receipt["checks"]["entry_fee"] == "PAPER_RELEASE_ENTRY_COST_AUTHORITY_REQUIRED"
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows PowerShell 5.1 native argument handling")
+@pytest.mark.parametrize("state_provided", [False, True])
+def test_windows_paper_offline_handoff_is_readonly(tmp_path, state_provided):
+    import hashlib
+    import json
+    import os
+    from pathlib import Path
+    import subprocess
+
+    repo = tmp_path / "source checkout"
+    state = tmp_path / "private state"
+    state.mkdir()
+    planned = "2026-11-27T14:55:00+00:00"
+    expected_args = ["--check-only"]
+    if state_provided:
+        expected_args.extend(["--state", str(state)])
+    expected_args.append("--planned-start=" + planned)
+    receipt = {
+        "status": "PAPER_RELEASE_OFFLINE_PREFLIGHT_BLOCKED",
+        "checks": {
+            "state_files": "PAPER_RELEASE_EXISTING_STATE_FILES_REQUIRED",
+            "entry_fee": "PAPER_RELEASE_ENTRY_COST_AUTHORITY_REQUIRED",
+            "current_volume_witness": "PAPER_RELEASE_VOLUME_CALIBRATION_REQUIRED",
+        },
+        "blocked_checks": ["state_files", "entry_fee", "current_volume_witness"],
+        "native_acceptance": "PENDING",
+        "paper_ready": False,
+    }
+    stub = repo / "scripts" / "certification" / "ross_paper_release_operator.py"
+    stub.parent.mkdir(parents=True)
+    stub.write_bytes(
+        (
+            "import os, sys\n"
+            f"assert sys.argv[1:] == {expected_args!r}\n"
+            f"assert os.environ.get('ROSS_PAPER_EXPECTED_ACCOUNT', '') == {'DU101' if state_provided else ''!r}\n"
+            "assert os.environ['ROSS_PAPER_EXCLUSIVE_START_ATTESTED'] == '0'\n"
+            f"print({json.dumps(receipt)!r})\n"
+            "raise SystemExit(2)\n"
+        ).encode("utf-8")
+    )
+    env = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
+    env.update(ROSS_PAPER_EXPECTED_ACCOUNT="DU102", ROSS_PAPER_EXCLUSIVE_START_ATTESTED="0")
+
+    def git(*args):
+        return subprocess.check_output(
+            ["git.exe", "-C", str(repo), *args], env=env, text=True, timeout=20
+        ).strip()
+
+    git("init", "-q")
+    git("add", ".")
+    git("-c", "user.name=Test", "-c", "user.email=test@example.com",
+        "-c", "commit.gpgsign=false", "-c", "core.hooksPath=.git/no-hooks", "commit", "-qm", "Offline test")
+    template = Path(__file__).resolve().parents[1] / "docs" / "ross" / "ORDINARY_RTH_PAPER_LOCAL_EXECUTION.ps1.in"
+    script = template.read_text(encoding="utf-8")
+    values = {
+        "repo": str(repo),
+        "python": sys.executable,
+        "plannedStart": planned,
+        "pin": git("rev-parse", "HEAD"),
+        "tree": git("rev-parse", "HEAD^{tree}"),
+        "launcherShaLF": hashlib.sha256(stub.read_bytes()).hexdigest(),
+        "launcherShaCRLF": hashlib.sha256(stub.read_bytes().replace(b"\n", b"\r\n")).hexdigest(),
+    }
+    if state_provided:
+        values.update(state=str(state), account="DU101")
+    for name, value in values.items():
+        old = next(line for line in script.splitlines() if line.startswith(f"${name} = "))
+        quoted = value.replace("'", "''")
+        script = script.replace(old, f"${name} = '{quoted}'", 1)
+    script = script.replace("$offlineCheckOnly = $false", "$offlineCheckOnly = $true", 1)
+    caller = tmp_path / "check.ps1"
+    caller.write_text(script + """
+$code = $LASTEXITCODE
+if ($env:ROSS_PAPER_EXPECTED_ACCOUNT -cne 'DU102') { exit 190 }
+if ($env:ROSS_PAPER_EXCLUSIVE_START_ATTESTED -cne '0') { exit 191 }
+exit $code
+""", encoding="utf-8-sig")
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(caller)],
+        env=env, cwd=repo, capture_output=True, text=True, timeout=45,
+    )
+    assert result.returncode == 2, result.stderr
+    assert result.stderr == ""
+    assert json.loads(result.stdout) == receipt
+    assert not list(state.iterdir())
+    assert git("status", "--porcelain=v1", "--untracked-files=all") == ""
