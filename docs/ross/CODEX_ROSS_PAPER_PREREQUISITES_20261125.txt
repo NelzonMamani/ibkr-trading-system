@@ -23,16 +23,17 @@ interpreter.
 
 For the later, separately authorized paired observation, RunPairedCapture
 selects one existing bounded READ_ONLY acquisition in actual PRE or RTH.
-Use the same TWS PAPER instance on port 7497 and the accepted build and share
-settings. Leave the LGHL watchlist row and its full-digit Volume column
-visible and stationary in the TWS client. The collector sends the explicit
-PythonExecutable to the existing live-volume quote runner. Preserve every
-earlier root. The retired 8ed0d2d6 FRESH caller is obsolete.
+Set VolumeSymbol to the exact actively trading Ross candidate on the TWS
+watchlist and keep its full-digit Volume column visible. Use the same TWS PAPER
+instance on port 7497 and the accepted build and share settings. Keep TWS
+foreground and stationary. The collector sends the explicit PythonExecutable
+to the existing read-only live-volume probe. Preserve every earlier root.
 
 ----- BEGIN POWERSHELL 5.1 BLOCK -----
 & {
     $ErrorActionPreference = 'Stop'
     $RunPairedCapture = $false
+    $VolumeSymbol = ''  # Exact active TWS symbol for the optional paired capture
     $SdkReceipt = ''  # Optional exact retained laptop sdk-environment.json
     $Pin = '1ea5672e0367011f83745e644f876e363cb77b76'
     $Tree = '4725325f1d0adb6c9a0bda4d6f42d3421eb9a0cc'
@@ -46,6 +47,11 @@ earlier root. The retired 8ed0d2d6 FRESH caller is obsolete.
         if ($PSVersionTable.PSEdition -ne 'Desktop' -or
             $PSVersionTable.PSVersion.Major -ne 5 -or
             $PSVersionTable.PSVersion.Minor -ne 1) { return }
+
+        if ($RunPairedCapture -and $VolumeSymbol -cnotmatch '^[A-Z][A-Z0-9. -]{0,14}\z') {
+            $status = 'PAIRED_CAPTURE_SYMBOL_REQUIRED'
+            return
+        }
 
         $status = 'SOURCE_CHECKOUT_UNAVAILABLE'
         if (!(Test-Path -LiteralPath $Repo -PathType Container)) { return }
@@ -162,7 +168,7 @@ raise SystemExit(0 if require_supported_sdk() == '10.50.2' else 2)
         $captureArgs = @{
             ExpectedCommit = $Pin
             ExpectedTree = $Tree
-            VolumeSymbol = 'LGHL'
+            VolumeSymbol = $VolumeSymbol
             PythonExecutable = $python
         }
         $captureLines = New-Object 'System.Collections.Generic.List[string]'
@@ -210,14 +216,14 @@ collector's capture-status.json contains the allowlisted quote diagnostics.
 If a launch exits before that receipt exists, the summary reports
 CAPTURE_STATUS_UNAVAILABLE. Preserve the run and inspect that exact root.
 
-For a complete capture, match the displayed LGHL share count directly to the
-native LIVE tick 8 on the same contract and run. Use a review frame whose
+For a complete capture, match the selected watchlist row's displayed share
+count directly to native LIVE tick 8 on the same contract and run. Use a review frame whose
 capture interval lies within 15 seconds of API receipt, record the actual
 aware frame observation time, and let the existing offline validator enforce
 native freshness and comparison timing. A capture-complete result alone leaves
 units unverified. The accepted LGHL Nov 23 Daily observation is 137,899 shares,
-matching retained API 137899. The screenshot task is complete. Reuse that
-observed bar only if the newly paired API history includes the identical
+matching retained API 137899. Reuse that historical comparison only if LGHL
+is the selected candidate and the new paired run includes the identical
 completed RTH TRADES bar for the same contract under the accepted settings.
 The later standalone LGHL watchlist value cannot pair with the Nov 24 tick.
 
