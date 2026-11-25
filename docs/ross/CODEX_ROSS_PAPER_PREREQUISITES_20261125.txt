@@ -1,0 +1,232 @@
+First Ross PAPER preparation | 25 November 2026
+PAPER_READY=NO | Broker acquisition PREPARED ONLY
+
+Baseline
+PR1256 merged at 1ea5672e0367011f83745e644f876e363cb77b76.
+Tree 4725325f1d0adb6c9a0bda4d6f42d3421eb9a0cc.
+Eight reviewed-head checks passed. The separate post-merge run is 45604464774.
+See NATURAL_READONLY_CHECKPOINT.md for the latest observed job status.
+
+JOB A | PINNED WINDOWS POWERSHELL 5.1 HANDOFF
+
+One next laptop action: paste this entire block into a fresh Windows
+PowerShell 5.1 console with RunPairedCapture set to false. This resolves and
+re-attests the retained official SDK without broker access. The receipt and path stay local. Git fetches the pinned commit if it is missing.
+SDK_RECEIPT_UNAVAILABLE or SDK_RECEIPT_AMBIGUOUS requires the exact retained
+sdk-environment.json in SdkReceipt. A CI worker receipt cannot select a laptop
+interpreter. The successful Nov 24 capture identifies SDK 10.50.2, but the
+absolute laptop interpreter path was unavailable in the shared workspace.
+
+For the later, separately authorized paired observation, RunPairedCapture
+selects one existing bounded READ_ONLY acquisition in actual PRE or RTH.
+Use the same TWS PAPER instance on port 7497 and the accepted build and share
+settings. Leave the LGHL watchlist row and its full-digit Volume column
+visible and stationary in the TWS client. The collector sends the explicit
+PythonExecutable to the existing live-volume quote runner. Preserve every
+earlier root. The retired 8ed0d2d6 FRESH caller is obsolete.
+
+----- BEGIN POWERSHELL 5.1 BLOCK -----
+& {
+    $ErrorActionPreference = 'Stop'
+    $RunPairedCapture = $false
+    $SdkReceipt = ''  # Optional exact retained laptop sdk-environment.json
+    $Pin = '1ea5672e0367011f83745e644f876e363cb77b76'
+    $Tree = '4725325f1d0adb6c9a0bda4d6f42d3421eb9a0cc'
+    $Repo = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
+    $Base = 'C:\tmp'
+    $status = 'WINDOWS_POWERSHELL_51_REQUIRED'
+    $captureRoot = $null
+    $probeCode = $null
+    $stage = 'PREPARED_ONLY'
+    try {
+        if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+            $PSVersionTable.PSVersion.Major -ne 5 -or
+            $PSVersionTable.PSVersion.Minor -ne 1) { return }
+
+        $status = 'SDK_RECEIPT_UNAVAILABLE'
+        $paths = if ($SdkReceipt) { @($SdkReceipt) } else {
+            Get-ChildItem -LiteralPath $Base -Directory | ForEach-Object {
+                Join-Path $_.FullName 'sdk-environment.json'
+            }
+        }
+        $receipts = @(foreach ($path in $paths) {
+            if (!(Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+            try { $r = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json }
+            catch { continue }
+            $receiptRoot = Split-Path -Parent (Get-Item -LiteralPath $path).FullName
+            if ($r.schema -ceq 'IBKR_OFFICIAL_SDK_ENVIRONMENT_V1' -and
+                $r.status -ceq 'SDK_ENVIRONMENT_PREPARED' -and
+                $r.sdk_version -ceq '10.50.2' -and $r.protobuf_version -ceq '5.29.5' -and
+                $r.sdk_profile_verified -is [bool] -and $r.sdk_profile_verified -and
+                $r.source_count -eq 235 -and
+                $r.archive_sha256 -ceq '673129e5cba58c4d77bc40647265f84ea42f605eccf88fa4c1221d62d12454f3' -and
+                $r.source_sha256 -ceq '72dccfacba1295b3e4c45d5c97cf160cdb2e86d95b92de2ff408610f570b208b' -and
+                $r.root -ieq $receiptRoot -and
+                $r.python -ieq (Join-Path $receiptRoot 'venv\Scripts\python.exe') -and
+                (Test-Path -LiteralPath $r.python -PathType Leaf)) { $r }
+        })
+        if ($receipts.Count -eq 0) { return }
+        if ($receipts.Count -ne 1) { $status = 'SDK_RECEIPT_AMBIGUOUS'; return }
+        $python = $receipts[0].python
+
+        $status = 'PINNED_SOURCE_UNAVAILABLE'
+        $git = (Get-Command git.exe -CommandType Application).Source
+        $null = & { $ErrorActionPreference = 'Continue'; & $git -C $Repo cat-file -e ($Pin + '^{commit}') 2>$null }
+        if ($LASTEXITCODE -ne 0) {
+            & $git -C $Repo fetch --quiet origin $Pin *> $null
+            if ($LASTEXITCODE -ne 0) { return }
+        }
+        $actualTree = (& $git -C $Repo rev-parse ($Pin + '^{tree}') 2>$null | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or $actualTree -cne $Tree) { return }
+        $checkout = Join-Path $Base ('ross-readonly-' + [guid]::NewGuid().ToString('N'))
+        & $git -C $Repo -c core.longpaths=true worktree add --detach $checkout $Pin *> $null
+        if ($LASTEXITCODE -ne 0) { return }
+        $actual = (& $git -C $checkout rev-parse HEAD 2>$null | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or $actual -cne $Pin) { return }
+        $dirty = @(& $git -C $checkout status --porcelain=v1 --untracked-files=all 2>$null)
+        if ($LASTEXITCODE -ne 0 -or $dirty.Count) { return }
+
+        $status = 'SDK_PROFILE_UNVERIFIED'
+        $attest = @'
+import sys
+sys.path.insert(0, sys.argv[1])
+from src.ibkr.sdk_profile import require_supported_sdk
+raise SystemExit(0 if require_supported_sdk() == '10.50.2' else 2)
+'@
+        $attest | & $python -I -B - $checkout *> $null
+        if ($LASTEXITCODE -ne 0) { return }
+        $status = 'SDK_10_50_2_VERIFIED_OFFLINE'
+        if (!$RunPairedCapture) { return }
+
+        $status = 'CAPTURE_STATUS_UNAVAILABLE'
+        $stage = 'READ_ONLY_CAPTURE_INVOKED'
+        $capture = Join-Path $checkout 'scripts\certification\capture_tws_volume_display.ps1'
+        $captureArgs = @{
+            ExpectedCommit = $Pin
+            ExpectedTree = $Tree
+            VolumeSymbol = 'LGHL'
+            PythonExecutable = $python
+        }
+        $captureLines = New-Object 'System.Collections.Generic.List[string]'
+        try { & $capture @captureArgs *>&1 | ForEach-Object { $captureLines.Add([string]$_) } }
+        catch { }
+        $roots = @($captureLines | Where-Object {
+            $_ -cmatch '^Private automatic capture: C:\\tmp\\tws-volume-[0-9a-f]{8}$'
+        } | Select-Object -Unique)
+        if ($roots.Count -ne 1) { return }
+        $captureRoot = $roots[0].Substring('Private automatic capture: '.Length)
+        $receiptPath = Join-Path $captureRoot 'capture-status.json'
+        if (!(Test-Path -LiteralPath $receiptPath -PathType Leaf)) { return }
+        $result = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+        if ($result.schema -ceq 'ROSS_TWS_VOLUME_DISPLAY_CAPTURE_V1' -and
+            $result.source -ceq $Pin -and
+            $result.status -cin @('DISPLAY_CAPTURE_COMPLETE_UNITS_UNVERIFIED','COMPARISON_NOT_VERIFIED')) {
+            $status = $result.status
+            if ($result.probe_failure_code -cin @(
+                'DISPLAY_RECORDER_NOT_READY_NO_PROBE_STARTED',
+                'PAPER_API_LISTENER_QUERY_UNAVAILABLE_NO_NEW_REQUEST',
+                'PAPER_API_LISTENER_CHANGED_NO_PROBE_STARTED',
+                'PAPER_API_LISTENER_CHANGED_DURING_CAPTURE',
+                'PROBE_TIMED_OUT','PROBE_DIAGNOSTIC_INCOMPLETE',
+                'PROBE_DIAGNOSTIC_FAILED','PROBE_COMMAND_FAILED')) {
+                $probeCode = $result.probe_failure_code
+            }
+        }
+    } catch {
+        # Use the fixed stage code. Exception text can contain local paths.
+    } finally {
+        if ($status -ceq 'SDK_10_50_2_VERIFIED_OFFLINE') {
+            Write-Host ('Private verified Python ' + $python)
+            Write-Host ('Private pinned checkout ' + $checkout)
+        }
+        if ($captureRoot) { Write-Host ('Private capture directory ' + $captureRoot) }
+        [ordered]@{ status=$status; stage=$stage; probe_failure_code=$probeCode; PAPER_READY=$false } |
+            ConvertTo-Json -Compress
+    }
+}
+----- END POWERSHELL 5.1 BLOCK -----
+
+The final JSON line is the sanitized summary. Keep private paths, frames,
+raw logs, volume-probe.json and private-linkage.json on the laptop. The
+collector's capture-status.json contains the allowlisted quote diagnostics.
+If a launch exits before that receipt exists, the summary reports
+CAPTURE_STATUS_UNAVAILABLE. Preserve the run and inspect that exact root.
+
+For a complete capture, match the displayed LGHL share count directly to the
+native LIVE tick 8 on the same contract and run. Use a review frame whose
+capture interval lies within 15 seconds of API receipt, record the actual
+aware frame observation time, and let the existing offline validator enforce
+native freshness and comparison timing. A capture-complete result alone leaves
+units unverified. The accepted LGHL Nov 23 Daily observation is 137,899 shares,
+matching retained API 137899. The screenshot task is complete. Reuse that
+observed bar only if the newly paired API history includes the identical
+completed RTH TRADES bar for the same contract under the accepted settings.
+The later standalone LGHL watchlist value cannot pair with the Nov 24 tick.
+
+JOB B | LOCAL PAPER INPUT HANDOFF
+
+Prerequisite | Status | Evidence or required local fact
+-------------|--------|--------------------------------
+Exclusive flat/order-free PAPER start | Needs specific local observation | Confirm expected DU/DUK account, zero positions, no working orders and exclusive use in local TWS. Existing runtime requires completed supported position and order observations and clear retained recovery.
+Five ownership vetoes | Satisfied as retained safeguards | P01 through P05 remain unresolved and vetoed. The previously observed non-flat account cannot qualify while the blocking facts persist.
+Original DB/order-ID/submission guard | Needs specific local observation | Identify the authoritative pre-existing state directory and confirm ibkr_system.db, order-id.json and submission-guard.json belong to that state lineage.
+Verified SDK | Needs specific local observation | Retained capture identifies 10.50.2. Resolve the exact laptop receipt and re-attest its interpreter with Job A.
+Current NY trading-date volume calibration | Expired | Nov 24 evidence is out of date and had no contemporaneous watchlist comparator. A same-trading-date private witness is missing. Nov 23 completed-day match is satisfied as historical evidence.
+Dated calendar and SHA-256 | Unavailable | Need the locally reviewed calendar covering the intended NY date, prior open day and intervening dates, with exact file hash and valid opening envelope.
+Account-bound USD settled cash | Needs specific local observation | Need the current expected account's completed IBKR USD securities settlement observation, with supported end, cleanup, scope and freshness. Balance, equity and buying power do not establish this field.
+Applicable written entry-fee ceiling | Unavailable | Need written broker terms for the expected account's one-share USD SMART stock BUY, covering all entry fees up to the stated limit price and valid beyond that RTH close.
+
+Local input sequence (preparation only)
+
+1. Use the offline part of Job A to resolve Python and the pinned source.
+   Use the same source and interpreter throughout this preparation.
+2. Identify the existing authoritative private state directory outside the
+   checkout and its three original files above. Record the expected PAPER
+   account privately. Observe positions, orders and process exclusivity in
+   TWS. Leave the original state and all P01–P05 vetoes intact. Mark this
+   input blocked if the account remains non-flat or order/recovery is uncertain.
+3. Locate the reviewed calendar JSON. Its outer keys are coverage, holidays,
+   half_days and early_close. Coverage must include NYSE/NASDAQ authority and
+   provenance, the prior open date through the intended date, with reviewed
+   open/close and opening-window facts. Record the original bytes' lowercase
+   SHA-256 via (Get-FileHash -LiteralPath $calendar -Algorithm SHA256).Hash.ToLowerInvariant().
+   The existing operator checks the reviewed RTH opening at start and at
+   start plus 900 seconds and 360 seconds of resolution allowance.
+4. After a separately authorized same-trading-date paired capture, create a
+   private comparison JSON with these exact fields: tws_build, con_id,
+   watchlist_observed_at, watchlist_shares, historical_bar_date,
+   historical_bar_shares, watchlist_shares_setting, historical_shares_setting.
+   Use independently observed values, integer counts, an aware ISO timestamp,
+   YYYYMMDD for the historical day and true for both confirmed share settings.
+   Use the exact private probe path from private-linkage.json. Prepare the
+   witness offline in a fresh path using the existing owner:
+
+   & $python -I -B (Join-Path $checkout 'scripts\certification\quote_transport_diagnostic.py') prepare-volume $probePath $comparisonPath $newWitnessPath
+
+   Require exit 0 and PAPER_RELEASE_VOLUME_CALIBRATION_PREPARED. The
+   witness applies to the exact qualified contract and consuming source
+   scope on that NY date. LGHL evidence cannot qualify another contract or
+   force selection. Retain the same TWS build, instance and share settings.
+5. Obtain the applicable written broker fee terms. Transcribe privately to
+   entry-fee-ceiling.json in the authoritative state root. Exact keys:
+   schema (IBKR_CONFIRMED_USD_ENTRY_FEE_CEILING_V1), account, currency (USD),
+   security_type (STK), exchange (SMART), side (BUY), quantity (integer 1),
+   max_limit_price and max_fee (decimal strings), valid_until_utc (UTC ISO
+   timestamp strictly later than the reviewed close) and broker_reference.
+   Leave this gate unavailable until written coverage is confirmed.
+6. Collect any already retained account-bound USD securities settled-cash
+   evidence and check its scope and date. The existing PAPER runtime must
+   still receive fresh completed USD securities SettledCashByDate-S (or its $LEDGER- form) evidence
+   in the consuming connection for the same account. A screen or copied
+   balance cannot substitute for the native callback. Keep missing or
+   stale evidence open. Do not run a separate broker query in this task.
+7. Stage the seven private fields in a local copy of the existing
+   ORDINARY_RTH_PAPER_LOCAL_EXECUTION.ps1.in (repo, python, state, calendar,
+   calendarSha, volumeWitness, account). Keep this copy uninvoked with its
+   accepted-source placeholders until a reviewed PAPER caller is released
+   for the intended source and local facts are established. Invoking that
+   caller attests exclusive start and can enable orders. Its Python
+   operator is not a read-only preflight command.
+
+PAPER_READY=NO. No broker connection, order, position action, ownership
+clearance, login permission change or state reset was performed.
