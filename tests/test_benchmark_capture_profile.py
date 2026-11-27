@@ -123,6 +123,8 @@ def component(native, monkeypatch, tmp_path):
         if size=='1 day' and fault.kind=='changed_epoch':self._position_connection_epoch += 1
         if size == '1 day' and fault.kind == 'changed_account':
             self.managedAccounts('DU000000002')
+    pending_quote_ends = []
+
     def quote(self,request_id,contract,*args):
         sent.append(('quote',contract.symbol))
         self.marketDataType(request_id,3 if fault.kind=='delayed' else 1)
@@ -133,10 +135,19 @@ def component(native, monkeypatch, tmp_path):
         self.tickSize(request_id,74 if fault.kind=='delayed' else 8,10000)
         stamp=NOW+timedelta(seconds=1) if fault.kind=='future' else NOW-timedelta(days=1) if fault.kind=='stale' else NOW
         self.tickString(request_id,45,str(int(stamp.timestamp())))
-        self.tickSnapshotEnd(request_id)
+        if fault.kind == "fields_before_end":
+            pending_quote_ends.append(request_id)
+        else:
+            self.tickSnapshotEnd(request_id)
+
+    def receive_quote_end(timeout):
+        assert timeout > 0
+        native.tickSnapshotEnd(pending_quote_ends.pop(0))
+
     monkeypatch.setattr(EClient,'reqContractDetails',qualify)
     monkeypatch.setattr(EClient,'reqHistoricalData',history)
     monkeypatch.setattr(EClient,'reqMktData',quote)
+    monkeypatch.setattr(native, "waitOnUpdate", receive_quote_end)
     monkeypatch.setattr(EClient,'cancelHistoricalData',lambda *args:None)
     manager=IbkrConnectionManager(IbkrConnectionConfig('127.0.0.1',7497,71,1,'LIVE',True))
     def connect_transport():
@@ -153,7 +164,9 @@ def run(component):
         private_directory=component.private,shared_directory=component.shared)
 
 
-def test_actual_capture_owners_preserve_exact_source_and_measurement(component):
+@pytest.mark.parametrize("quote_fault", [None, "fields_before_end"])
+def test_actual_capture_owners_preserve_exact_source_and_measurement(component, quote_fault):
+    component.fault.kind = quote_fault
     result=run(component)
     assert result['capture_completed'] and result['retention_complete']
     assert [row['status'] for row in result['assets']]==['MEASUREMENT_RECORDED']*2, {
@@ -168,6 +181,7 @@ def test_actual_capture_owners_preserve_exact_source_and_measurement(component):
         raw=json.loads((component.private/(symbol+'-raw.json')).read_bytes())
         assert raw['assessed_at']=={'datetime':NOW.isoformat(),'fold':0}
         assert raw['quote_original_diagnostics']['attempts'][0]['label']=='primary'
+        assert raw["quote"]["completion_reason"] == "snapshot_end"
         assert raw['opening_history']['source_bar_count']==20
         report=json.loads((component.private/(symbol+'-offline-report.json')).read_bytes())
         assert report['classification']=='MARKET_UNVERIFIED' and not report['approved_dataset']
