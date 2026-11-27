@@ -1713,7 +1713,7 @@ try:
                     owned_capital_reads.remove(request_id)
                     return
                 query = client._request_context_by_req_id.get(request_id, {}).get('account_currency_query')
-                if (not query or not query.get('settled_usd') or fields[3:6] != [account, '', '1']
+                if (not query or not query.get('settled_usd') or fields[3:6] != [account, '', '0']
                         or 'paper_settled_cash_rows' not in facts):
                     raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_SETTLED_CASH_REQUEST')
                 owned_capital_reads.add(request_id)

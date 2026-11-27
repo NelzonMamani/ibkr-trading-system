@@ -1242,6 +1242,7 @@ def test_abcd_stop_rechecks_local_scope_under_dispatch_lock(
 @pytest.mark.parametrize(("fault", "status"), [
     ("forward_debit", "COMPLETE"),
     ("zero", "COMPLETE"),
+    ("negative", "COMPLETE"),
     ("wrong_account", "SETTLED_CASH_SCOPE_MISMATCH"),
     ("wrong_model", "SETTLED_CASH_SCOPE_MISMATCH"),
     ("base_only", "SETTLED_CASH_UNAVAILABLE"),
@@ -1269,7 +1270,7 @@ def test_usd_settled_securities_cash_requires_scoped_callback_end(account_curren
             if fault == "epoch_during_cleanup":
                 client._position_connection_epoch += 1
             return
-        assert fields[3:6] == [account, "", "1"]
+        assert fields[3:6] == [account, "", "0"]
         client.accountSummary(req_id, account, "SettledCash", "999999", "USD")
         client.accountSummaryEnd(req_id)  # The wrong callback owner cannot complete the request.
         if fault == "unready":
@@ -1278,7 +1279,8 @@ def test_usd_settled_securities_cash_requires_scoped_callback_end(account_curren
             req_id, "OTHER" if fault == "wrong_account" else account,
             "OTHER" if fault == "wrong_model" else "",
             "SettledCashByDate" if fault == "no_securities_segment" else "$LEDGER-SettledCashByDate-S",
-            {"zero": "20261111:0", "previous_date": "20261110:20"}.get(fault, "20261111:20;20261112:15"),
+            {"zero": "20261111:0", "negative": "20261111:-42.125", "previous_date": "20261110:20"}.get(
+                fault, "20261111:20;20261112:15"),
             "BASE" if fault == "base_only" else "USD",
         )
         if fault == "contradiction":
@@ -1297,7 +1299,13 @@ def test_usd_settled_securities_cash_requires_scoped_callback_end(account_curren
     assert [code for code, _ in cash_calls] == ["76", "77"]
     assert cash_calls[0][1] == cash_calls[1][1]
     if status == "COMPLETE":
-        assert result.currency_evidence.settled_cash == Decimal("0" if fault == "zero" else "15")
+        assert result.currency_evidence.settled_cash == Decimal({"zero": "0", "negative": "-42.125"}.get(fault, "15"))
         assert result.currency_evidence.source == "IBKR_ACCOUNT_UPDATES_MULTI_USD_SECURITIES"
+        if fault in {"zero", "negative"}:
+            from src.core.capital_management_authority import PaperEntryCapital
+
+            capital = PaperEntryCapital(client, account, result, require_settled_usd=True)
+            assert capital.bounded_entry_spend(Decimal("1"), 1, "BUY", now=result.completed_at) == (
+                "PAPER_CAPITAL_SETTLED_CASH_INSUFFICIENT", None)
     else:
         assert not account_currency_client.requests and result.currency_evidence.settled_cash is None
