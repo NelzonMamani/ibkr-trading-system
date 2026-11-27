@@ -112,11 +112,25 @@ if (@($files | Where-Object { $_ -cnotmatch '^H ' }).Count -or
     @(Checked-Git @('-c','core.fsmonitor=false','status','--porcelain=v1','--untracked-files=all')).Count) {
     throw 'PAPER_RELEASE_CLEAN_CHECKOUT_REQUIRED'
 }
+function Get-Sha256Hex([string]$Path) {
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [IO.File]::OpenRead($Path)
+        try {
+            return [BitConverter]::ToString($sha256.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+        } finally {
+            $stream.Dispose()
+        }
+    } finally {
+        $sha256.Dispose()
+    }
+}
+
 $launcher = Local-Path (Join-Path $repo 'scripts\certification\ross_paper_release_operator.py') Leaf 'PAPER_RELEASE_OPERATOR_SOURCE_MISSING'
-if ((Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash.ToLowerInvariant() -cnotin @($launcherShaLF, $launcherShaCRLF)) {
+if ((Get-Sha256Hex $launcher) -cnotin @($launcherShaLF, $launcherShaCRLF)) {
     throw 'PAPER_RELEASE_OPERATOR_SOURCE_HASH_MISMATCH'
 }
-if (!$offlineCheckOnly -and (Get-FileHash -LiteralPath $calendar -Algorithm SHA256).Hash.ToLowerInvariant() -cne $calendarSha) {
+if (!$offlineCheckOnly -and (Get-Sha256Hex $calendar) -cne $calendarSha) {
     throw 'PAPER_RELEASE_CALENDAR_HASH_MISMATCH'
 }
 
