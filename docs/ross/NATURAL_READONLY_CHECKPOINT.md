@@ -23147,3 +23147,47 @@ Correction verification: the shared aggregation binds owned history to its origi
 The fallback HistoryDummyIB fixture provided close/volume with no daily date. The new production date check correctly refuses undated bars. The fixture now gives its one synthetic bar an explicit prior date20250101 and an aware test completion timestamp, retaining the retry behavior and1000/1sample assertions. Production source is unchanged from a8f65ede. Entire snapshotmodule plus39newcompleted-daycontrols passed45tests on each SDK profile under the explicit offline socket/native-Curl boundary. Independent review confirmed the correction is fixture-only and preserves the new refusal. Changed-head full/native Windows CI and review remain required; no merge or PAPER acceptance is claimed.
 
 The user separately reported a new READ_ONLY laptop attempt returning exit2 after an MP4/PyCharm result was sent to Codex. Its exact root/source/failing completion check are unproved here. Preserve the video and every retained run, do not type FRESH or automatically repeat acquisition, and inspect existing per-run status/quote/native-volume receipts without selecting an unrelated newest folder. This failed attempt does not erase the separate successful55frame24November acquisition receipt or the later accepted LGHL/fullVolume layout. No new broker connection/order, user-environment change, position action or reset was performed for this diagnosis. PAPER_READY=NO.
+
+### 25 November 2026 — first Ross PAPER prerequisite handoffs
+
+PR1256 is merged at `1ea5672e0367011f83745e644f876e363cb77b76`,
+tree `4725325f1d0adb6c9a0bda4d6f42d3421eb9a0cc`. The eight
+reviewed-head checks passed. Separately, post-merge run
+[45604464774](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/45604464774)
+was observed in progress. Windows display, scope and controlled-process jobs
+succeeded, including the native PowerShell 5.1 quote and PAPER parser gates.
+Linux, Windows offline and Windows lifecycle were still running at inspection.
+
+The [operator handoffs](./CODEX_ROSS_PAPER_PREREQUISITES_20261125.txt)
+supersede the retired `8ed0d2d6` FRESH caller. The READ_ONLY block uses the
+existing display collector and quote runner with an explicit, re-attested
+official 10.50.2 interpreter selected from the retained laptop receipt. The
+absolute interpreter path was unavailable in this workspace. The default
+block resolves that receipt without a broker connection. The paired capture
+remains prepared only and retains the 15-second freshness limit and all old
+output roots.
+
+The user accepted LGHL Nov 23 Daily volume 137,899 shares, matching retained
+API 137899. The chart screenshot task is complete. The Nov 24 LIVE tick 8
+sample still lacks a matching independent watchlist observation within the
+window, and its trading date has elapsed. The former standalone watchlist
+value cannot establish that pair.
+
+| Checklist | Current status | Outstanding acceptance evidence |
+| --- | --- | --- |
+| B01 | Ownership guard retained. P01–P05 remain vetoed. | Expected exclusive PAPER account, flat positions, order-free inventory and clear recovery. Identify and preserve the original database and both journals. |
+| B02 | Retained SDK version and historical display match established. | Exact verified laptop interpreter, paired same-contract LIVE tick 8 and private New York trading-date calibration. |
+| B03 | Completed-day aggregation and raw sample counts merged in PR1256. | Exact-contract units and compatible completed ADV20 in the consuming run. |
+| B04 | Existing cash/limit/fees path verified with inert transport. | Current account-bound USD securities settled cash and written all-fee ceiling through the relevant RTH close. |
+| B05 | Existing ordinary one-share native entry chain verified with inert transport. | Later supervised native acknowledgment and attributable fill on a qualifying opportunity. |
+| B06 | Existing accounting, stop, resolution and shutdown owners verified with inert transport. | Later supervised working protection, exit and flat reconciliation. |
+| B07 | Existing fail-closed PAPER caller and private input sequence staged. | Dated reviewed calendar and exact SHA-256, complete local facts and applicable accepted caller/source pins. |
+| B08 | Local acceptance pending. PAPER_READY=NO. | Supervised native acceptance after prerequisites, or the genuine NO_TRADE result. |
+
+One next laptop action is the Job A block with `RunPairedCapture` false.
+No broker acquisition, trade, holdings action, or state change occurred.
+
+The new block parsed under PowerShell 7.4 on Linux. Its platform refusal,
+display/quote parameter binding and sanitized success, refusal and missing
+receipt reporting passed using stubs. The native Windows 5.1 receipts above
+cover the existing owners.
