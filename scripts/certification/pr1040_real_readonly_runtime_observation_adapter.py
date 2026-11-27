@@ -2360,7 +2360,8 @@ def collect_benchmark_capture(*, manager, private_directory, shared_directory, _
                         benchmark_private_write(private_directory, symbol+"-opening.json", benchmark_json_bytes(history))
                         _benchmark_scope(manager, client, epoch, generation, window_fingerprint=window.fingerprint, expected_accounts=original_accounts)
                         quote, quality = MarketDataSnapshotManager(market).get_snapshot(contract,
-                            expected_client=client, expected_connection_epoch=epoch, single_attempt=True)
+                            expected_client=client, expected_connection_epoch=epoch, single_attempt=True,
+                            require_complete=True)
                         # This original contemporaneous time is taken immediately
                         # after quote completion, before persistence/next asset.
                         assessed = datetime.now(timezone.utc)
