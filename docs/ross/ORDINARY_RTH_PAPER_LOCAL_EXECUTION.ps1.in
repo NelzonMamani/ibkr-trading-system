@@ -1,7 +1,10 @@
 # Fill the local fields before pasting into Windows PowerShell 5.1.
-# Invocation attests that you checked the expected TWS PAPER login, flat
-# positions and no working orders, and will operate the account exclusively.
-# This is write-enabled controlled PAPER, separate from READ_ONLY.
+# For offline checks, set offlineCheckOnly to $true and fill plannedStart with
+# the intended opening start as ISO 8601 with an offset. Leave unknown private
+# input fields at their placeholders to see all missing prerequisites.
+# With offlineCheckOnly set to $false, this is write-enabled controlled PAPER.
+# Invoking that mode attests that the expected TWS PAPER login is active,
+# positions are flat, no orders are working, and you will operate exclusively.
 # Use the existing authoritative PAPER state, including the database and
 # order journals. Keep the reviewed calendar and exact native volume witness
 # on the laptop. The same TWS instance, build and share settings must
@@ -22,6 +25,8 @@ $calendar = 'ENTER_REVIEWED_CALENDAR_JSON_PATH'
 $calendarSha = 'ENTER_REVIEWED_CALENDAR_JSON_SHA256'
 $volumeWitness = 'ENTER_PREPARED_PRIVATE_VOLUME_WITNESS_PATH'
 $account = 'ENTER_EXPECTED_PAPER_ACCOUNT'
+$offlineCheckOnly = $false
+$plannedStart = 'ENTER_PLANNED_START_ISO8601'
 $pin = '@ACCEPTED_COMMIT@'
 $tree = '@ACCEPTED_TREE@'
 $launcherShaLF = '@OPERATOR_SHA256_LF@'
@@ -33,8 +38,16 @@ if ($pin -cnotmatch '^[0-9a-f]{40}$' -or $tree -cnotmatch '^[0-9a-f]{40}$' -or
     $launcherShaLF -cnotmatch '^[0-9a-f]{64}$' -or $launcherShaCRLF -cnotmatch '^[0-9a-f]{64}$') {
     throw 'PAPER_RELEASE_ACCEPTED_SOURCE_PIN_MISSING'
 }
-if ($account -cnotmatch '^DUK?[0-9]+$') { throw 'PAPER_RELEASE_EXPECTED_ACCOUNT_REQUIRED' }
-if ($calendarSha -cnotmatch '^[0-9a-f]{64}$') { throw 'PAPER_RELEASE_CALENDAR_HASH_REQUIRED' }
+if ($offlineCheckOnly) {
+    if ($state -ceq 'ENTER_EXISTING_PRIVATE_PAPER_STATE_DIRECTORY') { $state = '' }
+    if ($calendar -ceq 'ENTER_REVIEWED_CALENDAR_JSON_PATH') { $calendar = '' }
+    if ($calendarSha -ceq 'ENTER_REVIEWED_CALENDAR_JSON_SHA256') { $calendarSha = '' }
+    if ($volumeWitness -ceq 'ENTER_PREPARED_PRIVATE_VOLUME_WITNESS_PATH') { $volumeWitness = '' }
+    if ($account -ceq 'ENTER_EXPECTED_PAPER_ACCOUNT') { $account = '' }
+    if ($plannedStart -ceq 'ENTER_PLANNED_START_ISO8601') { $plannedStart = '' }
+}
+if ((!$offlineCheckOnly -or $account) -and $account -cnotmatch '^DUK?[0-9]+$') { throw 'PAPER_RELEASE_EXPECTED_ACCOUNT_REQUIRED' }
+if ((!$offlineCheckOnly -or $calendarSha) -and $calendarSha -cnotmatch '^[0-9a-f]{64}$') { throw 'PAPER_RELEASE_CALENDAR_HASH_REQUIRED' }
 
 function Local-Path([string]$Path, [string]$Type, [string]$Gate) {
     if ($Path -notmatch '^[A-Za-z]:\\' -or !(Test-Path -LiteralPath $Path -PathType $Type)) { throw $Gate }
@@ -53,22 +66,34 @@ function Local-Path([string]$Path, [string]$Type, [string]$Gate) {
 
 $repo = Local-Path $repo Container 'PAPER_RELEASE_CHECKOUT_PATH_INVALID'
 $python = Local-Path $python Leaf 'PAPER_RELEASE_PYTHON_PATH_INVALID'
-$state = Local-Path $state Container 'PAPER_RELEASE_EXISTING_PRIVATE_STATE_REQUIRED'
-$calendar = Local-Path $calendar Leaf 'PAPER_RELEASE_REVIEWED_CALENDAR_REQUIRED'
-if ($state -eq $repo -or $state.StartsWith($repo.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+if (!$offlineCheckOnly -or $state) { $state = Local-Path $state Container 'PAPER_RELEASE_EXISTING_PRIVATE_STATE_REQUIRED' }
+if (!$offlineCheckOnly -or $calendar) { $calendar = Local-Path $calendar Leaf 'PAPER_RELEASE_REVIEWED_CALENDAR_REQUIRED' }
+if ($state -and ($state -eq $repo -or $state.StartsWith($repo.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase))) {
     throw 'PAPER_RELEASE_PRIVATE_STATE_MUST_BE_OUTSIDE_CHECKOUT'
 }
-$null = Local-Path (Join-Path $state 'ibkr_system.db') Leaf 'PAPER_RELEASE_EXISTING_STATE_DATABASE_REQUIRED'
-foreach ($name in @('order-id.json','submission-guard.json')) {
-    $artifact = Join-Path $state $name
-    $null = Local-Path $artifact Leaf 'PAPER_RELEASE_EXISTING_STATE_FILES_REQUIRED'
+if ($offlineCheckOnly) {
+    if ($state) {
+        foreach ($name in @('ibkr_system.db','order-id.json','submission-guard.json','entry-fee-ceiling.json','volume-witness.json')) {
+            $artifact = Join-Path $state $name
+            if (Get-Item -LiteralPath $artifact -Force -ErrorAction SilentlyContinue) {
+                $null = Local-Path $artifact Leaf 'PAPER_RELEASE_PRIVATE_INPUT_PATH_INVALID'
+            }
+        }
+    }
+    if ($volumeWitness) { $volumeWitness = Local-Path $volumeWitness Leaf 'PAPER_RELEASE_VOLUME_CALIBRATION_REQUIRED' }
+} else {
+    $null = Local-Path (Join-Path $state 'ibkr_system.db') Leaf 'PAPER_RELEASE_EXISTING_STATE_DATABASE_REQUIRED'
+    foreach ($name in @('order-id.json','submission-guard.json')) {
+        $artifact = Join-Path $state $name
+        $null = Local-Path $artifact Leaf 'PAPER_RELEASE_EXISTING_STATE_FILES_REQUIRED'
+    }
+    $volumeWitness = Local-Path $volumeWitness Leaf 'PAPER_RELEASE_VOLUME_CALIBRATION_REQUIRED'
+    $null = Local-Path (Join-Path $state 'entry-fee-ceiling.json') Leaf 'PAPER_RELEASE_ENTRY_COST_AUTHORITY_REQUIRED'
 }
-$volumeWitness = Local-Path $volumeWitness Leaf 'PAPER_RELEASE_VOLUME_CALIBRATION_REQUIRED'
-$null = Local-Path (Join-Path $state 'entry-fee-ceiling.json') Leaf 'PAPER_RELEASE_ENTRY_COST_AUTHORITY_REQUIRED'
 if (@(Get-ChildItem Env: | Where-Object { $_.Name -like 'GIT_*' }).Count) {
     throw 'PAPER_RELEASE_INHERITED_GIT_CONFIGURATION'
 }
-$git = (Get-Command git.exe -CommandType Application -ErrorAction Stop).Source
+$git = (Get-Command git.exe -CommandType Application -All -ErrorAction Stop | Select-Object -First 1).Source
 function Checked-Git([string[]]$Arguments) {
     $result = @(& $git --no-optional-locks -C $repo @Arguments 2>$null)
     if ($LASTEXITCODE -ne 0) { throw 'PAPER_RELEASE_GIT_VERIFICATION_FAILED' }
@@ -87,12 +112,56 @@ if (@($files | Where-Object { $_ -cnotmatch '^H ' }).Count -or
     @(Checked-Git @('-c','core.fsmonitor=false','status','--porcelain=v1','--untracked-files=all')).Count) {
     throw 'PAPER_RELEASE_CLEAN_CHECKOUT_REQUIRED'
 }
+function Get-Sha256Hex([string]$Path) {
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [IO.File]::OpenRead($Path)
+        try {
+            return [BitConverter]::ToString($sha256.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+        } finally {
+            $stream.Dispose()
+        }
+    } finally {
+        $sha256.Dispose()
+    }
+}
+
 $launcher = Local-Path (Join-Path $repo 'scripts\certification\ross_paper_release_operator.py') Leaf 'PAPER_RELEASE_OPERATOR_SOURCE_MISSING'
-if ((Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash.ToLowerInvariant() -cnotin @($launcherShaLF, $launcherShaCRLF)) {
+if ((Get-Sha256Hex $launcher) -cnotin @($launcherShaLF, $launcherShaCRLF)) {
     throw 'PAPER_RELEASE_OPERATOR_SOURCE_HASH_MISMATCH'
 }
-if ((Get-FileHash -LiteralPath $calendar -Algorithm SHA256).Hash.ToLowerInvariant() -cne $calendarSha) {
+if (!$offlineCheckOnly -and (Get-Sha256Hex $calendar) -cne $calendarSha) {
     throw 'PAPER_RELEASE_CALENDAR_HASH_MISMATCH'
+}
+
+if ($offlineCheckOnly) {
+    $checkArguments = @('-I','-B',$launcher,'--check-only')
+    if ($state) { $checkArguments += @('--state',$state) }
+    if ($calendar) { $checkArguments += @('--calendar',$calendar) }
+    if ($calendarSha) { $checkArguments += @('--calendar-sha256',$calendarSha) }
+    if ($volumeWitness) { $checkArguments += @('--witness',$volumeWitness) }
+    if ($plannedStart) { $checkArguments += @("--planned-start=$plannedStart") }
+    $previousAccount = [Environment]::GetEnvironmentVariable('ROSS_PAPER_EXPECTED_ACCOUNT', 'Process')
+    try {
+        [Environment]::SetEnvironmentVariable('ROSS_PAPER_EXPECTED_ACCOUNT', $account, 'Process')
+        $checkOutput = @(& $python @checkArguments 2>$null)
+        $checkExit = $LASTEXITCODE
+    } finally {
+        [Environment]::SetEnvironmentVariable('ROSS_PAPER_EXPECTED_ACCOUNT', $previousAccount, 'Process')
+    }
+    if ($checkOutput.Count -ne 1 -or $checkExit -notin @(0,2)) { throw 'PAPER_RELEASE_INVALID_OFFLINE_RECEIPT' }
+    try {
+        $report = $checkOutput[0] | ConvertFrom-Json -ErrorAction Stop
+        if ($report.paper_ready -isnot [bool] -or $report.paper_ready -or $report.native_acceptance -cne 'PENDING' -or
+            $report.status -cnotmatch '^PAPER_RELEASE_OFFLINE_PREFLIGHT_(COMPLETE|BLOCKED|UNAVAILABLE|ARGUMENTS_INVALID)$' -or
+            ($checkExit -eq 0) -ne ($report.status -ceq 'PAPER_RELEASE_OFFLINE_PREFLIGHT_COMPLETE')) {
+            throw 'PAPER_RELEASE_INVALID_OFFLINE_RECEIPT'
+        }
+    } catch {
+        throw 'PAPER_RELEASE_INVALID_OFFLINE_RECEIPT'
+    }
+    Write-Output $checkOutput[0]
+    return
 }
 
 $lockPath = Join-Path $state 'ross-paper-release.lock'
