@@ -581,6 +581,7 @@ def test_effective_child_dependencies_refuse_before_network_admission(tmp_path,m
 def native_profile_audit(monkeypatch,tmp_path):
     """Original Native connect + SDK encoders; transport is memory-only."""
     import socket
+    from ibapi import comm, common, server_versions
     from src.config import runtime_config
     monkeypatch.setattr(runtime_config,'resolve_ibkr_connection',lambda:('127.0.0.1',7497,71,'READ_ONLY'))
     for name in ('connect','create_connection'):
@@ -589,12 +590,13 @@ def native_profile_audit(monkeypatch,tmp_path):
     for name in ('placeOrder','cancelOrder','reqGlobalCancel'):
         monkeypatch.setattr(EClient,name,lambda *a,**k:pytest.fail('No order mutation'))
     packets=[];connected={};instances=[]
-    state=NS(account='DU000000001',case=None,bootstrap=True,managed_reply='DU000000001')
+    state=NS(account='DU000000001',case=None,bootstrap=True,managed_reply='DU000000001',server_version=180)
     def connect(self,host,port,clientId):
         assert (host,port,clientId)==('127.0.0.1',7497,71)
         instances.append(self)
         if state.case=='connect_exception':raise RuntimeError('PRIVATE_CONNECT_DETAIL')
         self.clientId=clientId;connected[id(self)]=True
+        self.conn=NS(sendMsg=lambda frame: send(self,frame))
         if state.case=='changed_after_wait':
             original_wait=self._open_orders_event.wait
             def waited(timeout):
@@ -606,8 +608,17 @@ def native_profile_audit(monkeypatch,tmp_path):
         if state.bootstrap:self.managedAccounts(state.account)
         self.nextValidId(1)
         self._stop_event.wait(2)
-    def send(self,message):
-        opcode=message.split('\0')[0];packets.append(opcode)
+    def send(self,frame):
+        length,body,remainder=comm.read_msg(frame)
+        assert length==len(body) and not remainder
+        if hasattr(EClient,'sendMsgProtoBuf') and state.server_version>=server_versions.MIN_SERVER_VER_PROTOBUF:
+            wire_id=int.from_bytes(body[:4],'big')
+            if wire_id>common.PROTOBUF_MSG_ID:
+                wire_id-=common.PROTOBUF_MSG_ID
+            opcode=str(wire_id)
+        else:
+            opcode=body.split(b'\0',1)[0].decode('ascii')
+        packets.append(opcode)
         if opcode=='17':self.managedAccounts(state.managed_reply)
         if opcode=='59' and state.case=='changed_before_query':self.managedAccounts('U000000001')
         if opcode=='59' and state.case=='SDK_id':self.clientId=True
@@ -620,8 +631,7 @@ def native_profile_audit(monkeypatch,tmp_path):
     monkeypatch.setattr(EClient,'run',run)
     monkeypatch.setattr(EClient,'isConnected',lambda self:connected.get(id(self),False))
     monkeypatch.setattr(EClient,'disconnect',lambda self:connected.__setitem__(id(self),False))
-    monkeypatch.setattr(EClient,'serverVersion',lambda self:180)
-    monkeypatch.setattr(EClient,'sendMsg',send)
+    monkeypatch.setattr(EClient,'serverVersion',lambda self:state.server_version)
     output=tmp_path/'owned-audit-root'/'e'/'terminal';output.mkdir(parents=True)
     source=dict(accounts=['DU000000001'],client_id=71,SDK_client_id=71,connection_epoch=23,
         scope='ORIGINAL_NATIVE_MANAGED_ACCOUNTS')
@@ -649,9 +659,15 @@ def _set_original_audit_account(f, account):
     f.state.account = account
 
 
+_AUDIT_SERVER_VERSIONS = [180, pytest.param(219, marks=pytest.mark.skipif(
+    not hasattr(EClient, 'sendMsgProtoBuf'), reason='Requires the official SDK protobuf encoder'))]
+
+
+@pytest.mark.parametrize('server_version', _AUDIT_SERVER_VERSIONS)
 @pytest.mark.parametrize('account', ['DU000000001', 'DUK000000001'])
-def test_matched_original_paper_scope_uses_one_actual_native_query_and_cleanup(native_profile_audit, account):
+def test_matched_original_paper_scope_uses_one_actual_native_query_and_cleanup(native_profile_audit, account, server_version):
     f=native_profile_audit
+    f.state.server_version=server_version
     _set_original_audit_account(f, account)
     result=f.invoke()
     assert result['query_completed'] and result['disconnected'] and result['end_received']
@@ -704,9 +720,11 @@ def test_post_audit_scope_changes_and_exceptions_never_certify_old_scope(native_
     assert thread is None or not thread.is_alive()
 
 
+@pytest.mark.parametrize('server_version', _AUDIT_SERVER_VERSIONS)
 @pytest.mark.parametrize('reply',['DU000000001','','DU000000001,DU000000002'])
-def test_missing_bootstrap_permits_only_one_bounded_original_managed_account_read(native_profile_audit,reply):
+def test_missing_bootstrap_permits_only_one_bounded_original_managed_account_read(native_profile_audit,reply,server_version):
     f=native_profile_audit;f.state.bootstrap=False;f.state.managed_reply=reply
+    f.state.server_version=server_version
     result=f.invoke()
     assert result['query_completed'] is (reply=='DU000000001') and result['disconnected']
     assert f.packets.count('17')==1 and f.packets.count('16')==(1 if reply=='DU000000001' else 0)
